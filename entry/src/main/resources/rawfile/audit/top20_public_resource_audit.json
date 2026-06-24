@@ -1,0 +1,42 @@
+{
+  "version": "5.5",
+  "querySet": ["斗罗大陆", "Soul Land", "Douluo Dalu"],
+  "scope": "前20个搜索候选中，过滤登录/付费/下架/商城/百科/视频/社区后的完全公开资源",
+  "passPolicy": "public_html_or_rendered_web_no_login_no_pay",
+  "auditedPublicDomains": [
+    "kaixinman.com",
+    "soullandmanga.com",
+    "manhuagui.com",
+    "happymh.com",
+    "mh160mh.com",
+    "mgeko.cc",
+    "webtoons.com",
+    "manhuaus.com",
+    "mangafire.to",
+    "mangadna.com",
+    "mangaread.org",
+    "douluodalu.cc",
+    "tangmen.app",
+    "shenlanqiyu.cc",
+    "mycomic.com",
+    "m.ac.qq.com"
+  ],
+  "excludedLoginPayOrNonReadingDomains": [
+    "qidian.com",
+    "mkzhan.com",
+    "inkr.com",
+    "utoon.net",
+    "comix.to",
+    "scribd.com",
+    "webnovel.com",
+    "jd.com",
+    "amazon.*",
+    "youtube.com",
+    "pinterest.*",
+    "reddit.com",
+    "fandom.com",
+    "readsoulland.com",
+    "dstranslating.com"
+  ],
+  "result": "公开可阅读候选全部进入阅读显示链路；登录/付费/下架/非漫画阅读类默认排除。"
+}

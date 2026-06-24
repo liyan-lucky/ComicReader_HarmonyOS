@@ -1,0 +1,70 @@
+{
+  "默认":[
+    {
+      "name": "收藏书架",
+      "url": "nwcleansite://favorbook",
+      "faviconUrl":"https://cleansite.com.cn/imgs/icons-favorbook.png",
+      "color":"#FF0000",
+      "type": 6
+    },
+    {
+      "name": "百度",
+      "url": "https://m.baidu.com",
+      "faviconUrl":"https://gss0.bdstatic.com/5bd1bjqh_Q23odCf/static/wiseindex/img/screen_icon_new.png"
+    },
+    {
+      "name": "搜狐",
+      "url": "https://m.sohu.com/limit/",
+      "faviconUrl":"https://mp.sohu.com/favicon.ico",
+      "isHistory": 1
+    },{
+      "name": "腾讯",
+      "url": "https://xw.qq.com/?f=qqcom",
+      "faviconUrl":"https://mat1.gtimg.com/www/mobi/2017/image/logo/v0/144.png",
+      "isHistory": 1
+    },{
+      "name": "知乎",
+      "url": "https://www.zhihu.com/",
+      "faviconUrl":"https://static.zhihu.com/static/favicon.ico",
+      "isHistory": 1
+    },{
+      "name": "微博",
+      "url": "https://m.weibo.cn/",
+      "faviconUrl":"https://h5.sinaimg.cn/m/weibo-lite/icon-default-192.png",
+      "isHistory": 1
+    }
+  ],
+  "小说":[
+    {
+      "name": "收藏书架",
+      "url": "nwcleansite://favorbook",
+      "faviconUrl":"https://cleansite.com.cn/imgs/icons-favorbook.png",
+      "color":"#FF0000",
+      "type": 6
+    },
+    {
+      "name": "头条",
+      "url": "nwcleansite://toutiao",
+      "faviconUrl":"https://cleansite.com.cn/imgs/icon-toutiao.png"
+    },
+    {
+      "name": "百度",
+      "url": "https://m.baidu.com",
+      "faviconUrl":"https://gss0.bdstatic.com/5bd1bjqh_Q23odCf/static/wiseindex/img/screen_icon_new.png"
+    },
+    {
+      "name": "网址导航",
+      "url": "http://nav.oupeng.com/",
+      "faviconUrl":"https://cleansite.com.cn/imgs/icons_compass48.png"
+    },
+    {
+      "name": "虎扑",
+      "url": "https://m.hupu.com/",
+      "faviconUrl":"https://assets-m.hoopchina.com.cn/touch/static/common/images/hupu_favicon.ico"
+    },{
+      "name": "B站",
+      "url": "https://m.bilibili.com/index.html",
+      "faviconUrl":"https://www.bilibili.com/favicon.ico"
+    }
+  ]
+}

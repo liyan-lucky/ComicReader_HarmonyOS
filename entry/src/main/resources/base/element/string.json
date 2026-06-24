@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "我漫画浏览器"
+    },
+    {
+      "name": "module_desc",
+      "value": "公开漫画源搜索、书架与卷轴阅读鸿蒙版"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "主入口"
+    },
+    {
+      "name": "search_hint",
+      "value": "漫画名 / 公开详情页URL / 章节URL"
+    }
+  ]
+}

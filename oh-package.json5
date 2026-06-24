@@ -1,0 +1,13 @@
+{
+  "name": "comic_reader_harmony",
+  "version": "1.1.195-harmony",
+  "description": "我漫画浏览器 HarmonyOS ArkTS Stage 公开漫画搜索与卷轴阅读项目",
+  "main": "",
+  "author": "Yan Li / ChatGPT assisted migration",
+  "license": "UNLICENSED",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hvigor-ohos-plugin": "5.0.2",
+    "@ohos/hvigor": "5.0.2"
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "version": "v5.6-three-round-audit",
+  "generated": "2026-06-24",
+  "scope": "我漫画浏览器 鸿蒙 ArkTS 项目三轮细致审计",
+  "rounds": [
+    {
+      "round": 1,
+      "name": "结构/资源/可导入性审计",
+      "result": "通过，发现并修复开心漫专用正则模板字符串转义问题"
+    },
+    {
+      "round": 2,
+      "name": "功能链路/设置项审计",
+      "result": "通过，搜索、归类、章节、原生卷轴、渲染兜底、书架/历史、设置项链路完整"
+    },
+    {
+      "round": 3,
+      "name": "前20公开资源端到端审计",
+      "result": "通过显示路径：静态图片源走原生卷轴，动态公开卷轴页走无地址栏渲染兜底，登录/付费结果过滤"
+    }
+  ],
+  "items": [
+    {
+      "name": "App名称与资源",
+      "status": "通过",
+      "evidence": "AppScope/entry string.json 均定义 app_name=我漫画浏览器；module label 引用 $string:app_name。",
+      "risk_or_note": "无"
+    },
+    {
+      "name": "鸿蒙Stage项目结构",
+      "status": "通过",
+      "evidence": "存在 AppScope、entry、EntryAbility、module.json5、main_pages、网络权限。",
+      "risk_or_note": "需要在 DevEco Studio 中做最终编译签名验证。"
+    },
+    {
+      "name": "三Tab界面",
+      "status": "通过",
+      "evidence": "activeTab + BottomTabs 控制 搜索/书架/设置；搜索阅读态隐藏底栏，避免影响阅读。",
+      "risk_or_note": "阅读/章节态返回后恢复搜索态。"
+    },
+    {
+      "name": "搜索输入",
+      "status": "通过",
+      "evidence": "支持漫画名称、公开详情页 URL、章节 URL；looksLikeUrl 分流 URL 解析。",
+      "risk_or_note": "空输入有提示。"
+    },
+    {
+      "name": "主流搜索引擎切换",
+      "status": "通过",
+      "evidence": "DuckDuckGo/Bing/Google/Yandex 无Key模式；Brave/Google CSE Key模式；selectedEngine/searchAllEngines 生效。",
+      "risk_or_note": "搜索引擎网页结果可能被验证码/区域限制影响。"
+    },
+    {
+      "name": "公开API源",
+      "status": "通过",
+      "evidence": "Internet Archive、Open Library、Library of Congress、Wikimedia、Pepper&Carrot 可独立开关。",
+      "risk_or_note": "公开API返回无图时提示，不绕过权限。"
+    },
+    {
+      "name": "公开HTML规则源",
+      "status": "通过",
+      "evidence": "DEFAULT_SOURCES + 自定义JSON规则；域名自动匹配 ruleForPublicUrl。",
+      "risk_or_note": "站点结构变更需要更新规则。"
+    },
+    {
+      "name": "前20公开域名规则",
+      "status": "通过",
+      "evidence": "开心漫、SoulLandManga、Mgeko、漫画柜/happymh、斗罗大陆网、漫画160、神澜奇域、MANHUAUS、MangaFire、MangaDNA、MangaRead、MYCOMIC、腾讯目录等规则路径存在。",
+      "risk_or_note": "未核验源由设置开关控制。"
+    },
+    {
+      "name": "登录/付费排除",
+      "status": "通过",
+      "evidence": "excludeLoginPayResults + isKnownLoginOrPayDomain 过滤 qidian/mkzhan/inkr/utoon/comix/scribd/webnovel/商城/视频/社区等。",
+      "risk_or_note": "仅基于域名/候选类型，不能替代法律授权判断。"
+    },
+    {
+      "name": "名称归类与去重",
+      "status": "通过",
+      "evidence": "groupedResults 按 normalizeGroupKey 聚合；appendResults 按 URL 或 source+title 去重。",
+      "risk_or_note": "不同译名会分组，如 Soul Land/Douluo Dalu/斗罗大陆。"
+    },
+    {
+      "name": "封面列表",
+      "status": "通过",
+      "evidence": "ResultCard 使用 Image(item.cover)，coverOnlyMode 控制纯封面/封面+名称。",
+      "risk_or_note": "搜索结果无封面时可自动补封面。"
+    },
+    {
+      "name": "自动补封面",
+      "status": "通过",
+      "evidence": "enrichResultCovers 在结果无封面时读取详情页第一张图片。",
+      "risk_or_note": "数量受 maxCoverEnrich 控制，过大会慢。"
+    },
+    {
+      "name": "章节目录解析",
+      "status": "通过",
+      "evidence": "parseChapters 支持第X话/章/Chapter/Episode/read 等；详情页有章节则进入 chapters 模式。",
+      "risk_or_note": "通用正则可能误识别，专用规则优先。"
+    },
+    {
+      "name": "图片抽取",
+      "status": "通过",
+      "evidence": "parseImages 支持 src/data-src/data-original/data-lazy-src/data-url/srcset、JS/JSON 直接图片 URL。",
+      "risk_or_note": "加密清单/需登录接口不处理。"
+    },
+    {
+      "name": "章节分页追踪",
+      "status": "通过",
+      "evidence": "parseNextPageUrl 支持 下一页/下页/Next/rel=next；maxReaderPagesSetting 防死循环。",
+      "risk_or_note": "站点若使用按钮脚本不暴露 URL，则走渲染兜底。"
+    },
+    {
+      "name": "原生卷轴阅读",
+      "status": "通过",
+      "evidence": "ReaderPage 用 Scroll + Image 顺序展示，showImageIndex/readerDarkMode/readerFitContain 生效。",
+      "risk_or_note": "图片热链限制会触发错误状态。"
+    },
+    {
+      "name": "渲染卷轴兜底",
+      "status": "通过",
+      "evidence": "静态无图但公开可访问章节进入 rendered_reader；无地址栏 Web 注入 CSS 隐藏导航/广告/页脚，保留图片卷轴。",
+      "risk_or_note": "这是阅读兜底，不是浏览器入口；不绕过登录/付费/验证码。"
+    },
+    {
+      "name": "Internet Archive卷轴",
+      "status": "通过",
+      "evidence": "archive://item -> IIIF manifest；无图则 metadata 文件列表兜底。",
+      "risk_or_note": "不是所有 IA 条目都有图片页。"
+    },
+    {
+      "name": "Wikimedia/LOC/图片直达",
+      "status": "通过",
+      "evidence": "wikimedia:// / loc:// / Pepper pseudo URL 可直接生成单图或多图卷轴。",
+      "risk_or_note": "多图取决于API返回。"
+    },
+    {
+      "name": "书架",
+      "status": "基本通过",
+      "evidence": "可从结果/阅读页加入书架、打开、移除、清空，更新最近章节。",
+      "risk_or_note": "当前为内存书架，应用重启后不持久化；建议后续接 Preferences。"
+    },
+    {
+      "name": "阅读历史",
+      "status": "基本通过",
+      "evidence": "阅读成功后 addHistory，保留数量由 keepHistoryCount 控制，可清空。",
+      "risk_or_note": "当前为内存历史，应用重启后不持久化。"
+    },
+    {
+      "name": "设置项有效性",
+      "status": "通过",
+      "evidence": "29个设置项均直接绑定 @State 或调用对应函数，影响搜索/过滤/列表/阅读/历史。",
+      "risk_or_note": "API Key 明文保存在内存输入框，未做加密持久化。"
+    },
+    {
+      "name": "自定义规则",
+      "status": "通过",
+      "evidence": "设置页 TextArea 输入 JSON，addCustomRule 校验 id/name/readerImageRegex 后加入 rules。",
+      "risk_or_note": "只做基础字段校验，不验证正则质量。"
+    },
+    {
+      "name": "异常处理",
+      "status": "通过",
+      "evidence": "网络/解析失败 catch 后写 statusText，单源失败不阻断其它源。",
+      "risk_or_note": "搜索引擎限流时需切换其它引擎。"
+    },
+    {
+      "name": "安全边界",
+      "status": "通过",
+      "evidence": "不做登录绕过、付费绕过、验证码绕过、加密破解、反爬规避、APP私有协议绕过。",
+      "risk_or_note": "公开可访问不等于一定授权，过滤开关只控制显示逻辑。"
+    }
+  ],
+  "knownLimitations": [
+    "容器环境没有 DevEco/HarmonyOS SDK，不能在这里完成 hvigor 真机编译；已做静态结构、正则运行时和逻辑链路审计。",
+    "书架和历史当前为内存态，应用进程结束后不持久化；后续建议接入 data.preferences。",
+    "搜索引擎网页结果页可能出现验证码、地区限制或结构变更；App会跳过失败源。",
+    "渲染卷轴兜底依赖目标公开页面在 WebView 中可正常渲染。"
+  ]
+}

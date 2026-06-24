@@ -1,0 +1,23 @@
+# HarmonyOS / DevEco
+/build/
+/entry/build/
+/.hvigor/
+/.idea/
+/.deveco/
+*.hap
+*.app
+*.har
+*.hsp
+
+# Node / package caches
+node_modules/
+.ohpm/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Python cache if scripts are added later
+__pycache__/
+*.pyc

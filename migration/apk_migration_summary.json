@@ -1,0 +1,30 @@
+{
+  "source_apk": "免费漫画阅站1.1.195.apk",
+  "detected_package": "com.nw.cleansite.novel",
+  "detected_version_name": "1.1.195",
+  "detected_launcher_activity": "com.nw.cleansite.SplashActivity",
+  "detected_application": "com.nw.cleansite.novel.MyWrapperProxyApplication",
+  "detected_protection": "SecShell / WrapperProxyApplication 加固壳，classes.dex 中未包含可直接迁移的业务源码",
+  "harmony_bundle_name": "com.nw.cleansite.novel.hm",
+  "migrated_features": [
+    "首页导航",
+    "预置漫画搜索",
+    "Web 阅读",
+    "地址栏/关键词搜索",
+    "刷新",
+    "网页后退",
+    "图标复用",
+    "预置 JSON 资源保留"
+  ],
+  "not_migrated": [
+    "Android 加固壳内业务代码",
+    "广告 SDK",
+    "第三方推送/统计",
+    "微信/QQ 登录",
+    "Android 私有协议完整实现",
+    "Camera 扫码功能（已预留入口，未实现）"
+  ],
+  "permissions_mapping": {
+    "android.permission.INTERNET": "ohos.permission.INTERNET"
+  }
+}

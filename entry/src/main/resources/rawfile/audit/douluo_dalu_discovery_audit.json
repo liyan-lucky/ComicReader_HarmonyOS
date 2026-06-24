@@ -1,0 +1,46 @@
+{
+  "query": "斗罗大陆 / Douluo Dalu / Soul Land comic read online",
+  "auditDate": "2026-06-24",
+  "policy": "只把官方、授权平台、开放许可或用户明确有权抓取的站点作为默认可用规则。未确认授权的转载站只记录为候选，不写入默认抓图规则。",
+  "enabledRules": [
+    {
+      "id": "tencent_ac_official_catalog",
+      "domain": "m.ac.qq.com",
+      "name": "腾讯动漫官方目录源",
+      "status": "enabled_catalog_only",
+      "capabilities": ["search", "cover_or_metadata", "chapter_catalog"],
+      "disabledCapabilities": ["page_image_scrape", "paywall_bypass", "app_only_bypass"],
+      "reason": "腾讯动漫可确认是正版/官方平台，公开搜索与详情页可读取目录；章节正文图片不做绕过或抓取。"
+    }
+  ],
+  "candidateOnly": [
+    {
+      "domain": "kaixinman.com",
+      "status": "not_enabled",
+      "reason": "可公开访问详情和目录，但授权状态无法确认，章节图片未在公开HTML中暴露；不写默认规则。"
+    },
+    {
+      "domain": "soullandmanga.com",
+      "status": "not_enabled",
+      "reason": "可公开访问英文章节和图片，但未能确认版权授权；不写默认抓图规则。"
+    },
+    {
+      "domain": "douluodalu.cc / dluodalu.cc / happymh.com / mgeko.cc 等",
+      "status": "not_enabled",
+      "reason": "搜索可见但授权状态无法确认，默认不加入抓图规则。"
+    },
+    {
+      "domain": "webtoons.com/canvas",
+      "status": "not_enabled",
+      "reason": "WEBTOON 是正规平台，但该条目是 CANVAS 用户发布/翻译内容，不能确认其拥有《斗罗大陆》授权，默认不加入抓图规则。"
+    }
+  ],
+  "auditResult": {
+    "searchAggregation": "pass",
+    "nameGrouping": "pass",
+    "coverList": "partial_pass",
+    "officialCatalog": "pass",
+    "fullScrollableReadingForDouluoDalu": "not_pass_without_authorized_image_api",
+    "notes": "斗罗大陆属于受版权保护作品。项目已支持全网发现候选和公开/授权源规则，但默认不会把未确认授权站点转换成图片抓取规则。"
+  }
+}

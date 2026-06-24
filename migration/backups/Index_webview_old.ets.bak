@@ -1,0 +1,335 @@
+import webview from '@ohos.web.webview';
+
+interface SiteItem {
+  name: string;
+  url: string;
+  faviconUrl?: string;
+  desc?: string;
+}
+
+interface BookItem {
+  bookname: string;
+  intro: string;
+  imgurl: string;
+}
+
+@Entry
+@Component
+struct Index {
+  private webController: webview.WebviewController = new webview.WebviewController();
+  @State private showHome: boolean = true;
+  @State private addressText: string = '';
+  @State private currentUrl: string = 'https://m.baidu.com';
+  @State private pageTitle: string = '免费漫画阅站';
+  @State private statusText: string = '首页';
+
+  private readonly sites: SiteItem[] = [
+    { name: '收藏书架', url: 'nwcleansite://favorbook', desc: '本地书架占位，后续可接入数据库' },
+    { name: '百度', url: 'https://m.baidu.com', desc: '搜索漫画/小说' },
+    { name: '搜狐', url: 'https://m.sohu.com/limit/', desc: '资讯入口' },
+    { name: '腾讯', url: 'https://xw.qq.com/?f=qqcom', desc: '资讯入口' },
+    { name: '知乎', url: 'https://www.zhihu.com/', desc: '社区搜索' },
+    { name: '微博', url: 'https://m.weibo.cn/', desc: '热门内容' },
+    { name: 'B站', url: 'https://m.bilibili.com/index.html', desc: '视频/番剧' },
+    { name: '虎扑', url: 'https://m.hupu.com/', desc: '社区' }
+  ];
+
+  private readonly books: BookItem[] = [
+    { bookname: '重生之都市修仙', intro: '预置热门漫画：点击后自动搜索漫画资源。', imgurl: 'http://fm.234us.com/mh/2018/05/30/51c3cc6092.JPG/420' },
+    { bookname: '校花的贴身高手', intro: '预置热门漫画：点击后自动搜索漫画资源。', imgurl: 'http://p5.qhimg.com/d/novel_3144295075545617687.jpg' },
+    { bookname: '斗罗大陆', intro: '预置热门漫画：点击后自动搜索漫画资源。', imgurl: 'http://www.77manhua.net/upload2/19104/2018/09-10/20180910155348_2639bemllixs_small.jpg' },
+    { bookname: '我在末世有套房', intro: '预置热门漫画：点击后自动搜索漫画资源。', imgurl: 'http://p3.qhimg.com/d/novel_14176351579971498616.jpg' },
+    { bookname: '斗罗大陆2绝世唐门', intro: '预置热门漫画：点击后自动搜索漫画资源。', imgurl: 'http://p0.qhimg.com/d/novel_2569968647330710405.jpg' },
+    { bookname: '妖神记', intro: '预置热门漫画：点击后自动搜索漫画资源。', imgurl: 'http://www.2animx.com/upload/img/icon/Y/22592/icon.jpg' },
+    { bookname: '武炼巅峰', intro: '预置热门漫画：点击后自动搜索漫画资源。', imgurl: 'http://p1.qhimg.com/d/novel_9149542401129011436.jpg' },
+    { bookname: '星武神诀', intro: '预置热门漫画：点击后自动搜索漫画资源。', imgurl: 'http://p6.qhimg.com/d/novel_5875461767898570141.jpg' },
+    { bookname: '西行纪', intro: '预置热门漫画：点击后自动搜索漫画资源。', imgurl: 'https://mhpagepicdisk.cdn.bcebos.com/mh160xiaotuku/2016-04/19/2016419183120904.jpg@!180x240' },
+    { bookname: '武动乾坤', intro: '预置热门漫画：点击后自动搜索漫画资源。', imgurl: 'http://p8.qhimg.com/d/novel_4047397238020873404.jpg' }
+  ];
+
+  aboutToAppear(): void {
+    this.addressText = '漫画';
+  }
+
+  onBackPress(): boolean {
+    if (!this.showHome && this.webController.accessBackward()) {
+      this.webController.backward();
+      return true;
+    }
+    if (!this.showHome) {
+      this.showHome = true;
+      this.statusText = '首页';
+      this.pageTitle = '免费漫画阅站';
+      return true;
+    }
+    return false;
+  }
+
+  private normalizeInput(value: string): string {
+    const text = value.trim();
+    if (text.length === 0) {
+      return 'https://m.baidu.com/s?word=%E6%BC%AB%E7%94%BB';
+    }
+    if (text.startsWith('http://') || text.startsWith('https://')) {
+      return text;
+    }
+    if (text.indexOf('.') > 0 && text.indexOf(' ') < 0) {
+      return `https://${text}`;
+    }
+    return `https://m.baidu.com/s?word=${encodeURIComponent(text)}`;
+  }
+
+  private openUrl(url: string): void {
+    if (url.startsWith('nwcleansite://')) {
+      this.statusText = '该 Android 私有协议已在鸿蒙版中做占位：' + url;
+      this.showHome = true;
+      return;
+    }
+    this.currentUrl = url;
+    this.addressText = url;
+    this.pageTitle = url;
+    this.statusText = '加载中...';
+    this.showHome = false;
+  }
+
+  private searchNow(): void {
+    this.openUrl(this.normalizeInput(this.addressText));
+  }
+
+  private searchBook(bookName: string): void {
+    this.openUrl(`https://m.baidu.com/s?word=${encodeURIComponent(bookName + ' 漫画')}`);
+  }
+
+  @Builder
+  private TopBar() {
+    Column() {
+      Row() {
+        Button(this.showHome ? '首页' : '返回')
+          .height(38)
+          .fontSize(14)
+          .onClick(() => {
+            if (!this.showHome && this.webController.accessBackward()) {
+              this.webController.backward();
+            } else {
+              this.showHome = true;
+              this.pageTitle = '免费漫画阅站';
+              this.statusText = '首页';
+            }
+          })
+        TextInput({ placeholder: '输入漫画名、网址或关键词', text: this.addressText })
+          .height(38)
+          .layoutWeight(1)
+          .margin({ left: 8, right: 8 })
+          .fontSize(14)
+          .onChange((value: string) => {
+            this.addressText = value;
+          })
+        Button('前往')
+          .height(38)
+          .fontSize(14)
+          .onClick(() => this.searchNow())
+      }
+      .width('100%')
+      .padding({ left: 10, right: 10, top: 8, bottom: 6 })
+
+      if (!this.showHome) {
+        Row() {
+          Button('刷新')
+            .height(30)
+            .fontSize(12)
+            .onClick(() => this.webController.refresh())
+          Button('首页')
+            .height(30)
+            .fontSize(12)
+            .margin({ left: 8 })
+            .onClick(() => {
+              this.showHome = true;
+              this.statusText = '首页';
+            })
+          Text(this.pageTitle)
+            .fontSize(12)
+            .fontColor('#666666')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+            .margin({ left: 10 })
+        }
+        .width('100%')
+        .padding({ left: 10, right: 10, bottom: 6 })
+      }
+    }
+    .backgroundColor('#FFFFFF')
+  }
+
+  @Builder
+  private HomePage() {
+    Scroll() {
+      Column() {
+        Text('免费漫画阅站 · 鸿蒙重构版')
+          .fontSize(23)
+          .fontWeight(FontWeight.Bold)
+          .width('100%')
+          .margin({ top: 8, bottom: 4 })
+        Text('基于 APK 中可识别资源重建：漫画搜索、网站导航、Web 阅读、后退/刷新。原 APK 被加固，Android 专有广告/推送/壳逻辑没有迁移。')
+          .fontSize(13)
+          .fontColor('#666666')
+          .lineHeight(20)
+          .width('100%')
+          .margin({ bottom: 12 })
+
+        if (this.statusText !== '首页') {
+          Text(this.statusText)
+            .fontSize(13)
+            .fontColor('#E53935')
+            .width('100%')
+            .padding(8)
+            .backgroundColor('#FFF3F3')
+            .borderRadius(8)
+            .margin({ bottom: 12 })
+        }
+
+        Text('常用入口')
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .width('100%')
+          .margin({ bottom: 8 })
+        Grid() {
+          ForEach(this.sites, (item: SiteItem) => {
+            GridItem() {
+              Column() {
+                Text(item.name.substring(0, 1))
+                  .fontSize(22)
+                  .fontColor('#FFFFFF')
+                  .fontWeight(FontWeight.Bold)
+                  .width(48)
+                  .height(48)
+                  .textAlign(TextAlign.Center)
+                  .backgroundColor('#E53935')
+                  .borderRadius(24)
+                Text(item.name)
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .margin({ top: 6 })
+                Text(item.desc ? item.desc : item.url)
+                  .fontSize(11)
+                  .fontColor('#777777')
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .margin({ top: 2 })
+              }
+              .width('100%')
+              .padding(10)
+              .backgroundColor('#FFFFFF')
+              .borderRadius(12)
+              .onClick(() => this.openUrl(item.url))
+            }
+          }, (item: SiteItem) => item.name)
+        }
+        .columnsTemplate('1fr 1fr')
+        .columnsGap(10)
+        .rowsGap(10)
+        .width('100%')
+        .margin({ bottom: 18 })
+
+        Text('热门漫画')
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .width('100%')
+          .margin({ bottom: 8 })
+        ForEach(this.books, (book: BookItem) => {
+          Row() {
+            Column() {
+              Text(book.bookname.substring(0, 1))
+                .fontSize(24)
+                .fontColor('#E53935')
+                .fontWeight(FontWeight.Bold)
+            }
+            .width(52)
+            .height(70)
+            .justifyContent(FlexAlign.Center)
+            .backgroundColor('#FFF3F3')
+            .borderRadius(8)
+
+            Column() {
+              Text(book.bookname)
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .width('100%')
+              Text(book.intro)
+                .fontSize(12)
+                .fontColor('#777777')
+                .maxLines(2)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .margin({ top: 5 })
+                .width('100%')
+              Text('点击搜索 / 阅读')
+                .fontSize(12)
+                .fontColor('#E53935')
+                .margin({ top: 6 })
+                .width('100%')
+            }
+            .layoutWeight(1)
+            .margin({ left: 12 })
+          }
+          .width('100%')
+          .padding(12)
+          .backgroundColor('#FFFFFF')
+          .borderRadius(12)
+          .margin({ bottom: 10 })
+          .onClick(() => this.searchBook(book.bookname))
+        }, (book: BookItem) => book.bookname)
+      }
+      .width('100%')
+      .padding(14)
+    }
+    .layoutWeight(1)
+    .backgroundColor('#F7F7F7')
+  }
+
+  @Builder
+  private BrowserPage() {
+    Column() {
+      Web({ src: this.currentUrl, controller: this.webController })
+        .javaScriptAccess(true)
+        .domStorageAccess(true)
+        .zoomAccess(true)
+        .mixedMode(MixedMode.All)
+        .onPageBegin((event) => {
+          if (event && event.url) {
+            this.statusText = '加载中...';
+            this.currentUrl = event.url;
+            this.addressText = event.url;
+          }
+        })
+        .onPageEnd((event) => {
+          if (event && event.url) {
+            this.statusText = '加载完成';
+            this.currentUrl = event.url;
+            this.addressText = event.url;
+          }
+        })
+        .onTitleReceive((event) => {
+          if (event && event.title) {
+            this.pageTitle = event.title;
+          }
+        })
+        .layoutWeight(1)
+    }
+    .layoutWeight(1)
+    .backgroundColor('#FFFFFF')
+  }
+
+  build() {
+    Column() {
+      this.TopBar()
+      if (this.showHome) {
+        this.HomePage()
+      } else {
+        this.BrowserPage()
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#F7F7F7')
+  }
+}
