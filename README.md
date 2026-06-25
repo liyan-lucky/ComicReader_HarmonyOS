@@ -1,6 +1,6 @@
-# 我漫画浏览器 · HarmonyOS
+# 漫画浏览器 · HarmonyOS
 
-这是「我漫画浏览器」鸿蒙 ArkTS Stage 项目。主仓库只放 App 工程代码；漫画公开源规则放到独立规则仓库，App 可以从 GitHub Raw 地址更新规则。
+这是「漫画浏览器」鸿蒙 ArkTS Stage 项目。主仓库只放 App 工程代码；漫画公开源规则放到独立规则仓库，App 可以从 GitHub Raw 地址更新规则。
 
 ## 仓库拆分
 
