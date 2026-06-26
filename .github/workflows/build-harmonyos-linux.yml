@@ -2,12 +2,6 @@ name: 漫画浏览器 Linux 在线构建
 
 on:
   workflow_dispatch: {}
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "文档/**"
-      - "docs/**"
 
 permissions:
   contents: read
@@ -22,9 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      SDK下载地址: ${{ secrets.HARMONYOS_SDK_URL || vars.HARMONYOS_SDK_URL }}
-      补充工具下载地址: ${{ secrets.HARMONYOS_FULL_URL || vars.HARMONYOS_FULL_URL }}
-      项目产物目录: ${{ runner.temp }}/comic_reader_harmonyos_artifacts
+      HARMONYOS_SDK_URL: ${{ secrets.HARMONYOS_SDK_URL || vars.HARMONYOS_SDK_URL }}
+      HARMONYOS_FULL_URL: ${{ secrets.HARMONYOS_FULL_URL || vars.HARMONYOS_FULL_URL }}
+      ARTIFACT_DIR: ${{ runner.temp }}/comic_reader_harmonyos_artifacts
 
     steps:
       - name: 拉取源码
@@ -50,13 +44,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${SDK下载地址:-}" ]; then
+          if [ -z "${HARMONYOS_SDK_URL:-}" ]; then
             echo "没有填写 HARMONYOS_SDK_URL。"
             echo "请在仓库设置里添加变量或密钥：HARMONYOS_SDK_URL"
             echo "用途：完整 HarmonyOS SDK 压缩包下载链接。"
             exit 1
           fi
-          if [ -z "${补充工具下载地址:-}" ]; then
+          if [ -z "${HARMONYOS_FULL_URL:-}" ]; then
             echo "没有填写 HARMONYOS_FULL_URL。"
             echo "请在仓库设置里添加变量或密钥：HARMONYOS_FULL_URL"
             echo "用途：SDK 以外的完整命令行工具、hvigor 或补充文件压缩包下载链接。"
@@ -70,148 +64,149 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
 
-          SDK根目录="/home/runner/harmonyos-sdk"
-          SDK压缩包="$RUNNER_TEMP/harmonyos-sdk.zip"
-          SDK解压目录="$RUNNER_TEMP/harmonyos-sdk-unzip"
+          SDK_ROOT="/home/runner/harmonyos-sdk"
+          SDK_ZIP="$RUNNER_TEMP/harmonyos-sdk.zip"
+          SDK_UNZIP_DIR="$RUNNER_TEMP/harmonyos-sdk-unzip"
 
-          rm -rf "$SDK根目录" "$SDK解压目录"
-          mkdir -p "$SDK根目录" "$SDK解压目录"
+          rm -rf "$SDK_ROOT" "$SDK_UNZIP_DIR"
+          mkdir -p "$SDK_ROOT" "$SDK_UNZIP_DIR"
 
           echo "正在下载完整 SDK 包..."
-          curl -L --fail --retry 3 --retry-delay 5 -o "$SDK压缩包" "$SDK下载地址"
+          curl -L --fail --retry 3 --retry-delay 5 -o "$SDK_ZIP" "$HARMONYOS_SDK_URL"
 
           echo "正在解压完整 SDK 包..."
-          unzip -oq "$SDK压缩包" -d "$SDK解压目录"
+          unzip -oq "$SDK_ZIP" -d "$SDK_UNZIP_DIR"
 
           echo "正在寻找 SDK 根目录..."
-          SDK来源=""
-          for 候选目录 in \
-            "$SDK解压目录" \
-            "$SDK解压目录"/* \
-            "$SDK解压目录"/default \
-            "$SDK解压目录"/sdk/default \
-            "$SDK解压目录"/*/default \
-            "$SDK解压目录"/*/sdk/default
+          SDK_SOURCE=""
+          for CANDIDATE in \
+            "$SDK_UNZIP_DIR" \
+            "$SDK_UNZIP_DIR"/* \
+            "$SDK_UNZIP_DIR"/default \
+            "$SDK_UNZIP_DIR"/sdk/default \
+            "$SDK_UNZIP_DIR"/*/default \
+            "$SDK_UNZIP_DIR"/*/sdk/default
           do
-            if [ -d "$候选目录/openharmony" ] || [ -d "$候选目录/hms" ] || [ -f "$候选目录/sdk-pkg.json" ]; then
-              SDK来源="$候选目录"
+            if [ -d "$CANDIDATE/openharmony" ] || [ -d "$CANDIDATE/hms" ] || [ -f "$CANDIDATE/sdk-pkg.json" ]; then
+              SDK_SOURCE="$CANDIDATE"
               break
             fi
           done
 
-          if [ -z "$SDK来源" ]; then
+          if [ -z "$SDK_SOURCE" ]; then
             echo "没有在压缩包里找到 SDK 根目录。下面列出压缩包内容，方便检查："
-            find "$SDK解压目录" -maxdepth 5 -type f | sort | head -160
+            find "$SDK_UNZIP_DIR" -maxdepth 5 -type f | sort | head -160
             exit 1
           fi
 
-          echo "找到 SDK 来源目录：$SDK来源"
+          echo "找到 SDK 来源目录：$SDK_SOURCE"
 
-          移动项目() {
-            本地来源="$1"
-            本地目标="$2"
-            if [ -e "$本地来源" ]; then
-              rm -rf "$本地目标"
-              mv "$本地来源" "$本地目标"
+          move_sdk_item() {
+            local SOURCE_PATH="$1"
+            local TARGET_PATH="$2"
+            if [ -e "$SOURCE_PATH" ]; then
+              rm -rf "$TARGET_PATH"
+              mv "$SOURCE_PATH" "$TARGET_PATH"
             fi
           }
 
-          移动项目 "$SDK来源/openharmony" "$SDK根目录/openharmony"
-          移动项目 "$SDK来源/hms" "$SDK根目录/hms"
-          移动项目 "$SDK来源/sdk-pkg.json" "$SDK根目录/sdk-pkg.json"
-          移动项目 "$SDK来源/command-line-tools" "$SDK根目录/command-line-tools"
+          move_sdk_item "$SDK_SOURCE/openharmony" "$SDK_ROOT/openharmony"
+          move_sdk_item "$SDK_SOURCE/hms" "$SDK_ROOT/hms"
+          move_sdk_item "$SDK_SOURCE/sdk-pkg.json" "$SDK_ROOT/sdk-pkg.json"
+          move_sdk_item "$SDK_SOURCE/command-line-tools" "$SDK_ROOT/command-line-tools"
 
-          if [ ! -e "$SDK根目录/HarmonyOS-6.1.1" ] && [ -d "$SDK根目录/hms" ]; then
-            ln -s hms "$SDK根目录/HarmonyOS-6.1.1"
+          if [ ! -e "$SDK_ROOT/HarmonyOS-6.1.1" ] && [ -d "$SDK_ROOT/hms" ]; then
+            ln -s hms "$SDK_ROOT/HarmonyOS-6.1.1"
           fi
 
-          chmod +x "$SDK根目录"/openharmony/toolchains/* 2>/dev/null || true
-          chmod +x "$SDK根目录"/hms/toolchains/* 2>/dev/null || true
-          chmod +x "$SDK根目录"/command-line-tools/*/bin/* 2>/dev/null || true
-          chmod +x "$SDK根目录"/command-line-tools/hvigor/bin/* 2>/dev/null || true
-          chmod +x "$SDK根目录"/command-line-tools/ohpm/bin/* 2>/dev/null || true
+          chmod +x "$SDK_ROOT"/openharmony/toolchains/* 2>/dev/null || true
+          chmod +x "$SDK_ROOT"/hms/toolchains/* 2>/dev/null || true
+          chmod +x "$SDK_ROOT"/command-line-tools/*/bin/* 2>/dev/null || true
+          chmod +x "$SDK_ROOT"/command-line-tools/hvigor/bin/* 2>/dev/null || true
+          chmod +x "$SDK_ROOT"/command-line-tools/ohpm/bin/* 2>/dev/null || true
 
           echo "SDK 安装后目录："
-          find "$SDK根目录" -maxdepth 4 -type d | sort | head -120
+          find "$SDK_ROOT" -maxdepth 4 -type d | sort | head -120
 
-          echo "DEVECO_SDK_HOME=$SDK根目录" >> "$GITHUB_ENV"
-          echo "OHOS_HVIGOR_SDK_ROOT=$SDK根目录" >> "$GITHUB_ENV"
-          echo "DEVECO_TOOLS_HOME=$SDK根目录/command-line-tools" >> "$GITHUB_ENV"
+          echo "DEVECO_SDK_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "OHOS_HVIGOR_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "DEVECO_TOOLS_HOME=$SDK_ROOT/command-line-tools" >> "$GITHUB_ENV"
           echo "DEVECO_NODE_EXE=$(command -v node)" >> "$GITHUB_ENV"
-          echo "PATH=$SDK根目录/command-line-tools/bin:$SDK根目录/command-line-tools/ohpm/bin:$SDK根目录/command-line-tools/hvigor/bin:$PATH" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$SDK根目录/hms/toolchains/lib:$SDK根目录/openharmony/previewer/common/bin:$SDK根目录/openharmony/ets/build-tools/ets-loader/bin/ark/build/bin:$SDK根目录/openharmony/toolchains:$SDK根目录/openharmony/toolchains/lib:$SDK根目录/hms/native/sysroot/usr/lib/x86_64-linux-ohos:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "PATH=$SDK_ROOT/command-line-tools/bin:$SDK_ROOT/command-line-tools/ohpm/bin:$SDK_ROOT/command-line-tools/hvigor/bin:$PATH" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$SDK_ROOT/hms/toolchains/lib:$SDK_ROOT/openharmony/previewer/common/bin:$SDK_ROOT/openharmony/ets/build-tools/ets-loader/bin/ark/build/bin:$SDK_ROOT/openharmony/toolchains:$SDK_ROOT/openharmony/toolchains/lib:$SDK_ROOT/hms/native/sysroot/usr/lib/x86_64-linux-ohos:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
       - name: 下载并合并 SDK 以外补充文件
         shell: bash
         run: |
           set -euo pipefail
-          SDK根目录="/home/runner/harmonyos-sdk"
-          补充压缩包="$RUNNER_TEMP/harmonyos-extra.zip"
-          补充解压目录="$RUNNER_TEMP/harmonyos-extra-unzip"
+          SDK_ROOT="/home/runner/harmonyos-sdk"
+          EXTRA_ZIP="$RUNNER_TEMP/harmonyos-extra.zip"
+          EXTRA_UNZIP_DIR="$RUNNER_TEMP/harmonyos-extra-unzip"
 
-          rm -rf "$补充解压目录"
-          mkdir -p "$补充解压目录"
+          rm -rf "$EXTRA_UNZIP_DIR"
+          mkdir -p "$EXTRA_UNZIP_DIR"
 
           echo "正在下载 SDK 以外补充文件包..."
-          curl -L --fail --retry 3 --retry-delay 5 -o "$补充压缩包" "$补充工具下载地址"
+          curl -L --fail --retry 3 --retry-delay 5 -o "$EXTRA_ZIP" "$HARMONYOS_FULL_URL"
 
           echo "正在解压补充文件包..."
-          unzip -oq "$补充压缩包" -d "$补充解压目录"
+          unzip -oq "$EXTRA_ZIP" -d "$EXTRA_UNZIP_DIR"
 
           echo "补充包目录预览："
-          find "$补充解压目录" -maxdepth 4 -type d | sort | head -120
+          find "$EXTRA_UNZIP_DIR" -maxdepth 4 -type d | sort | head -120
 
-          合并来源=""
-          for 候选目录 in "$补充解压目录" "$补充解压目录"/* "$补充解压目录"/*/*; do
-            if [ -d "$候选目录/command-line-tools" ] || [ -d "$候选目录/hvigor" ] || [ -d "$候选目录/ohpm" ]; then
-              合并来源="$候选目录"
+          EXTRA_SOURCE=""
+          for CANDIDATE in "$EXTRA_UNZIP_DIR" "$EXTRA_UNZIP_DIR"/* "$EXTRA_UNZIP_DIR"/*/*; do
+            if [ -d "$CANDIDATE/command-line-tools" ] || [ -d "$CANDIDATE/hvigor" ] || [ -d "$CANDIDATE/ohpm" ]; then
+              EXTRA_SOURCE="$CANDIDATE"
               break
             fi
           done
 
-          if [ -z "$合并来源" ]; then
+          if [ -z "$EXTRA_SOURCE" ]; then
             echo "没有识别到补充文件根目录，按原样合并到 SDK 根目录。"
-            rsync -a "$补充解压目录"/ "$SDK根目录"/
+            rsync -a "$EXTRA_UNZIP_DIR"/ "$SDK_ROOT"/
           else
-            echo "识别到补充文件来源目录：$合并来源"
-            if [ -d "$合并来源/command-line-tools" ]; then
-              mkdir -p "$SDK根目录/command-line-tools"
-              rsync -a "$合并来源/command-line-tools"/ "$SDK根目录/command-line-tools"/
+            echo "识别到补充文件来源目录：$EXTRA_SOURCE"
+            if [ -d "$EXTRA_SOURCE/command-line-tools" ]; then
+              mkdir -p "$SDK_ROOT/command-line-tools"
+              rsync -a "$EXTRA_SOURCE/command-line-tools"/ "$SDK_ROOT/command-line-tools"/
             else
-              rsync -a "$合并来源"/ "$SDK根目录/command-line-tools"/
+              mkdir -p "$SDK_ROOT/command-line-tools"
+              rsync -a "$EXTRA_SOURCE"/ "$SDK_ROOT/command-line-tools"/
             fi
           fi
 
-          chmod +x "$SDK根目录"/command-line-tools/*/bin/* 2>/dev/null || true
-          chmod +x "$SDK根目录"/command-line-tools/hvigor/bin/* 2>/dev/null || true
-          chmod +x "$SDK根目录"/command-line-tools/ohpm/bin/* 2>/dev/null || true
+          chmod +x "$SDK_ROOT"/command-line-tools/*/bin/* 2>/dev/null || true
+          chmod +x "$SDK_ROOT"/command-line-tools/hvigor/bin/* 2>/dev/null || true
+          chmod +x "$SDK_ROOT"/command-line-tools/ohpm/bin/* 2>/dev/null || true
 
           echo "补充后命令行工具目录："
-          find "$SDK根目录/command-line-tools" -maxdepth 5 -type f | sort | head -160 || true
+          find "$SDK_ROOT/command-line-tools" -maxdepth 5 -type f | sort | head -160 || true
 
       - name: 检查项目结构
         shell: bash
         run: |
           set -euo pipefail
-          缺失=0
-          检查文件() {
+          MISSING=0
+          check_file() {
             if [ ! -e "$1" ]; then
               echo "缺少：$1"
-              缺失=1
+              MISSING=1
             else
               echo "存在：$1"
             fi
           }
-          检查文件 "build-profile.json5"
-          检查文件 "hvigorfile.ts"
-          检查文件 "oh-package.json5"
-          检查文件 "AppScope/app.json5"
-          检查文件 "entry/build-profile.json5"
-          检查文件 "entry/hvigorfile.ts"
-          检查文件 "entry/oh-package.json5"
-          检查文件 "entry/src/main/module.json5"
-          检查文件 "entry/src/main/ets/pages/Index.ets"
-          if [ "$缺失" -ne 0 ]; then
+          check_file "build-profile.json5"
+          check_file "hvigorfile.ts"
+          check_file "oh-package.json5"
+          check_file "AppScope/app.json5"
+          check_file "entry/build-profile.json5"
+          check_file "entry/hvigorfile.ts"
+          check_file "entry/oh-package.json5"
+          check_file "entry/src/main/module.json5"
+          check_file "entry/src/main/ets/pages/Index.ets"
+          if [ "$MISSING" -ne 0 ]; then
             echo "项目结构不完整，停止构建。"
             exit 1
           fi
@@ -220,24 +215,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SDK根目录="/home/runner/harmonyos-sdk"
-          OHPM命令=""
-          for 候选 in \
-            "$SDK根目录/command-line-tools/ohpm/bin/ohpm" \
-            "$SDK根目录/command-line-tools/bin/ohpm" \
+          SDK_ROOT="/home/runner/harmonyos-sdk"
+          OHPM_CMD=""
+          for CANDIDATE in \
+            "$SDK_ROOT/command-line-tools/ohpm/bin/ohpm" \
+            "$SDK_ROOT/command-line-tools/bin/ohpm" \
             "$(command -v ohpm || true)"
           do
-            if [ -n "$候选" ] && [ -x "$候选" ]; then
-              OHPM命令="$候选"
+            if [ -n "$CANDIDATE" ] && [ -x "$CANDIDATE" ]; then
+              OHPM_CMD="$CANDIDATE"
               break
             fi
           done
-          if [ -z "$OHPM命令" ]; then
+          if [ -z "$OHPM_CMD" ]; then
             echo "没有找到 ohpm，跳过依赖安装。"
             exit 0
           fi
-          echo "使用 ohpm：$OHPM命令"
-          "$OHPM命令" install --all || "$OHPM命令" install || true
+          echo "使用 ohpm：$OHPM_CMD"
+          "$OHPM_CMD" install --all || "$OHPM_CMD" install || true
 
       - name: 调整为未签名构建
         shell: bash
@@ -256,50 +251,50 @@ PY
         shell: bash
         run: |
           set -euo pipefail
-          SDK根目录="/home/runner/harmonyos-sdk"
-          mkdir -p "$项目产物目录"
+          SDK_ROOT="/home/runner/harmonyos-sdk"
+          mkdir -p "$ARTIFACT_DIR"
           echo "Node 版本：$(node -v)"
-          echo "SDK 根目录：$SDK根目录"
+          echo "SDK 根目录：$SDK_ROOT"
           echo "工具目录：${DEVECO_TOOLS_HOME:-}"
 
-          运行成功=0
-          尝试命令() {
+          BUILD_OK=0
+          try_build() {
             echo "尝试构建命令：$*"
             if "$@"; then
-              运行成功=1
+              BUILD_OK=1
             fi
           }
 
-          if [ -x "$SDK根目录/command-line-tools/hvigor/bin/hvigorw" ]; then
-            尝试命令 "$SDK根目录/command-line-tools/hvigor/bin/hvigorw" assembleHap || true
+          if [ -x "$SDK_ROOT/command-line-tools/hvigor/bin/hvigorw" ]; then
+            try_build "$SDK_ROOT/command-line-tools/hvigor/bin/hvigorw" assembleHap || true
           fi
 
-          if [ "$运行成功" -eq 0 ] && [ -f "$SDK根目录/command-line-tools/hvigor/bin/hvigorw.js" ]; then
-            尝试命令 node "$SDK根目录/command-line-tools/hvigor/bin/hvigorw.js" assembleHap || true
+          if [ "$BUILD_OK" -eq 0 ] && [ -f "$SDK_ROOT/command-line-tools/hvigor/bin/hvigorw.js" ]; then
+            try_build node "$SDK_ROOT/command-line-tools/hvigor/bin/hvigorw.js" assembleHap || true
           fi
 
-          if [ "$运行成功" -eq 0 ] && command -v hvigorw >/dev/null 2>&1; then
-            尝试命令 hvigorw assembleHap || true
+          if [ "$BUILD_OK" -eq 0 ] && command -v hvigorw >/dev/null 2>&1; then
+            try_build hvigorw assembleHap || true
           fi
 
-          if [ "$运行成功" -eq 0 ]; then
+          if [ "$BUILD_OK" -eq 0 ]; then
             echo "HAP 构建命令没有成功。下面列出可疑工具文件，方便继续修正："
-            find "$SDK根目录/command-line-tools" -maxdepth 6 -type f \( -name "hvigor*" -o -name "ohpm" \) | sort || true
+            find "$SDK_ROOT/command-line-tools" -maxdepth 6 -type f \( -name "hvigor*" -o -name "ohpm" \) | sort || true
             exit 1
           fi
 
           echo "查找构建产物..."
-          find . -type f \( -name "*.hap" -o -name "*.app" -o -name "*.har" \) -print | sort | tee "$RUNNER_TEMP/产物列表.txt"
-          if ! grep -q ".hap" "$RUNNER_TEMP/产物列表.txt"; then
+          find . -type f \( -name "*.hap" -o -name "*.app" -o -name "*.har" \) -print | sort | tee "$RUNNER_TEMP/artifact-list.txt"
+          if ! grep -q ".hap" "$RUNNER_TEMP/artifact-list.txt"; then
             echo "没有找到 HAP 包，说明构建虽然返回成功，但没有出包。"
             exit 1
           fi
-          while IFS= read -r 文件; do
-            [ -f "$文件" ] || continue
-            cp -f "$文件" "$项目产物目录/$(basename "$文件")"
-          done < "$RUNNER_TEMP/产物列表.txt"
+          while IFS= read -r FILE_PATH; do
+            [ -f "$FILE_PATH" ] || continue
+            cp -f "$FILE_PATH" "$ARTIFACT_DIR/$(basename "$FILE_PATH")"
+          done < "$RUNNER_TEMP/artifact-list.txt"
           echo "最终上传目录："
-          find "$项目产物目录" -maxdepth 1 -type f -print | sort
+          find "$ARTIFACT_DIR" -maxdepth 1 -type f -print | sort
 
       - name: 上传 HAP 产物
         uses: actions/upload-artifact@v4
