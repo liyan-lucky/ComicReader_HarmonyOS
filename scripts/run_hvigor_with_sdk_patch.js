@@ -95,16 +95,25 @@ function patchSdkLoaderClass(loader, label) {
   console.log(`ComicReader patched SDK loader: ${label || loader.name || 'unknown'}`);
 }
 
+function shouldInspectRequest(request) {
+  const s = String(request || '').replace(/\\/g, '/').toLowerCase();
+  return s.includes('/sdk/') || s.includes('sdk-loader') || s.endsWith('hmos-sdk-loader.js') || s.endsWith('ohos-sdk-loader.js');
+}
+
 function patchLoadedExports(loaded, request) {
-  if (!loaded) return loaded;
-  for (const value of Object.values(loaded)) {
-    if (typeof value === 'function' && /sdk.*loader/i.test(value.name || '')) {
-      patchSdkLoaderClass(value, `${request}:${value.name}`);
+  if (!loaded || !shouldInspectRequest(request)) return loaded;
+  const candidates = [
+    loaded.HmosSdkLoader,
+    loaded.OhosSdkLoader,
+    loaded.OpenHarmonySdkLoader,
+    loaded.HosSdkLoader,
+    loaded.default
+  ];
+  for (const value of candidates) {
+    if (typeof value === 'function' && /sdk.*loader/i.test(value.name || 'SdkLoader')) {
+      patchSdkLoaderClass(value, `${request}:${value.name || 'default'}`);
     }
   }
-  if (loaded.HmosSdkLoader) patchSdkLoaderClass(loaded.HmosSdkLoader, `${request}:HmosSdkLoader`);
-  if (loaded.OhosSdkLoader) patchSdkLoaderClass(loaded.OhosSdkLoader, `${request}:OhosSdkLoader`);
-  if (loaded.OpenHarmonySdkLoader) patchSdkLoaderClass(loaded.OpenHarmonySdkLoader, `${request}:OpenHarmonySdkLoader`);
   return loaded;
 }
 
@@ -124,11 +133,11 @@ if (Array.isArray(PlatformSdks._additional)) {
 }
 patchLoadedExports(hvigorRequire(hmosLoaderPath), hmosLoaderPath);
 
-// 预加载并补丁 SDK 目录下所有 loader，避免 OpenHarmony/HarmonyOS 分支走不同类。
 for (const file of fs.readdirSync(path.dirname(hmosLoaderPath))) {
   if (/sdk-loader\.js$/i.test(file)) {
     try {
-      patchLoadedExports(hvigorRequire(path.resolve(path.dirname(hmosLoaderPath), file)), file);
+      const loaderFile = path.resolve(path.dirname(hmosLoaderPath), file);
+      patchLoadedExports(hvigorRequire(loaderFile), loaderFile);
     } catch (_) {}
   }
 }
