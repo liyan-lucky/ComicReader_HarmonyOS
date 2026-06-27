@@ -182,9 +182,11 @@ Module._load = function (request, parent, isMain) {
 
 const { PlatformSdks } = hvigorRequire(platformSdksPath);
 if (Array.isArray(PlatformSdks._additional)) {
-  for (const name of ['js', 'ArkTS', 'native', 'previewer', 'toolchains']) {
-    if (!PlatformSdks._additional.includes(name)) {
-      PlatformSdks._additional = PlatformSdks._additional.concat(name);
+  const requiredComponents = ['js', 'ArkTS', 'native', 'previewer', 'toolchains'];
+  const existing = PlatformSdks._additional.map((item) => typeof item === 'string' ? item : (item && typeof item.getPath === 'function' ? item.getPath() : String(item)));
+  for (const name of requiredComponents) {
+    if (!existing.includes(name)) {
+      PlatformSdks._additional = PlatformSdks._additional.concat(component(name, path.resolve(sdkRoot, 'openharmony', name)));
     }
   }
 }
