@@ -3,9 +3,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SDK_ROOT="/home/runner/harmonyos-sdk"
-ARTIFACT_DIR="${ARTIFACT_DIR:-$RUNNER_TEMP/comic_reader_harmonyos_artifacts}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-${RUNNER_TEMP:-/tmp}/comic_reader_harmonyos_artifacts}"
 SDK_URL="${HARMONYOS_SDK_URL:-}"
 FULL_URL="${HARMONYOS_FULL_URL:-}"
+RUNNER_TEMP="${RUNNER_TEMP:-/tmp}"
 
 say() {
   echo "[漫画浏览器构建] $*"
@@ -180,14 +181,16 @@ install_deps() {
 }
 
 patch_unsigned() {
-  say "临时调整为未签名构建..."
+  say "确认未签名构建配置..."
   python3 - <<'PY'
 from pathlib import Path
+import re
 p = Path('build-profile.json5')
 s = p.read_text(encoding='utf-8')
-s = s.replace('"signingConfig": "default"', '"signingConfig": ""')
+# JSON5 允许空格和单引号，这里统一把 default 签名清空，避免线上无证书时报错。
+s = re.sub(r'(["\']signingConfig["\']\s*:\s*)["\']default["\']', r'\1""', s)
 p.write_text(s, encoding='utf-8')
-print('已把 signingConfig 调整为空。')
+print('已确认 signingConfig 为空。')
 PY
 }
 
@@ -224,7 +227,7 @@ run_build() {
 
   say "查找构建产物..."
   find "$ROOT" -type f \( -name "*.hap" -o -name "*.app" -o -name "*.har" \) -print | sort | tee "$RUNNER_TEMP/artifact-list.txt"
-  if ! grep -q ".hap" "$RUNNER_TEMP/artifact-list.txt"; then
+  if ! grep -q "\.hap$" "$RUNNER_TEMP/artifact-list.txt"; then
     say "没有找到 HAP 包，说明构建虽然返回成功，但没有实际出包。"
     exit 1
   fi
