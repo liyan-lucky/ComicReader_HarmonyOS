@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SDK_ROOT="/home/runner/harmonyos-sdk"
+SDK_DEFAULT="$SDK_ROOT/default"
 ARTIFACT_DIR="${ARTIFACT_DIR:-${RUNNER_TEMP:-/tmp}/comic_reader_harmonyos_artifacts}"
 SDK_URL="${HARMONYOS_SDK_URL:-}"
 FULL_URL="${HARMONYOS_FULL_URL:-}"
@@ -32,6 +33,70 @@ need_file() {
   fi
   say "存在：$path"
   return 0
+}
+
+link_or_copy_dir() {
+  local src="$1"
+  local dst="$2"
+  if [ -e "$src" ] && [ ! -e "$dst" ]; then
+    mkdir -p "$(dirname "$dst")"
+    ln -s "$src" "$dst" 2>/dev/null || cp -a "$src" "$dst"
+  fi
+}
+
+repair_sdk_layout() {
+  say "修复 SDK 目录布局兼容性..."
+  mkdir -p "$SDK_DEFAULT"
+
+  # 有些 SDK 包解出来是 SDK/default/hms，有些是 SDK/hms。这里同时准备两种布局。
+  if [ -d "$SDK_DEFAULT/hms" ] && [ ! -e "$SDK_ROOT/hms" ]; then
+    ln -s "$SDK_DEFAULT/hms" "$SDK_ROOT/hms" 2>/dev/null || cp -a "$SDK_DEFAULT/hms" "$SDK_ROOT/hms"
+  fi
+  if [ -d "$SDK_DEFAULT/openharmony" ] && [ ! -e "$SDK_ROOT/openharmony" ]; then
+    ln -s "$SDK_DEFAULT/openharmony" "$SDK_ROOT/openharmony" 2>/dev/null || cp -a "$SDK_DEFAULT/openharmony" "$SDK_ROOT/openharmony"
+  fi
+  link_or_copy_dir "$SDK_ROOT/hms" "$SDK_DEFAULT/hms"
+  link_or_copy_dir "$SDK_ROOT/openharmony" "$SDK_DEFAULT/openharmony"
+
+  if [ -f "$SDK_ROOT/sdk-pkg.json" ] && [ ! -f "$SDK_DEFAULT/sdk-pkg.json" ]; then
+    cp -f "$SDK_ROOT/sdk-pkg.json" "$SDK_DEFAULT/sdk-pkg.json"
+  fi
+  if [ -f "$SDK_DEFAULT/sdk-pkg.json" ] && [ ! -f "$SDK_ROOT/sdk-pkg.json" ]; then
+    cp -f "$SDK_DEFAULT/sdk-pkg.json" "$SDK_ROOT/sdk-pkg.json"
+  fi
+
+  # 兼容旧脚本里手动写死 HarmonyOS-6.1.1 的工具查找逻辑。
+  if [ ! -e "$SDK_ROOT/HarmonyOS-6.1.1" ]; then
+    ln -s "$SDK_DEFAULT" "$SDK_ROOT/HarmonyOS-6.1.1" 2>/dev/null || true
+  fi
+}
+
+check_sdk_components() {
+  say "检查 SDK 关键组件..."
+  local missing=0
+  for path in \
+    "$SDK_DEFAULT" \
+    "$SDK_DEFAULT/hms" \
+    "$SDK_DEFAULT/openharmony" \
+    "$SDK_ROOT/command-line-tools" \
+    "$SDK_ROOT/command-line-tools/hvigor" \
+    "$SDK_ROOT/command-line-tools/ohpm"
+  do
+    if [ -e "$path" ]; then
+      say "SDK 组件存在：$path"
+    else
+      say "SDK 组件缺失：$path"
+      missing=1
+    fi
+  done
+
+  say "列出 SDK 二级目录，方便判断压缩包是否完整："
+  find "$SDK_ROOT" -maxdepth 4 -type d | sort | head -220
+
+  if [ "$missing" -ne 0 ]; then
+    say "SDK 组件不完整：请确认 HARMONYOS_SDK_URL 是完整 HarmonyOS SDK 包，HARMONYOS_FULL_URL 是包含 command-line-tools/hvigor/ohpm 的补充包。"
+    exit 1
+  fi
 }
 
 install_sdk() {
@@ -72,24 +137,10 @@ install_sdk() {
   fi
 
   say "找到 SDK 来源目录：$source"
+  mkdir -p "$SDK_DEFAULT"
 
-  move_item() {
-    local src="$1"
-    local dst="$2"
-    if [ -e "$src" ]; then
-      rm -rf "$dst"
-      mv "$src" "$dst"
-    fi
-  }
-
-  move_item "$source/openharmony" "$SDK_ROOT/openharmony"
-  move_item "$source/hms" "$SDK_ROOT/hms"
-  move_item "$source/sdk-pkg.json" "$SDK_ROOT/sdk-pkg.json"
-  move_item "$source/command-line-tools" "$SDK_ROOT/command-line-tools"
-
-  if [ ! -e "$SDK_ROOT/HarmonyOS-6.1.1" ] && [ -d "$SDK_ROOT/hms" ]; then
-    ln -s hms "$SDK_ROOT/HarmonyOS-6.1.1"
-  fi
+  # 统一先合并到 default，再通过 repair_sdk_layout 建立根目录兼容链接。
+  rsync -a "$source"/ "$SDK_DEFAULT"/
 
   say "正在下载 SDK 以外补充文件包..."
   local extra_zip="$RUNNER_TEMP/harmonyos-extra.zip"
@@ -122,6 +173,10 @@ install_sdk() {
     fi
   fi
 
+  repair_sdk_layout
+
+  chmod +x "$SDK_DEFAULT"/openharmony/toolchains/* 2>/dev/null || true
+  chmod +x "$SDK_DEFAULT"/hms/toolchains/* 2>/dev/null || true
   chmod +x "$SDK_ROOT"/openharmony/toolchains/* 2>/dev/null || true
   chmod +x "$SDK_ROOT"/hms/toolchains/* 2>/dev/null || true
   chmod +x "$SDK_ROOT"/command-line-tools/*/bin/* 2>/dev/null || true
@@ -129,14 +184,16 @@ install_sdk() {
   chmod +x "$SDK_ROOT"/command-line-tools/ohpm/bin/* 2>/dev/null || true
 
   export DEVECO_SDK_HOME="$SDK_ROOT"
-  export OHOS_HVIGOR_SDK_ROOT="$SDK_ROOT"
+  export HARMONYOS_SDK_HOME="$SDK_ROOT"
+  export OHOS_SDK_HOME="$SDK_DEFAULT"
+  export OHOS_HVIGOR_SDK_ROOT="$SDK_DEFAULT"
   export DEVECO_TOOLS_HOME="$SDK_ROOT/command-line-tools"
   export DEVECO_NODE_EXE="$(command -v node)"
   export PATH="$SDK_ROOT/command-line-tools/bin:$SDK_ROOT/command-line-tools/ohpm/bin:$SDK_ROOT/command-line-tools/hvigor/bin:$PATH"
-  export LD_LIBRARY_PATH="$SDK_ROOT/hms/toolchains/lib:$SDK_ROOT/openharmony/previewer/common/bin:$SDK_ROOT/openharmony/ets/build-tools/ets-loader/bin/ark/build/bin:$SDK_ROOT/openharmony/toolchains:$SDK_ROOT/openharmony/toolchains/lib:$SDK_ROOT/hms/native/sysroot/usr/lib/x86_64-linux-ohos:${LD_LIBRARY_PATH:-}"
+  export LD_LIBRARY_PATH="$SDK_DEFAULT/hms/toolchains/lib:$SDK_DEFAULT/openharmony/previewer/common/bin:$SDK_DEFAULT/openharmony/ets/build-tools/ets-loader/bin/ark/build/bin:$SDK_DEFAULT/openharmony/toolchains:$SDK_DEFAULT/openharmony/toolchains/lib:$SDK_DEFAULT/hms/native/sysroot/usr/lib/x86_64-linux-ohos:${LD_LIBRARY_PATH:-}"
 
   say "SDK 根目录：$SDK_ROOT"
-  find "$SDK_ROOT" -maxdepth 3 -type d | sort | head -120
+  check_sdk_components
 }
 
 check_project() {
@@ -221,15 +278,15 @@ run_build() {
   }
 
   if [ -x "$SDK_ROOT/command-line-tools/hvigor/bin/hvigorw" ]; then
-    try_build "$SDK_ROOT/command-line-tools/hvigor/bin/hvigorw" assembleHap || true
+    try_build "$SDK_ROOT/command-line-tools/hvigor/bin/hvigorw" --stacktrace assembleHap || true
   fi
 
   if [ "$build_ok" -eq 0 ] && [ -f "$SDK_ROOT/command-line-tools/hvigor/bin/hvigorw.js" ]; then
-    try_build node "$SDK_ROOT/command-line-tools/hvigor/bin/hvigorw.js" assembleHap || true
+    try_build node "$SDK_ROOT/command-line-tools/hvigor/bin/hvigorw.js" --stacktrace assembleHap || true
   fi
 
   if [ "$build_ok" -eq 0 ] && command -v hvigorw >/dev/null 2>&1; then
-    try_build hvigorw assembleHap || true
+    try_build hvigorw --stacktrace assembleHap || true
   fi
 
   if [ "$build_ok" -eq 0 ]; then
