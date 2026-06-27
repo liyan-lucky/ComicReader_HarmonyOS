@@ -6,6 +6,14 @@
         "name": "default",
         "compileSdkVersion": "6.1.1(24)",
         "compatibleSdkVersion": "6.1.0(23)",
+        "runtimeOS": "HarmonyOS",
+        "targetSdkVersion": "6.1.0(23)",
+        "bundleName": "com.nw.cleansite.novel.hm"
+      },
+      {
+        "name": "openharmony_verify",
+        "compileSdkVersion": "6.1.1(24)",
+        "compatibleSdkVersion": "6.1.0(23)",
         "runtimeOS": "OpenHarmony",
         "targetSdkVersion": "6.1.0(23)",
         "bundleName": "com.nw.cleansite.novel.hm"
@@ -29,6 +37,12 @@
           "name": "default",
           "applyToProducts": [
             "default"
+          ]
+        },
+        {
+          "name": "openharmony_verify",
+          "applyToProducts": [
+            "openharmony_verify"
           ]
         }
       ]
