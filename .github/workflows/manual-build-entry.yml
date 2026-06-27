@@ -4,16 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/manual-build-entry.yml"
-      - "scripts/github_build_harmonyos_linux.sh"
 
 permissions:
   contents: read
-
-concurrency:
-  group: comic-reader-manual-build
-  cancel-in-progress: false
 
 jobs:
   build:
@@ -21,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      HARMONYOS_SDK_URL: ${{ secrets.HARMONYOS_SDK_URL || vars.HARMONYOS_SDK_URL }}
-      HARMONYOS_FULL_URL: ${{ secrets.HARMONYOS_FULL_URL || vars.HARMONYOS_FULL_URL }}
+      HARMONYOS_SDK_URL: ${{ vars.HARMONYOS_SDK_URL }}
+      HARMONYOS_FULL_URL: ${{ vars.HARMONYOS_FULL_URL }}
       ARTIFACT_DIR: ${{ runner.temp }}/comic_reader_harmonyos_artifacts
 
     steps:
@@ -54,6 +47,6 @@ jobs:
       - name: 上传 HAP 产物
         uses: actions/upload-artifact@v4
         with:
-          name: 漫画浏览器-HAP-构建产物
+          name: comic-reader-hap
           path: ${{ runner.temp }}/comic_reader_harmonyos_artifacts/*
           if-no-files-found: error
