@@ -1,8 +1,10 @@
-name: APP手动构建入口
+name: Build ComicReader HAP
 
 on:
   workflow_dispatch:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
 
 permissions:
@@ -10,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: OpenHarmony x86_64 unsigned HAP
+    name: Build unsigned OpenHarmony HAP
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -25,31 +27,31 @@ jobs:
       ARTIFACT_DIR: /tmp/comic_reader_harmonyos_artifacts
 
     steps:
-      - name: 拉取源码
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: 准备 Java 17
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: zulu
           java-version: "17"
 
-      - name: 准备 Node 20
+      - name: Set up Node 20
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: 安装系统工具
+      - name: Install Linux tools
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip zip curl jq python3 rsync file
 
-      - name: 安装基础 HarmonyOS SDK
+      - name: Install base HarmonyOS SDK
         uses: harmonyos-dev/setup-harmonyos-sdk@0.2.1
         with:
           version: 2.0.0.2
 
-      - name: 安装完整 SDK
+      - name: Install full SDK package
         shell: bash
         run: |
           set -euo pipefail
@@ -103,7 +105,7 @@ jobs:
           test -x "$SDK_BASE/openharmony/toolchains/restool"
           test -f "$SDK_BASE/openharmony/ets/build-tools/ets-loader/bin/ark/build/bin/libsec_shared.so"
 
-      - name: 替换完整 hvigor
+      - name: Install full hvigor package
         shell: bash
         run: |
           set -euo pipefail
@@ -121,7 +123,7 @@ jobs:
           test -f "$TOOLS_DIR/hvigor/bin/hvigorw.js"
           test -f "$TOOLS_DIR/hvigor/hvigor-ohos-plugin/node_modules/@ohos/hos-sdkmanager-common/build/src/hos/mapper/platform-sdks.js"
 
-      - name: 配置 SDK 环境
+      - name: Configure SDK environment
         shell: bash
         run: |
           set -euo pipefail
@@ -144,18 +146,18 @@ jobs:
             echo "npm.dir=$NODE_ROOT"
           } > local.properties
 
-      - name: 构建未签名 HAP
+      - name: Build unsigned HAP
         shell: bash
         run: |
           set -euo pipefail
           unset NODE_OPTIONS
-          node scripts/run_hvigor_with_sdk_patch.js assembleHap
+          node scripts/build_hap_ci.js assembleHap
           echo "Build tree after hvigor:"
           find "$GITHUB_WORKSPACE" -maxdepth 6 -type d \( -name build -o -name outputs -o -name default -o -name openharmony_verify \) -print | sort || true
           echo "Possible artifacts after hvigor:"
           find "$GITHUB_WORKSPACE" -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' -o -name '*.zip' \) -print | sort || true
 
-      - name: 收集 HAP 产物
+      - name: Collect HAP artifacts
         shell: bash
         run: |
           set -euo pipefail
@@ -174,7 +176,7 @@ jobs:
           done
           find "$ARTIFACT_DIR" -maxdepth 1 -type f -print | sort
 
-      - name: 上传 hvigor 诊断日志
+      - name: Upload hvigor diagnostic logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -184,7 +186,7 @@ jobs:
             entry/.hvigor/outputs/**
           if-no-files-found: ignore
 
-      - name: 上传 HAP 产物
+      - name: Upload HAP artifact
         uses: actions/upload-artifact@v4
         with:
           name: comic-reader-hap
