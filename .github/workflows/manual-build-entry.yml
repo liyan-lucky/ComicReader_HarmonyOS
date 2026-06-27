@@ -16,7 +16,7 @@ jobs:
     env:
       HARMONYOS_SDK_URL: ${{ vars.HARMONYOS_SDK_URL }}
       HARMONYOS_FULL_URL: ${{ vars.HARMONYOS_FULL_URL }}
-      ARTIFACT_DIR: ${{ runner.temp }}/comic_reader_harmonyos_artifacts
+      ARTIFACT_DIR: /tmp/comic_reader_harmonyos_artifacts
 
     steps:
       - name: 拉取源码
@@ -48,5 +48,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: comic-reader-hap
-          path: ${{ runner.temp }}/comic_reader_harmonyos_artifacts/*
+          path: /tmp/comic_reader_harmonyos_artifacts/*
           if-no-files-found: error
