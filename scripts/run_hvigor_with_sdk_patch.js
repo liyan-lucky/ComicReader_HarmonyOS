@@ -99,11 +99,20 @@ function component(name, location) {
   return self;
 }
 
+function componentName(item) {
+  if (typeof item === 'string') return item;
+  if (item && typeof item.getPath === 'function') return item.getPath();
+  if (item && typeof item.getName === 'function') return item.getName();
+  if (item && item.path) return item.path;
+  if (item && item.name) return item.name;
+  return String(item);
+}
+
 function componentMap(names, baseDir) {
   const result = new Map();
   const list = Array.isArray(names) ? names : Array.from(names || []);
   list.forEach((name) => {
-    const key = typeof name === 'string' ? name : (name && typeof name.getPath === 'function' ? name.getPath() : String(name));
+    const key = componentName(name);
     result.set(key, component(key, path.resolve(baseDir, key)));
   });
   return result;
@@ -183,12 +192,8 @@ Module._load = function (request, parent, isMain) {
 const { PlatformSdks } = hvigorRequire(platformSdksPath);
 if (Array.isArray(PlatformSdks._additional)) {
   const requiredComponents = ['js', 'ArkTS', 'native', 'previewer', 'toolchains'];
-  const existing = PlatformSdks._additional.map((item) => typeof item === 'string' ? item : (item && typeof item.getPath === 'function' ? item.getPath() : String(item)));
-  for (const name of requiredComponents) {
-    if (!existing.includes(name)) {
-      PlatformSdks._additional = PlatformSdks._additional.concat(component(name, path.resolve(sdkRoot, 'openharmony', name)));
-    }
-  }
+  const allNames = Array.from(new Set(PlatformSdks._additional.map(componentName).concat(requiredComponents)));
+  PlatformSdks._additional = allNames.map((name) => component(name, path.resolve(sdkRoot, 'openharmony', name)));
 }
 patchLoadedExports(hvigorRequire(hmosLoaderPath), hmosLoaderPath);
 
