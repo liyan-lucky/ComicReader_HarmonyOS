@@ -14,8 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      HARMONYOS_SDK_URL: ${{ vars.HARMONYOS_SDK_URL }}
-      HARMONYOS_FULL_URL: ${{ vars.HARMONYOS_FULL_URL }}
+      # 优先读取 Variables；如果你把下载链接放在 Secrets，也能正常构建。
+      HARMONYOS_SDK_URL: ${{ vars.HARMONYOS_SDK_URL || secrets.HARMONYOS_SDK_URL }}
+      HARMONYOS_FULL_URL: ${{ vars.HARMONYOS_FULL_URL || secrets.HARMONYOS_FULL_URL }}
       ARTIFACT_DIR: /tmp/comic_reader_harmonyos_artifacts
 
     steps:
