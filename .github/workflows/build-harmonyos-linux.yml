@@ -1,7 +1,17 @@
 name: 漫画浏览器 Linux 在线构建
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      run_note:
+        description: "直接点运行即可，这里不用填写"
+        required: false
+        default: "开始构建"
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-harmonyos-linux.yml"
 
 permissions:
   contents: read
