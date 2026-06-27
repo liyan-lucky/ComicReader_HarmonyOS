@@ -6,33 +6,54 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/manual-build-entry.yml"
+      - "scripts/github_build_harmonyos_linux.sh"
 
 permissions:
   contents: read
 
-jobs:
-  check:
-    name: 检查手动触发是否可用
-    runs-on: ubuntu-latest
-    steps:
-      - name: 打印说明
-        run: |
-          echo "这个流程用于确认 GitHub 手动触发按钮是否正常显示。"
-          echo "如果这个流程能显示 Run workflow，说明仓库 Actions 权限没问题。"
-          echo "下一步再使用 漫画浏览器 Linux 在线构建 进行正式 HAP 构建。"
+concurrency:
+  group: comic-reader-manual-build
+  cancel-in-progress: false
 
-      - name: 检查两个构建链接对象
-        env:
-          HARMONYOS_SDK_URL: ${{ secrets.HARMONYOS_SDK_URL || vars.HARMONYOS_SDK_URL }}
-          HARMONYOS_FULL_URL: ${{ secrets.HARMONYOS_FULL_URL || vars.HARMONYOS_FULL_URL }}
+jobs:
+  build:
+    name: 手动构建 HAP 包
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      HARMONYOS_SDK_URL: ${{ secrets.HARMONYOS_SDK_URL || vars.HARMONYOS_SDK_URL }}
+      HARMONYOS_FULL_URL: ${{ secrets.HARMONYOS_FULL_URL || vars.HARMONYOS_FULL_URL }}
+      ARTIFACT_DIR: ${{ runner.temp }}/comic_reader_harmonyos_artifacts
+
+    steps:
+      - name: 拉取源码
+        uses: actions/checkout@v4
+
+      - name: 准备 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: 准备 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 安装系统工具
         run: |
-          if [ -z "${HARMONYOS_SDK_URL:-}" ]; then
-            echo "未检测到 HARMONYOS_SDK_URL。"
-          else
-            echo "已检测到 HARMONYOS_SDK_URL。"
-          fi
-          if [ -z "${HARMONYOS_FULL_URL:-}" ]; then
-            echo "未检测到 HARMONYOS_FULL_URL。"
-          else
-            echo "已检测到 HARMONYOS_FULL_URL。"
-          fi
+          sudo apt-get update
+          sudo apt-get install -y unzip zip curl jq python3 rsync file
+
+      - name: 执行中文构建脚本
+        shell: bash
+        run: |
+          chmod +x scripts/github_build_harmonyos_linux.sh
+          scripts/github_build_harmonyos_linux.sh
+
+      - name: 上传 HAP 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: 漫画浏览器-HAP-构建产物
+          path: ${{ runner.temp }}/comic_reader_harmonyos_artifacts/*
+          if-no-files-found: error
