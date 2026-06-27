@@ -158,7 +158,21 @@ check_project() {
 }
 
 install_deps() {
-  say "尝试安装 ohpm 依赖..."
+  say "检查 ohpm 依赖..."
+  cd "$ROOT"
+  if python3 - <<'PY'
+from pathlib import Path
+import re, sys
+s = Path('oh-package.json5').read_text(encoding='utf-8')
+compact = re.sub(r'\s+', '', s)
+empty = '"dependencies":{}' in compact and '"devDependencies":{}' in compact
+sys.exit(0 if empty else 1)
+PY
+  then
+    say "项目没有 ohpm 依赖，跳过 ohpm install。"
+    return 0
+  fi
+
   local ohpm=""
   for candidate in \
     "$SDK_ROOT/command-line-tools/ohpm/bin/ohpm" \
@@ -176,8 +190,7 @@ install_deps() {
     return 0
   fi
   say "使用 ohpm：$ohpm"
-  cd "$ROOT"
-  "$ohpm" install --all || "$ohpm" install || true
+  "$ohpm" install --all || "$ohpm" install
 }
 
 patch_unsigned() {
