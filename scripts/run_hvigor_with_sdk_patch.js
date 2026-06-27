@@ -45,50 +45,93 @@ Module._resolveFilename = function (request, parent, isMain, options) {
 };
 
 function apiVersion(value) {
-  return { getMajor: () => value, getValue: () => value };
+  return {
+    getMajor: () => value,
+    getValue: () => value,
+    toString: () => String(value),
+    valueOf: () => value
+  };
 }
 
 function component(name, location) {
   return {
     getPath: () => name,
+    getName: () => name,
     getLocation: () => location,
     getVersion: () => '6.1.1.125',
     getReleaseType: () => 'Release',
-    getFullApiVersion: () => apiVersion(24)
+    getFullApiVersion: () => apiVersion(24),
+    getApiVersion: () => apiVersion(24)
   };
 }
 
-function patchHmosLoader(loader) {
-  if (!loader || loader.__comicReaderPatched) return;
-  loader.prototype.checkComponentExistence = function () { return true; };
-  loader.prototype.getHmosSdkComponents = async function (_version, names) {
-    const result = new Map();
-    names.forEach((name) => result.set(name, component(name, path.resolve(sdkRoot, 'openharmony', name))));
-    return result;
+function componentMap(names, baseDir) {
+  const result = new Map();
+  const list = Array.isArray(names) ? names : Array.from(names || []);
+  list.forEach((name) => result.set(name, component(name, path.resolve(baseDir, name))));
+  return result;
+}
+
+function patchSdkLoaderClass(loader, label) {
+  if (!loader || !loader.prototype || loader.__comicReaderPatched) return;
+  const proto = loader.prototype;
+  proto.checkComponentExistence = function () { return true; };
+  proto.getHmosSdkComponents = async function (_version, names) {
+    return componentMap(names, path.resolve(sdkRoot, 'openharmony'));
   };
-  loader.prototype.getHmsSdkComponents = async function (_version, names) {
-    const result = new Map();
-    names.forEach((name) => result.set(name, component(name, path.resolve(sdkRoot, 'hms', name))));
-    return result;
+  proto.getHmsSdkComponents = async function (_version, names) {
+    return componentMap(names, path.resolve(sdkRoot, 'hms'));
+  };
+  proto.getOhosSdkComponents = async function (_version, names) {
+    return componentMap(names, path.resolve(sdkRoot, 'openharmony'));
+  };
+  proto.getOpenHarmonySdkComponents = async function (_version, names) {
+    return componentMap(names, path.resolve(sdkRoot, 'openharmony'));
+  };
+  proto.getSdkComponents = async function (_version, names) {
+    return componentMap(names, path.resolve(sdkRoot, 'openharmony'));
   };
   loader.__comicReaderPatched = true;
+  console.log(`ComicReader patched SDK loader: ${label || loader.name || 'unknown'}`);
+}
+
+function patchLoadedExports(loaded, request) {
+  if (!loaded) return loaded;
+  for (const value of Object.values(loaded)) {
+    if (typeof value === 'function' && /sdk.*loader/i.test(value.name || '')) {
+      patchSdkLoaderClass(value, `${request}:${value.name}`);
+    }
+  }
+  if (loaded.HmosSdkLoader) patchSdkLoaderClass(loaded.HmosSdkLoader, `${request}:HmosSdkLoader`);
+  if (loaded.OhosSdkLoader) patchSdkLoaderClass(loaded.OhosSdkLoader, `${request}:OhosSdkLoader`);
+  if (loaded.OpenHarmonySdkLoader) patchSdkLoaderClass(loaded.OpenHarmonySdkLoader, `${request}:OpenHarmonySdkLoader`);
+  return loaded;
 }
 
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
   const loaded = originalLoad.call(this, request, parent, isMain);
-  if (loaded && loaded.HmosSdkLoader) {
-    patchHmosLoader(loaded.HmosSdkLoader);
-  }
-  return loaded;
+  return patchLoadedExports(loaded, request);
 };
 
 const { PlatformSdks } = hvigorRequire(platformSdksPath);
-if (Array.isArray(PlatformSdks._additional) && !PlatformSdks._additional.includes('js')) {
-  PlatformSdks._additional = PlatformSdks._additional.concat('js');
+if (Array.isArray(PlatformSdks._additional)) {
+  for (const name of ['js', 'ArkTS', 'native', 'previewer', 'toolchains']) {
+    if (!PlatformSdks._additional.includes(name)) {
+      PlatformSdks._additional = PlatformSdks._additional.concat(name);
+    }
+  }
 }
-const { HmosSdkLoader } = hvigorRequire(hmosLoaderPath);
-patchHmosLoader(HmosSdkLoader);
+patchLoadedExports(hvigorRequire(hmosLoaderPath), hmosLoaderPath);
+
+// 预加载并补丁 SDK 目录下所有 loader，避免 OpenHarmony/HarmonyOS 分支走不同类。
+for (const file of fs.readdirSync(path.dirname(hmosLoaderPath))) {
+  if (/sdk-loader\.js$/i.test(file)) {
+    try {
+      patchLoadedExports(hvigorRequire(path.resolve(path.dirname(hmosLoaderPath), file)), file);
+    } catch (_) {}
+  }
+}
 
 const originalRead = fs.readFileSync.bind(fs);
 fs.readFileSync = function (filePath, options) {
