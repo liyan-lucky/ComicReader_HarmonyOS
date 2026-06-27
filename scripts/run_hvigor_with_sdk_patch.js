@@ -99,6 +99,34 @@ function component(name, location) {
   return self;
 }
 
+function installStringComponentCompat() {
+  const api = apiVersion(24);
+  const methods = {
+    getPath() { return String(this); },
+    getName() { return String(this); },
+    getLocation() { return path.resolve(sdkRoot, 'openharmony', String(this)); },
+    getVersion() { return '6.1.1.125'; },
+    getReleaseType() { return 'Release'; },
+    getFullApiVersion() { return api; },
+    getApiVersion() { return api; },
+    equals(other) {
+      const self = String(this);
+      if (!other) return false;
+      if (typeof other === 'string') return other === self;
+      if (typeof other.getPath === 'function') return other.getPath() === self;
+      if (typeof other.getName === 'function') return other.getName() === self;
+      return String(other) === self;
+    },
+    compareTo(other) { return String(this).localeCompare(String(other && (other.getPath ? other.getPath() : other.name) || other || '')); }
+  };
+  for (const [name, fn] of Object.entries(methods)) {
+    if (typeof String.prototype[name] !== 'function') {
+      Object.defineProperty(String.prototype, name, { value: fn, configurable: true, writable: true, enumerable: false });
+    }
+  }
+}
+installStringComponentCompat();
+
 function componentName(item) {
   if (typeof item === 'string') return item;
   if (item && typeof item.getPath === 'function') return item.getPath();
