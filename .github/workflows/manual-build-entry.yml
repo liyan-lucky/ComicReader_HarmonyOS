@@ -152,17 +152,28 @@ jobs:
           set -euo pipefail
           export NODE_OPTIONS="--require=$GITHUB_WORKSPACE/scripts/run_hvigor_with_sdk_patch.js ${NODE_OPTIONS:-}"
           node scripts/run_hvigor_with_sdk_patch.js assembleHap
+          echo "Build tree after hvigor:"
+          find "$GITHUB_WORKSPACE" -maxdepth 6 -type d \( -name build -o -name outputs -o -name default -o -name openharmony_verify \) -print | sort || true
+          echo "Possible artifacts after hvigor:"
+          find "$GITHUB_WORKSPACE" -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' -o -name '*.zip' \) -print | sort || true
 
       - name: 收集 HAP 产物
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$ARTIFACT_DIR"
-          find "$GITHUB_WORKSPACE" -type f -path '*/outputs/*' -name '*.hap' -print | sort | tee "$RUNNER_TEMP/hap-list.txt"
-          test -s "$RUNNER_TEMP/hap-list.txt"
-          while IFS= read -r hap; do
+          echo "Search output directories:"
+          find "$GITHUB_WORKSPACE" -maxdepth 8 -type d \( -name outputs -o -name build -o -name default -o -name openharmony_verify \) -print | sort || true
+          echo "Search all build artifacts:"
+          find "$GITHUB_WORKSPACE" -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' \) -print | sort | tee "$RUNNER_TEMP/artifact-list.txt"
+          if ! grep -q '\.hap$' "$RUNNER_TEMP/artifact-list.txt"; then
+            echo "No HAP found. Showing entry/build file list:" >&2
+            find "$GITHUB_WORKSPACE/entry" -maxdepth 10 -type f | sort | head -300 >&2 || true
+            exit 1
+          fi
+          grep '\.hap$' "$RUNNER_TEMP/artifact-list.txt" | while IFS= read -r hap; do
             cp -f "$hap" "$ARTIFACT_DIR/$(basename "$hap")"
-          done < "$RUNNER_TEMP/hap-list.txt"
+          done
           find "$ARTIFACT_DIR" -maxdepth 1 -type f -print | sort
 
       - name: 上传 HAP 产物
