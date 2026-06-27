@@ -50,12 +50,21 @@ function apiVersion(value) {
     if (typeof other === 'string') return Number.parseInt(other, 10) || 0;
     if (other && typeof other.getValue === 'function') return numberOf(other.getValue());
     if (other && typeof other.getMajor === 'function') return numberOf(other.getMajor());
+    if (other && typeof other.valueOf === 'function') {
+      const v = other.valueOf();
+      if (v !== other) return numberOf(v);
+    }
     return 0;
   }
   return {
     getMajor: () => value,
     getValue: () => value,
     equals: (other) => numberOf(other) === value,
+    compareTo: (other) => value - numberOf(other),
+    greaterThan: (other) => value > numberOf(other),
+    greaterThanOrEquals: (other) => value >= numberOf(other),
+    lessThan: (other) => value < numberOf(other),
+    lessThanOrEquals: (other) => value <= numberOf(other),
     toString: () => String(value),
     valueOf: () => value
   };
