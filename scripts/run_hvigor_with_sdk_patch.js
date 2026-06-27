@@ -73,15 +73,29 @@ function apiVersion(value) {
 }
 
 function component(name, location) {
-  return {
+  const api = apiVersion(24);
+  const self = {
     getPath: () => name,
     getName: () => name,
     getLocation: () => location,
     getVersion: () => '6.1.1.125',
     getReleaseType: () => 'Release',
-    getFullApiVersion: () => apiVersion(24),
-    getApiVersion: () => apiVersion(24)
+    getFullApiVersion: () => api,
+    getApiVersion: () => api,
+    equals: (other) => {
+      if (!other) return false;
+      const otherPath = typeof other.getPath === 'function' ? other.getPath() : other.path;
+      const otherName = typeof other.getName === 'function' ? other.getName() : other.name;
+      const otherApi = typeof other.getFullApiVersion === 'function'
+        ? other.getFullApiVersion()
+        : (typeof other.getApiVersion === 'function' ? other.getApiVersion() : undefined);
+      return (otherPath === name || otherName === name) && (!otherApi || api.equals(otherApi));
+    },
+    compareTo: (other) => self.equals(other) ? 0 : String(name).localeCompare(String(other && (other.getPath ? other.getPath() : other.name) || '')),
+    toString: () => `${name}:24`,
+    valueOf: () => name
   };
+  return self;
 }
 
 function componentMap(names, baseDir) {
