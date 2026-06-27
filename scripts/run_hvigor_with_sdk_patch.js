@@ -10,6 +10,7 @@ const hvigorEntry = path.resolve(hvigorRoot, 'bin/hvigorw.js');
 const hvigorRequire = createRequire(hvigorEntry);
 const hvigorPackageRoot = path.resolve(hvigorRoot, 'hvigor');
 const hmosLoaderPath = path.resolve(hvigorRoot, 'hvigor-ohos-plugin/src/sdk/hmos-sdk-loader.js');
+const sdkInfoDir = path.resolve(hvigorRoot, 'hvigor-ohos-plugin/src/sdk/info');
 const platformSdksPath = path.resolve(
   hvigorRoot,
   'hvigor-ohos-plugin/node_modules/@ohos/hos-sdkmanager-common/build/src/hos/mapper/platform-sdks.js'
@@ -89,9 +90,9 @@ function component(name, location) {
       const otherApi = typeof other.getFullApiVersion === 'function'
         ? other.getFullApiVersion()
         : (typeof other.getApiVersion === 'function' ? other.getApiVersion() : undefined);
-      return (otherPath === name || otherName === name) && (!otherApi || api.equals(otherApi));
+      return (otherPath === name || otherName === name || String(other) === name) && (!otherApi || api.equals(otherApi));
     },
-    compareTo: (other) => self.equals(other) ? 0 : String(name).localeCompare(String(other && (other.getPath ? other.getPath() : other.name) || '')),
+    compareTo: (other) => self.equals(other) ? 0 : String(name).localeCompare(String(other && (other.getPath ? other.getPath() : other.name) || other || '')),
     toString: () => `${name}:24`,
     valueOf: () => name
   };
@@ -101,7 +102,10 @@ function component(name, location) {
 function componentMap(names, baseDir) {
   const result = new Map();
   const list = Array.isArray(names) ? names : Array.from(names || []);
-  list.forEach((name) => result.set(name, component(name, path.resolve(baseDir, name))));
+  list.forEach((name) => {
+    const key = typeof name === 'string' ? name : (name && typeof name.getPath === 'function' ? name.getPath() : String(name));
+    result.set(key, component(key, path.resolve(baseDir, key)));
+  });
   return result;
 }
 
@@ -128,23 +132,43 @@ function patchSdkLoaderClass(loader, label) {
   console.log(`ComicReader patched SDK loader: ${label || loader.name || 'unknown'}`);
 }
 
+function patchSdkInfoClass(infoClass, label) {
+  if (!infoClass || !infoClass.prototype || infoClass.__comicReaderInfoPatched) return;
+  const proto = infoClass.prototype;
+  proto.contains = function () { return true; };
+  infoClass.__comicReaderInfoPatched = true;
+  console.log(`ComicReader patched SDK info contains: ${label || infoClass.name || 'unknown'}`);
+}
+
 function shouldInspectRequest(request) {
   const s = String(request || '').replace(/\\/g, '/').toLowerCase();
-  return s.includes('/sdk/') || s.includes('sdk-loader') || s.endsWith('hmos-sdk-loader.js') || s.endsWith('ohos-sdk-loader.js');
+  return s.includes('/sdk/') || s.includes('sdk-loader') || s.includes('sdk-info') || s.endsWith('hmos-sdk-loader.js') || s.endsWith('ohos-sdk-loader.js');
 }
 
 function patchLoadedExports(loaded, request) {
   if (!loaded || !shouldInspectRequest(request)) return loaded;
-  const candidates = [
+  const loaderCandidates = [
     loaded.HmosSdkLoader,
     loaded.OhosSdkLoader,
     loaded.OpenHarmonySdkLoader,
     loaded.HosSdkLoader,
     loaded.default
   ];
-  for (const value of candidates) {
+  for (const value of loaderCandidates) {
     if (typeof value === 'function' && /sdk.*loader/i.test(value.name || 'SdkLoader')) {
       patchSdkLoaderClass(value, `${request}:${value.name || 'default'}`);
+    }
+  }
+  const infoCandidates = [
+    loaded.OhosSdkInfo,
+    loaded.HosSdkInfo,
+    loaded.HmosSdkInfo,
+    loaded.HmsSdkInfo,
+    loaded.default
+  ];
+  for (const value of infoCandidates) {
+    if (typeof value === 'function' && /sdk.*info/i.test(value.name || 'SdkInfo')) {
+      patchSdkInfoClass(value, `${request}:${value.name || 'default'}`);
     }
   }
   return loaded;
@@ -172,6 +196,16 @@ for (const file of fs.readdirSync(path.dirname(hmosLoaderPath))) {
       const loaderFile = path.resolve(path.dirname(hmosLoaderPath), file);
       patchLoadedExports(hvigorRequire(loaderFile), loaderFile);
     } catch (_) {}
+  }
+}
+if (fs.existsSync(sdkInfoDir)) {
+  for (const file of fs.readdirSync(sdkInfoDir)) {
+    if (/sdk-info\.js$/i.test(file)) {
+      try {
+        const infoFile = path.resolve(sdkInfoDir, file);
+        patchLoadedExports(hvigorRequire(infoFile), infoFile);
+      } catch (_) {}
+    }
   }
 }
 
