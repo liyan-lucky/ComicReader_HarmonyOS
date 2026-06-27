@@ -65,6 +65,8 @@ function apiVersion(value) {
     greaterThanOrEquals: (other) => value >= numberOf(other),
     lessThan: (other) => value < numberOf(other),
     lessThanOrEquals: (other) => value <= numberOf(other),
+    isGreaterThan: (other) => value > numberOf(other),
+    isLessThan: (other) => value < numberOf(other),
     toString: () => String(value),
     valueOf: () => value
   };
