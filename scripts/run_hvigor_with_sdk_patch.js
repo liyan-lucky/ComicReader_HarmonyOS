@@ -45,9 +45,17 @@ Module._resolveFilename = function (request, parent, isMain, options) {
 };
 
 function apiVersion(value) {
+  function numberOf(other) {
+    if (typeof other === 'number') return other;
+    if (typeof other === 'string') return Number.parseInt(other, 10) || 0;
+    if (other && typeof other.getValue === 'function') return numberOf(other.getValue());
+    if (other && typeof other.getMajor === 'function') return numberOf(other.getMajor());
+    return 0;
+  }
   return {
     getMajor: () => value,
     getValue: () => value,
+    equals: (other) => numberOf(other) === value,
     toString: () => String(value),
     valueOf: () => value
   };
