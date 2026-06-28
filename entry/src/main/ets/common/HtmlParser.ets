@@ -1,5 +1,5 @@
 import { ComicSourceRule, SearchResultItem, ChapterItem, ReaderImageItem } from '../model/ComicModels';
-import { resolveUrl } from './UrlUtil';
+import { resolveUrl, isHttpUrl } from './UrlUtil';
 
 function decodeEntities(text: string): string {
   return text
@@ -14,7 +14,6 @@ function decodeEntities(text: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
-
 
 function normalizeUrlCandidate(text: string): string {
   return decodeEntities(text)
@@ -97,6 +96,9 @@ function looksLikeChapter(title: string, url: string): boolean {
 
 function looksLikeImage(url: string): boolean {
   const lower = url.toLowerCase();
+  if (!isHttpUrl(lower)) {
+    return false;
+  }
   if (lower.indexOf('base64') >= 0 || lower.indexOf('data:') === 0) {
     return false;
   }
@@ -106,7 +108,7 @@ function looksLikeImage(url: string): boolean {
   if (lower.indexOf('/iiif/') >= 0 || lower.indexOf('/full/') >= 0) {
     return true;
   }
-  return lower.indexOf('/image') >= 0 || lower.indexOf('/img') >= 0 || lower.indexOf('comic') >= 0 || lower.indexOf('cover') >= 0 || lower.indexOf('manga') >= 0;
+  return lower.indexOf('/image') >= 0 || lower.indexOf('/img') >= 0;
 }
 
 function extractCoverFromBlock(block: string, pageUrl: string): string {
@@ -146,7 +148,7 @@ export function parseSearchResults(html: string, rule: ComicSourceRule, pageUrl:
     if (cover.length === 0 && match.length > 0) {
       cover = extractCoverFromBlock(match[0], pageUrl);
     }
-    if (title.length > 0 && url.length > 0) {
+    if (title.length > 0 && url.length > 0 && isHttpUrl(url)) {
       if (!rule.searchFilterByKeyword || containsKeyword(title, keyword)) {
         if (!items.some((item: SearchResultItem) => item.url === url)) {
           items.push({
@@ -185,7 +187,7 @@ export function parseChapters(html: string, rule: ComicSourceRule, pageUrl: stri
     const rawUrl = firstNonEmptyGroup(match, rule.detailChapterUrlGroups);
     const title = cleanHtmlText(rawTitle);
     const url = resolveUrl(rawUrl, pageUrl);
-    if (title.length > 0 && url.length > 0) {
+    if (title.length > 0 && url.length > 0 && isHttpUrl(url)) {
       if (!rule.detailChapterFilter || looksLikeChapter(title, url)) {
         if (!chapters.some((item: ChapterItem) => item.url === url)) {
           chapters.push({
@@ -237,7 +239,6 @@ export function parseImages(html: string, rule: ComicSourceRule, pageUrl: string
   return images;
 }
 
-
 export function parseNextPageUrl(html: string, rule: ComicSourceRule, pageUrl: string): string {
   if (rule.readerNextPageRegex === undefined || rule.readerNextPageRegex.length === 0) {
     return '';
@@ -253,7 +254,7 @@ export function parseNextPageUrl(html: string, rule: ComicSourceRule, pageUrl: s
     guard++;
     const rawUrl = firstNonEmptyGroup(match, groups);
     const url = resolveUrl(rawUrl, pageUrl);
-    if (url.length > 0 && url !== pageUrl) {
+    if (url.length > 0 && isHttpUrl(url) && url !== pageUrl) {
       return url;
     }
     if (match.index === regex.lastIndex) {
