@@ -34,6 +34,12 @@ https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/i
 4. 等待 hvigor 同步。
 5. 配置签名后运行 `entry` 模块。
 
+## 构建和签名
+
+本仓库不提交签名证书、私钥或本地签名配置。
+
+`build-profile.json5` 当前未包含签名配置。请在本地 DevEco Studio 中配置签名，确认 `.gitignore` 已排除证书、密钥和本地配置文件。
+
 ## 从 GitHub 更新规则
 
 App 内：
@@ -48,7 +54,37 @@ App 内：
 https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/index.json
 ```
 
+远程规则索引会进行基础安全校验：HTTPS、本地调试地址例外、固定 schema、规则数量上限和关键字段长度限制。
+
 如果你把规则仓库改名，修改 App 设置里的远程地址即可。
+
+## 合规边界
+
+项目只处理公开可访问资源。不实现登录绕过、付费绕过、验证码绕过、DRM 绕过、加密接口破解、App 专属协议绕过或反爬规避。
+
+本仓库不托管、不上传、不分发漫画图片、章节正文、付费内容、账号数据、签名证书、私钥、站点 Logo、字体、HAP/APP 发布包或其他第三方受保护资源。
+
+## 隐私说明
+
+App 申请 `ohos.permission.INTERNET`，用于访问用户选择的公开页面、公开 API、搜索引擎和远程规则索引。
+
+App 可能在本地保存搜索设置、远程规则地址、书架、阅读历史、阅读偏好和用户手动填写的公开 API Key 或搜索配置。本仓库当前不应包含账号登录、广告 SDK、遥测统计、云同步或后台上传用户数据的逻辑。
+
+## 许可证和合规文件
+
+本仓库采用 MIT License。
+
+相关文件：
+
+- `LICENSE`
+- `NOTICE.md`
+- `DISCLAIMER.md`
+- `PRIVACY.md`
+- `SECURITY.md`
+- `THIRD_PARTY_NOTICES.md`
+- `CONTRIBUTING.md`
+- `COMPLIANCE.md`
+- `MAINTAINERS.md`
 
 ## 初始化并推送到 GitHub
 
@@ -60,7 +96,3 @@ git branch -M main
 git remote add origin https://github.com/liyan-lucky/ComicReader_HarmonyOS.git
 git push -u origin main
 ```
-
-## 说明
-
-项目只处理公开可访问资源。不实现登录绕过、付费绕过、验证码绕过、加密接口破解、App 专属协议绕过或反爬规避。
