@@ -3,7 +3,7 @@
   "version": "1.1.195-harmony",
   "description": "entry module",
   "main": "",
-  "author": "",
-  "license": "UNLICENSED",
+  "author": "Yan Li / ChatGPT assisted migration",
+  "license": "MIT",
   "dependencies": {}
 }
