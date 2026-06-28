@@ -28,6 +28,8 @@ jobs:
           test -f CONTRIBUTING.md
           test -f COMPLIANCE.md
           test -f MAINTAINERS.md
+          test -f COPYRIGHT
+          test -f entry/src/main/ets/common/RuleValidator.ets
 
       - name: Check forbidden release and signing files
         run: |
@@ -37,3 +39,11 @@ jobs:
         run: |
           grep -q '"license": "MIT"' oh-package.json5
           grep -q '"license": "MIT"' entry/oh-package.json5
+
+      - name: Check remote rule hardening markers
+        run: |
+          grep -q 'EXPECTED_SCHEMA' entry/src/main/ets/common/RemoteRuleService.ets
+          grep -q 'MAX_REMOTE_RULES' entry/src/main/ets/common/RemoteRuleService.ets
+          grep -q 'isValidPublicRule' entry/src/main/ets/common/RemoteRuleService.ets
+          grep -q 'isUnsafeUrlScheme' entry/src/main/ets/common/UrlUtil.ets
+          grep -q 'Only HTTP/HTTPS URLs are allowed' entry/src/main/ets/common/HttpClient.ets
