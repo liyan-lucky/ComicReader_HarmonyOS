@@ -24,11 +24,7 @@ function walkFindDir(root, suffix, maxDepth) {
     if (normalized.endsWith(suffix) && fs.existsSync(item.dir)) return item.dir;
     if (item.depth >= maxDepth) continue;
     let entries = [];
-    try {
-      entries = fs.readdirSync(item.dir, { withFileTypes: true });
-    } catch (_) {
-      continue;
-    }
+    try { entries = fs.readdirSync(item.dir, { withFileTypes: true }); } catch (_) { continue; }
     for (const entry of entries) {
       if (entry.isDirectory()) queue.push({ dir: path.resolve(item.dir, entry.name), depth: item.depth + 1 });
     }
@@ -66,16 +62,25 @@ const hmsRoot = firstExisting([
 
 function numericVersion(other) {
   if (typeof other === 'number') return other;
-  if (typeof other === 'string') return Number.parseInt(other, 10) || 0;
+  if (typeof other === 'string') return Number.parseInt(other.replace(/.*\((\d+)\).*/, '$1'), 10) || Number.parseInt(other, 10) || 0;
   if (other && typeof other.getValue === 'function') return numericVersion(other.getValue());
   if (other && typeof other.getMajor === 'function') return numericVersion(other.getMajor());
+  if (other && typeof other.getApiVersion === 'function') return numericVersion(other.getApiVersion());
+  if (other && typeof other.valueOf === 'function') {
+    const v = other.valueOf();
+    if (v !== other) return numericVersion(v);
+  }
   return 0;
 }
 
 function apiVersion(value) {
   return {
+    major: value,
+    value,
+    apiVersion: value,
     getMajor: () => value,
     getValue: () => value,
+    getApiVersion: () => value,
     equals: (other) => numericVersion(other) === value,
     compareTo: (other) => value - numericVersion(other),
     greaterThan: (other) => value > numericVersion(other),
@@ -83,8 +88,10 @@ function apiVersion(value) {
     lessThan: (other) => value < numericVersion(other),
     lessThanOrEquals: (other) => value <= numericVersion(other),
     isGreaterThan: (other) => value > numericVersion(other),
+    isGreaterThanOrEquals: (other) => value >= numericVersion(other),
     isLessThan: (other) => value < numericVersion(other),
-    toString: () => String(value),
+    isLessThanOrEquals: (other) => value <= numericVersion(other),
+    toString: () => `6.1.1(${value})`,
     valueOf: () => value
   };
 }
@@ -105,23 +112,17 @@ function toolPath(toolchainsDir, names) {
 function patchInfoClass(value, label) {
   if (typeof value !== 'function' || !value.prototype) return;
   const proto = value.prototype;
-  const nativeDir = firstExisting([
-    nativeDirFromLayout,
-    path.resolve(openharmonyRoot, 'native'),
-    path.resolve(hmsRoot, 'native')
-  ]);
+  const nativeDir = firstExisting([nativeDirFromLayout, path.resolve(openharmonyRoot, 'native'), path.resolve(hmsRoot, 'native')]);
   const toolchainsDir = firstExisting([
     path.resolve(openharmonyRoot, 'toolchains'),
     path.resolve(hmsRoot, 'toolchains'),
     path.resolve(rawSdkRoot, 'command-line-tools/sdk/default/openharmony/toolchains')
   ]);
-  const etsDir = firstExisting([
-    path.resolve(openharmonyRoot, 'ets'),
-    path.resolve(hmsRoot, 'ets')
-  ]);
+  const etsDir = firstExisting([path.resolve(openharmonyRoot, 'ets'), path.resolve(hmsRoot, 'ets')]);
   const ninjaTool = toolPath(toolchainsDir, ['ninja', 'ninja.exe']);
   const cmakeTool = toolPath(toolchainsDir, ['cmake', 'cmake.exe']);
   const makeTool = toolPath(toolchainsDir, ['make', 'make.exe']);
+  const v24 = apiVersion(24);
 
   proto.contains = function () { return true; };
   proto.getBaseDir = function () { return openharmonyRoot; };
@@ -140,11 +141,16 @@ function patchInfoClass(value, label) {
   proto.getCmakeTool = function () { return cmakeTool; };
   proto.getNativeMakeTool = function () { return makeTool; };
   proto.getMakeTool = function () { return makeTool; };
-  proto.getApiVersion = function () { return apiVersion(24); };
-  proto.getFullApiVersion = function () { return apiVersion(24); };
+  proto.getApiVersion = function () { return v24; };
+  proto.getFullApiVersion = function () { return v24; };
+  proto.getVersion = function () { return '6.1.1.125'; };
+  proto.getReleaseType = function () { return 'Release'; };
+  proto.getCompatibleSdkVersion = function () { return v24; };
+  proto.getCompileSdkVersion = function () { return v24; };
+  proto.getTargetSdkVersion = function () { return v24; };
   value.__comicReaderSdkInfoPathsPatched = true;
   console.log(`ComicReader SDK layout raw=${rawSdkRoot} sdk=${sdkRoot} ohos=${openharmonyRoot} native=${nativeDir}`);
-  console.log(`ComicReader patched SDK info paths/tools: ${label || value.name || 'unknown'}`);
+  console.log(`ComicReader patched SDK info paths/tools/version: ${label || value.name || 'unknown'}`);
 }
 
 function patchLoaded(loaded, request) {
