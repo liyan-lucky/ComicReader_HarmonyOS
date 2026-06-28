@@ -9,6 +9,7 @@ const hvigorRoot = path.resolve(toolsRoot, 'hvigor');
 const hvigorEntry = path.resolve(hvigorRoot, 'bin/hvigorw.js');
 const hvigorRequire = createRequire(hvigorEntry);
 const hvigorPackageRoot = path.resolve(hvigorRoot, 'hvigor');
+const hvigorOhosPluginRoot = path.resolve(hvigorRoot, 'hvigor-ohos-plugin');
 const hmosLoaderPath = path.resolve(hvigorRoot, 'hvigor-ohos-plugin/src/sdk/hmos-sdk-loader.js');
 const sdkInfoDir = path.resolve(hvigorRoot, 'hvigor-ohos-plugin/src/sdk/info');
 const platformSdksPath = path.resolve(
@@ -16,16 +17,19 @@ const platformSdksPath = path.resolve(
   'hvigor-ohos-plugin/node_modules/@ohos/hos-sdkmanager-common/build/src/hos/mapper/platform-sdks.js'
 );
 
-for (const requiredPath of [hvigorEntry, hmosLoaderPath, platformSdksPath, sdkRoot]) {
+for (const requiredPath of [hvigorEntry, hvigorOhosPluginRoot, hmosLoaderPath, platformSdksPath, sdkRoot]) {
   if (!fs.existsSync(requiredPath)) {
     throw new Error(`Required DevEco component is missing: ${requiredPath}`);
   }
 }
 
-const extraNodePath = path.resolve(hvigorRoot, 'hvigor/node_modules');
+const extraNodePaths = [
+  path.resolve(hvigorRoot, 'hvigor/node_modules'),
+  path.resolve(hvigorRoot, 'hvigor-ohos-plugin/node_modules')
+];
 process.env.NODE_PATH = process.env.NODE_PATH
-  ? `${extraNodePath}${path.delimiter}${process.env.NODE_PATH}`
-  : extraNodePath;
+  ? `${extraNodePaths.join(path.delimiter)}${path.delimiter}${process.env.NODE_PATH}`
+  : extraNodePaths.join(path.delimiter);
 Module._initPaths();
 
 const originalResolveFilename = Module._resolveFilename;
@@ -37,6 +41,18 @@ Module._resolveFilename = function (request, parent, isMain, options) {
     return originalResolveFilename.call(
       this,
       path.join(hvigorPackageRoot, request.slice('@ohos/hvigor/'.length)),
+      parent,
+      isMain,
+      options
+    );
+  }
+  if (request === '@ohos/hvigor-ohos-plugin') {
+    return originalResolveFilename.call(this, hvigorOhosPluginRoot, parent, isMain, options);
+  }
+  if (request.startsWith('@ohos/hvigor-ohos-plugin/')) {
+    return originalResolveFilename.call(
+      this,
+      path.join(hvigorOhosPluginRoot, request.slice('@ohos/hvigor-ohos-plugin/'.length)),
       parent,
       isMain,
       options
