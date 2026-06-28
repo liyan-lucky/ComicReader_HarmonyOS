@@ -1,0 +1,39 @@
+name: Compliance Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  repository-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check required files
+        run: |
+          test -f README.md
+          test -f LICENSE
+          test -f NOTICE.md
+          test -f DISCLAIMER.md
+          test -f PRIVACY.md
+          test -f SECURITY.md
+          test -f THIRD_PARTY_NOTICES.md
+          test -f CONTRIBUTING.md
+          test -f COMPLIANCE.md
+          test -f MAINTAINERS.md
+
+      - name: Check forbidden release and signing files
+        run: |
+          ! find . -type f \( -iname "*.hap" -o -iname "*.app" -o -iname "*.p12" -o -iname "*.pfx" -o -iname "*.jks" -o -iname "*.keystore" -o -iname "*.pem" -o -iname "*.key" \) | grep .
+
+      - name: Check package license metadata
+        run: |
+          grep -q '"license": "MIT"' oh-package.json5
+          grep -q '"license": "MIT"' entry/oh-package.json5
