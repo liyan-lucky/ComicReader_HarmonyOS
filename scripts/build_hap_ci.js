@@ -76,6 +76,7 @@ function installPrimitiveSdkComponentCompat() {
 }
 
 installPrimitiveSdkComponentCompat();
+require('./patch_sdk_info_paths.js');
 require('./run_hvigor_with_sdk_patch.js');
 
 function resolveProductName() {
