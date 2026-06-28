@@ -11,6 +11,24 @@ export function stripQueryAndHash(url: string): string {
   return result;
 }
 
+export function isHttpUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url.trim());
+}
+
+export function isUnsafeUrlScheme(url: string): boolean {
+  const value = url.trim().toLowerCase();
+  return value.startsWith('javascript:') ||
+    value.startsWith('mailto:') ||
+    value.startsWith('tel:') ||
+    value.startsWith('file:') ||
+    value.startsWith('data:') ||
+    value.startsWith('blob:') ||
+    value.startsWith('about:') ||
+    value.startsWith('intent:') ||
+    value.startsWith('hap:') ||
+    value.startsWith('app:');
+}
+
 export function getOrigin(url: string): string {
   const match = /^(https?:\/\/[^\/]+)/i.exec(url);
   if (match && match.length > 1) {
@@ -58,7 +76,7 @@ export function resolveUrl(link: string, baseUrl: string): string {
   if (value.length === 0) {
     return '';
   }
-  if (value.startsWith('javascript:') || value.startsWith('mailto:') || value.startsWith('tel:')) {
+  if (isUnsafeUrlScheme(value)) {
     return '';
   }
   if (/^https?:\/\//i.test(value)) {
@@ -68,6 +86,9 @@ export function resolveUrl(link: string, baseUrl: string): string {
     return 'https:' + value;
   }
   const origin = getOrigin(baseUrl);
+  if (origin.length === 0) {
+    return '';
+  }
   if (value.startsWith('/')) {
     return origin + value;
   }
@@ -79,6 +100,9 @@ export function resolveUrl(link: string, baseUrl: string): string {
 
 export function looksLikeUrl(value: string): boolean {
   const text = value.trim();
+  if (isUnsafeUrlScheme(text)) {
+    return false;
+  }
   if (/^https?:\/\//i.test(text)) {
     return true;
   }
@@ -90,6 +114,9 @@ export function looksLikeUrl(value: string): boolean {
 
 export function normalizeUserUrl(value: string): string {
   const text = value.trim();
+  if (isUnsafeUrlScheme(text)) {
+    return '';
+  }
   if (/^https?:\/\//i.test(text)) {
     return text;
   }
