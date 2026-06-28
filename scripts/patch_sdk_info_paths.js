@@ -43,8 +43,20 @@ function apiVersion(value) {
   };
 }
 
+function toolPath(toolchainsDir, names) {
+  const candidates = [];
+  for (const name of names) {
+    candidates.push(path.resolve(toolchainsDir, name));
+    candidates.push(path.resolve(openharmonyRoot, 'native/build-tools/cmake/bin', name));
+    candidates.push(path.resolve(hmsRoot, 'native/build-tools/cmake/bin', name));
+    candidates.push(path.resolve(openharmonyRoot, 'native/llvm/bin', name));
+    candidates.push(path.resolve(hmsRoot, 'native/llvm/bin', name));
+  }
+  return firstExisting(candidates);
+}
+
 function patchInfoClass(value, label) {
-  if (typeof value !== 'function' || !value.prototype || value.__comicReaderSdkInfoPathsPatched) return;
+  if (typeof value !== 'function' || !value.prototype) return;
   const proto = value.prototype;
   const nativeDir = firstExisting([
     path.resolve(openharmonyRoot, 'native'),
@@ -58,6 +70,9 @@ function patchInfoClass(value, label) {
     path.resolve(openharmonyRoot, 'ets'),
     path.resolve(hmsRoot, 'ets')
   ]);
+  const ninjaTool = toolPath(toolchainsDir, ['ninja', 'ninja.exe']);
+  const cmakeTool = toolPath(toolchainsDir, ['cmake', 'cmake.exe']);
+  const makeTool = toolPath(toolchainsDir, ['make', 'make.exe']);
 
   proto.contains = function () { return true; };
   proto.getBaseDir = function () { return openharmonyRoot; };
@@ -70,10 +85,16 @@ function patchInfoClass(value, label) {
   proto.getToolchainsDir = function () { return toolchainsDir; };
   proto.getSdkEtsDir = function () { return etsDir; };
   proto.getEtsDir = function () { return etsDir; };
+  proto.getNativeNinjaTool = function () { return ninjaTool; };
+  proto.getNinjaTool = function () { return ninjaTool; };
+  proto.getNativeCmakeTool = function () { return cmakeTool; };
+  proto.getCmakeTool = function () { return cmakeTool; };
+  proto.getNativeMakeTool = function () { return makeTool; };
+  proto.getMakeTool = function () { return makeTool; };
   proto.getApiVersion = function () { return apiVersion(24); };
   proto.getFullApiVersion = function () { return apiVersion(24); };
   value.__comicReaderSdkInfoPathsPatched = true;
-  console.log(`ComicReader patched SDK info paths: ${label || value.name || 'unknown'}`);
+  console.log(`ComicReader patched SDK info paths/tools: ${label || value.name || 'unknown'}`);
 }
 
 function patchLoaded(loaded, request) {
