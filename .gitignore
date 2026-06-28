@@ -9,15 +9,38 @@
 *.har
 *.hsp
 
-# Node / package caches
+# Package caches
 node_modules/
 .ohpm/
+
+# Signing and secrets
+*.p12
+*.pfx
+*.cer
+*.csr
+*.jks
+*.keystore
+*.pem
+*.key
+*.p7b
+*.mobileprovision
+local.properties
+signing-config.json5
+.env
+.env.*
+!.env.example
 
 # OS/editor
 .DS_Store
 Thumbs.db
 *.log
+*.tmp
+*.bak
+.vscode/
 
 # Python cache if scripts are added later
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
