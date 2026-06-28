@@ -2,14 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const Module = require('module');
 
-const sdkRoot = path.resolve(
+const rawSdkRoot = path.resolve(
   process.env.TABSSH_HWSDK_ROOT ||
   process.env.HARMONYOS_SDK_ROOT ||
   process.env.DEVECO_SDK_HOME ||
   'C:/Program Files/Huawei/DevEco Studio/sdk/default'
 );
-const openharmonyRoot = path.resolve(sdkRoot, 'openharmony');
-const hmsRoot = path.resolve(sdkRoot, 'hms');
 
 function firstExisting(candidates) {
   for (const candidate of candidates) {
@@ -17,6 +15,54 @@ function firstExisting(candidates) {
   }
   return candidates[0];
 }
+
+function walkFindDir(root, suffix, maxDepth) {
+  const queue = [{ dir: root, depth: 0 }];
+  while (queue.length > 0) {
+    const item = queue.shift();
+    const normalized = item.dir.replace(/\\/g, '/');
+    if (normalized.endsWith(suffix) && fs.existsSync(item.dir)) return item.dir;
+    if (item.depth >= maxDepth) continue;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(item.dir, { withFileTypes: true });
+    } catch (_) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) queue.push({ dir: path.resolve(item.dir, entry.name), depth: item.depth + 1 });
+    }
+  }
+  return '';
+}
+
+function resolveLayout() {
+  const candidates = [
+    path.resolve(rawSdkRoot, 'openharmony/native'),
+    path.resolve(rawSdkRoot, 'command-line-tools/sdk/default/openharmony/native'),
+    path.resolve(rawSdkRoot, 'sdk/default/openharmony/native')
+  ];
+  const nativeDir = firstExisting(candidates.concat([walkFindDir(rawSdkRoot, '/sdk/default/openharmony/native', 8)]).filter(Boolean));
+  const openharmonyRoot = nativeDir.endsWith(path.normalize('openharmony/native'))
+    ? path.dirname(nativeDir)
+    : firstExisting([
+      path.resolve(rawSdkRoot, 'openharmony'),
+      path.resolve(rawSdkRoot, 'command-line-tools/sdk/default/openharmony'),
+      path.resolve(rawSdkRoot, 'sdk/default/openharmony')
+    ]);
+  const sdkRoot = openharmonyRoot.endsWith('openharmony') ? path.dirname(openharmonyRoot) : rawSdkRoot;
+  return { sdkRoot, openharmonyRoot, nativeDir };
+}
+
+const layout = resolveLayout();
+const sdkRoot = layout.sdkRoot;
+const openharmonyRoot = layout.openharmonyRoot;
+const nativeDirFromLayout = layout.nativeDir;
+const hmsRoot = firstExisting([
+  path.resolve(sdkRoot, 'hms'),
+  path.resolve(rawSdkRoot, 'hms'),
+  path.resolve(rawSdkRoot, 'command-line-tools/sdk/default/hms')
+]);
 
 function numericVersion(other) {
   if (typeof other === 'number') return other;
@@ -47,9 +93,10 @@ function toolPath(toolchainsDir, names) {
   const candidates = [];
   for (const name of names) {
     candidates.push(path.resolve(toolchainsDir, name));
-    candidates.push(path.resolve(openharmonyRoot, 'native/build-tools/cmake/bin', name));
+    candidates.push(path.resolve(openharmonyRoot, 'toolchains', name));
+    candidates.push(path.resolve(nativeDirFromLayout, 'build-tools/cmake/bin', name));
+    candidates.push(path.resolve(nativeDirFromLayout, 'llvm/bin', name));
     candidates.push(path.resolve(hmsRoot, 'native/build-tools/cmake/bin', name));
-    candidates.push(path.resolve(openharmonyRoot, 'native/llvm/bin', name));
     candidates.push(path.resolve(hmsRoot, 'native/llvm/bin', name));
   }
   return firstExisting(candidates);
@@ -59,12 +106,14 @@ function patchInfoClass(value, label) {
   if (typeof value !== 'function' || !value.prototype) return;
   const proto = value.prototype;
   const nativeDir = firstExisting([
+    nativeDirFromLayout,
     path.resolve(openharmonyRoot, 'native'),
     path.resolve(hmsRoot, 'native')
   ]);
   const toolchainsDir = firstExisting([
     path.resolve(openharmonyRoot, 'toolchains'),
-    path.resolve(hmsRoot, 'toolchains')
+    path.resolve(hmsRoot, 'toolchains'),
+    path.resolve(rawSdkRoot, 'command-line-tools/sdk/default/openharmony/toolchains')
   ]);
   const etsDir = firstExisting([
     path.resolve(openharmonyRoot, 'ets'),
@@ -94,6 +143,7 @@ function patchInfoClass(value, label) {
   proto.getApiVersion = function () { return apiVersion(24); };
   proto.getFullApiVersion = function () { return apiVersion(24); };
   value.__comicReaderSdkInfoPathsPatched = true;
+  console.log(`ComicReader SDK layout raw=${rawSdkRoot} sdk=${sdkRoot} ohos=${openharmonyRoot} native=${nativeDir}`);
   console.log(`ComicReader patched SDK info paths/tools: ${label || value.name || 'unknown'}`);
 }
 
