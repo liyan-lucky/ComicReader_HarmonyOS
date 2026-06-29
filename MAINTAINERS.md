@@ -4,10 +4,10 @@
 
 当前 `构建漫画浏览器 HAP` 工作流已配置 4 平台 unsigned HAP 构建：
 
-- HarmonyOS ARM64：`漫画浏览器-HAP产物-harmonyos-arm64`
-- HarmonyOS x86_64：`漫画浏览器-HAP产物-harmonyos-x86_64`
-- OpenHarmony ARM64：`漫画浏览器-HAP产物-openharmony-arm64`
-- OpenHarmony x86_64：`漫画浏览器-HAP产物-openharmony-x86_64`
+- HarmonyOS ARM64：`comic-reader-hap-harmonyos-arm64`
+- HarmonyOS x86_64：`comic-reader-hap-harmonyos-x86_64`
+- OpenHarmony ARM64：`comic-reader-hap-openharmony-arm64`
+- OpenHarmony x86_64：`comic-reader-hap-openharmony-x86_64`
 
 SDK 从私有仓库 `liyan-lucky/HarmonyOS_SDK_Tools` 下载。Actions 配置名为：
 
