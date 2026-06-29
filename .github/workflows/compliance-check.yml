@@ -1,4 +1,4 @@
-name: Compliance Check
+name: 合规检查
 
 on:
   pull_request:
@@ -11,12 +11,13 @@ permissions:
 
 jobs:
   repository-check:
+    name: 仓库合规检查
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: 检出仓库
         uses: actions/checkout@v4
 
-      - name: Check required files
+      - name: 检查必需文件
         run: |
           test -f README.md
           test -f LICENSE
@@ -32,16 +33,16 @@ jobs:
           test -f RELEASE_CHECKLIST.md
           test -f entry/src/main/ets/common/RuleValidator.ets
 
-      - name: Check forbidden release and signing files
+      - name: 检查禁止提交的发布包和签名文件
         run: |
           ! find . -type f \( -iname "*.hap" -o -iname "*.app" -o -iname "*.p12" -o -iname "*.pfx" -o -iname "*.jks" -o -iname "*.keystore" -o -iname "*.pem" -o -iname "*.key" \) | grep .
 
-      - name: Check package license metadata
+      - name: 检查包许可证元数据
         run: |
           grep -q '"license": "MIT"' oh-package.json5
           grep -q '"license": "MIT"' entry/oh-package.json5
 
-      - name: Check remote rule hardening markers
+      - name: 检查远程规则加固标记
         run: |
           grep -q 'EXPECTED_SCHEMA' entry/src/main/ets/common/RemoteRuleService.ets
           grep -q 'MAX_REMOTE_RULES' entry/src/main/ets/common/RemoteRuleService.ets
@@ -49,7 +50,7 @@ jobs:
           grep -q 'isUnsafeUrlScheme' entry/src/main/ets/common/UrlUtil.ets
           grep -q 'Only HTTP/HTTPS URLs are allowed' entry/src/main/ets/common/HttpClient.ets
 
-      - name: Check parser hardening markers
+      - name: 检查解析器加固标记
         run: |
           grep -q 'isHttpUrl(url)' entry/src/main/ets/common/HtmlParser.ets
           grep -q 'looksLikeImage' entry/src/main/ets/common/HtmlParser.ets
