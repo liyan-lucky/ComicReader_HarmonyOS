@@ -15,10 +15,10 @@
 
 当前 GitHub Actions 会生成 4 个 unsigned HAP artifact：
 
-- `comic-reader-hap-harmonyos-arm64`
-- `comic-reader-hap-harmonyos-x86_64`
-- `comic-reader-hap-openharmony-arm64`
-- `comic-reader-hap-openharmony-x86_64`
+- `漫画浏览器-HAP产物-harmonyos-arm64`
+- `漫画浏览器-HAP产物-harmonyos-x86_64`
+- `漫画浏览器-HAP产物-openharmony-arm64`
+- `漫画浏览器-HAP产物-openharmony-x86_64`
 
 OpenHarmony CI 兼容脚本可能在构建期间创建临时 `node_modules/webpack` 入口和中间输出目录。这些内容仅存在于 CI 工作区，不应提交到仓库，也不代表 App 随包分发了 webpack。
 
