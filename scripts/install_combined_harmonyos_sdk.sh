@@ -9,9 +9,37 @@ DOWNLOAD_DIR="${RUNNER_TEMP:-/tmp}/harmonyos-sdk-download"
 SDK_EXTRACT="${RUNNER_TEMP:-/tmp}/harmonyos-command-line-sdk"
 SDK_REPO="${HARMONYOS_SDK_REPO:-liyan-lucky/HarmonyOS_SDK_Tools}"
 SDK_TAG_FALLBACK="${HARMONYOS_SDK_TAG:-linux_command_line_tool_6.1.1}"
+TMP_BASE="${RUNNER_TEMP:-/tmp}/comicreader-sdk-tmp"
 
-rm -rf "$SDK_BASE" "$SDK_EXTRACT" "$DOWNLOAD_DIR"
-mkdir -p "$TOOLS_ROOT" "$SDK_EXTRACT" "$DOWNLOAD_DIR"
+rm -rf "$SDK_BASE" "$SDK_EXTRACT" "$DOWNLOAD_DIR" "$TMP_BASE"
+mkdir -p "$TOOLS_ROOT" "$SDK_EXTRACT" "$DOWNLOAD_DIR" "$TMP_BASE"
+
+print_sorted_dirs_head() {
+  local root="$1"
+  local depth="$2"
+  local limit="$3"
+  local out="$TMP_BASE/dirs-$(date +%s%N).txt"
+  find "$root" -maxdepth "$depth" -type d | sort > "$out"
+  head -n "$limit" "$out" || true
+}
+
+print_sorted_files_head_stderr() {
+  local root="$1"
+  local depth="$2"
+  local limit="$3"
+  local out="$TMP_BASE/files-$(date +%s%N).txt"
+  find "$root" -maxdepth "$depth" -type f | sort > "$out" || true
+  head -n "$limit" "$out" >&2 || true
+}
+
+print_sorted_dirs_head_stderr() {
+  local root="$1"
+  local depth="$2"
+  local limit="$3"
+  local out="$TMP_BASE/dirs-err-$(date +%s%N).txt"
+  find "$root" -maxdepth "$depth" -type d | sort > "$out" || true
+  head -n "$limit" "$out" >&2 || true
+}
 
 download_from_release_tag() {
   local tag="$1"
@@ -78,9 +106,8 @@ for file in "$DOWNLOAD_DIR"/*; do
 done
 
 SDK_ARCHIVE=""
-for candidate in \
-  $(find "$DOWNLOAD_DIR" -maxdepth 1 -type f \( -name '*.7z.001' -o -name '*.7z' -o -name '*.zip' -o -name 'sdk-direct-download' -o -name '*.pkg' \) ! -name '*.sha256' ! -name '*.sha512' ! -name '*.md5' | sort)
-do
+while IFS= read -r candidate; do
+  [ -n "$candidate" ] || continue
   echo "Testing archive candidate: $(basename "$candidate")"
   if 7z l "$candidate" >/tmp/comicreader_7z_test.log 2>&1; then
     SDK_ARCHIVE="$candidate"
@@ -89,7 +116,7 @@ do
   fi
   echo "Not a readable archive: $(basename "$candidate")"
   cat /tmp/comicreader_7z_test.log || true
-done
+done < <(find "$DOWNLOAD_DIR" -maxdepth 1 -type f \( -name '*.7z.001' -o -name '*.7z' -o -name '*.zip' -o -name 'sdk-direct-download' -o -name '*.pkg' \) ! -name '*.sha256' ! -name '*.sha512' ! -name '*.md5' | sort)
 
 if [ -z "$SDK_ARCHIVE" ]; then
   echo "No readable SDK archive found after download." >&2
@@ -100,22 +127,37 @@ fi
 7z x -y "$SDK_ARCHIVE" "-o$SDK_EXTRACT"
 
 echo "Archive directories:"
-find "$SDK_EXTRACT" -maxdepth 8 -type d | sort | head -260
+print_sorted_dirs_head "$SDK_EXTRACT" 8 260
 
-HVIGORW="$(find "$SDK_EXTRACT" -type f -name hvigorw.js | sort | head -1)"
-OHOS_DIR="$(find "$SDK_EXTRACT" -type d -path '*/sdk/default/openharmony' | sort | head -1)"
+HVIGORW=""
+while IFS= read -r f; do
+  HVIGORW="$f"
+  break
+done < <(find "$SDK_EXTRACT" -type f -name hvigorw.js | sort)
+
+OHOS_DIR=""
+while IFS= read -r d; do
+  OHOS_DIR="$d"
+  break
+done < <(find "$SDK_EXTRACT" -type d -path '*/sdk/default/openharmony' | sort)
+
 if [ -z "$OHOS_DIR" ]; then
-  OHOS_DIR="$(find "$SDK_EXTRACT" -type d -path '*/openharmony' | while read -r d; do [ -d "$d/native" ] && echo "$d"; done | sort | head -1)"
+  while IFS= read -r d; do
+    if [ -d "$d/native" ]; then
+      OHOS_DIR="$d"
+      break
+    fi
+  done < <(find "$SDK_EXTRACT" -type d -path '*/openharmony' | sort)
 fi
 
 if [ -z "$HVIGORW" ]; then
   echo "Could not locate hvigorw.js in combined SDK archive." >&2
-  find "$SDK_EXTRACT" -maxdepth 12 -type f | sort | head -320 >&2
+  print_sorted_files_head_stderr "$SDK_EXTRACT" 12 320
   exit 1
 fi
 if [ -z "$OHOS_DIR" ]; then
   echo "Could not locate OpenHarmony SDK directory in combined SDK archive." >&2
-  find "$SDK_EXTRACT" -maxdepth 12 -type d | sort | head -320 >&2
+  print_sorted_dirs_head_stderr "$SDK_EXTRACT" 12 320
   exit 1
 fi
 
@@ -150,7 +192,7 @@ chmod +x "$TOOLS_ROOT/sdk/default/openharmony/native/build-tools/cmake/bin"/* 2>
 chmod +x "$TOOLS_ROOT/sdk/default/openharmony/ets/build-tools/ets-loader/bin/ark/build/bin"/* 2>/dev/null || true
 
 echo "Installed command-line tools:"
-find "$TOOLS_ROOT" -maxdepth 5 -type d | sort | head -220
+print_sorted_dirs_head "$TOOLS_ROOT" 5 220
 
 test -f "$TOOLS_ROOT/hvigor/bin/hvigorw.js"
 test -f "$TOOLS_ROOT/hvigor/hvigor-ohos-plugin/node_modules/@ohos/hos-sdkmanager-common/build/src/hos/mapper/platform-sdks.js"
