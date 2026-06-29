@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const CI_DEVICE_TYPE = 'phone';
+
 function shouldPatch() {
   const platform = String(process.env.BUILD_PLATFORM || '').toLowerCase();
   const runtime = String(process.env.BUILD_RUNTIME_OS || '').toLowerCase();
@@ -17,12 +19,12 @@ function patchModuleJson5() {
   const original = fs.readFileSync(moduleJson5, 'utf8');
   const patched = original.replace(
     /"deviceTypes"\s*:\s*\[[\s\S]*?\]/,
-    '"deviceTypes": [\n      "default"\n    ]'
+    `"deviceTypes": [\n      "${CI_DEVICE_TYPE}"\n    ]`
   );
 
   if (patched !== original) {
     fs.writeFileSync(moduleJson5, patched);
-    console.log('ComicReader CI patched module deviceTypes to default.');
+    console.log('ComicReader CI patched module deviceTypes to ' + CI_DEVICE_TYPE + '.');
   } else {
     console.warn('ComicReader CI did not find deviceTypes to patch.');
   }
@@ -30,9 +32,9 @@ function patchModuleJson5() {
 
 function writeSyscapFile(target) {
   const body = {
-    general: ['default'],
+    general: [CI_DEVICE_TYPE],
     custom: [],
-    devices: { general: ['default'], custom: [] },
+    devices: { general: [CI_DEVICE_TYPE], custom: [] },
     development: { addedSysCaps: [] },
     production: { addedSysCaps: [], removedSysCaps: [] }
   };
