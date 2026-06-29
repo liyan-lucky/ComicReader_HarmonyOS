@@ -28,6 +28,29 @@ function patchModuleJson5() {
   }
 }
 
-patchModuleJson5();
+function writeSyscapJson() {
+  if (!shouldPatch()) return;
 
-module.exports = { patchModuleJson5 };
+  const syscapJson = path.resolve(process.cwd(), 'syscap.json');
+  const content = {
+    devices: {
+      general: ['default'],
+      custom: []
+    },
+    development: {
+      addedSysCaps: []
+    },
+    production: {
+      addedSysCaps: [],
+      removedSysCaps: []
+    }
+  };
+
+  fs.writeFileSync(syscapJson, `${JSON.stringify(content, null, 2)}\n`);
+  console.log('ComicReader CI wrote root syscap.json with devices.general=["default"] for OpenHarmony syscap check.');
+}
+
+patchModuleJson5();
+writeSyscapJson();
+
+module.exports = { patchModuleJson5, writeSyscapJson };
