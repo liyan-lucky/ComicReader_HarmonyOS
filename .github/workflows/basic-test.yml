@@ -1,0 +1,83 @@
+name: 基础测试
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 测试脚本和配置
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 设置 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 检查 JavaScript 脚本语法
+        shell: bash
+        run: |
+          set -euo pipefail
+          find scripts -type f -name '*.js' -print | sort | while IFS= read -r file; do
+            echo "node --check $file"
+            node --check "$file"
+          done
+
+      - name: 检查 Shell 脚本语法
+        shell: bash
+        run: |
+          set -euo pipefail
+          find scripts -type f -name '*.sh' -print | sort | while IFS= read -r file; do
+            echo "bash -n $file"
+            bash -n "$file"
+          done
+
+      - name: 检查版本文件
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const version = JSON.parse(fs.readFileSync('version.json', 'utf8'));
+          for (const key of ['major', 'full', 'incremental']) {
+            if (!Number.isInteger(version[key]) || version[key] < 0) {
+              throw new Error(`version.json ${key} must be a non-negative integer`);
+            }
+          }
+          if (typeof version.buildType !== 'string' || typeof version.buildTime !== 'string') {
+            throw new Error('version.json buildType/buildTime must be strings');
+          }
+          console.log('version.json OK:', `${version.major}.${version.full}.${version.incremental}`);
+          NODE
+
+      - name: 检查 workflow 关键结构
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .github/workflows/manual-build-entry.yml
+          test -f .github/workflows/compliance-check.yml
+          test -f .github/workflows/cleanup-artifacts.yml
+          test -f .github/workflows/basic-test.yml
+          grep -q '^name: 构建漫画浏览器 HAP$' .github/workflows/manual-build-entry.yml
+          grep -q '^name: 合规检查$' .github/workflows/compliance-check.yml
+          grep -q '^name: 清理旧构建产物$' .github/workflows/cleanup-artifacts.yml
+          grep -q '^name: 基础测试$' .github/workflows/basic-test.yml
+          grep -q '漫画浏览器-HAP产物-' .github/workflows/manual-build-entry.yml
+          grep -q '漫画浏览器-SDK安装日志-' .github/workflows/manual-build-entry.yml
+          grep -q '漫画浏览器-hvigor诊断日志-' .github/workflows/manual-build-entry.yml
+
+      - name: 检查禁止提交的构建产物和签名文件
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! find . -type f \( -iname '*.hap' -o -iname '*.app' -o -iname '*.p12' -o -iname '*.pfx' -o -iname '*.jks' -o -iname '*.keystore' -o -iname '*.pem' -o -iname '*.key' \) | grep .
