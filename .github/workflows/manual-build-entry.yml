@@ -1,4 +1,4 @@
-name: Build ComicReader HAP
+name: 构建漫画浏览器 HAP
 
 on:
   workflow_dispatch:
