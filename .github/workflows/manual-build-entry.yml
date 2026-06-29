@@ -63,7 +63,7 @@ jobs:
             echo "Downloading SDK release assets from tag: $tag"
             gh release download "$tag" \
               --repo liyan-lucky/HarmonyOS_SDK_Tools \
-              --pattern "*.7z" \
+              --pattern "*.7z*" \
               --pattern "*.zip" \
               --dir "$DOWNLOAD_DIR" \
               --clobber
@@ -87,7 +87,8 @@ jobs:
             SDK_TAG="${SDK_TAG%%[?#]*}"
             download_from_release_tag "$SDK_TAG"
           else
-            SDK_ARCHIVE="$DOWNLOAD_DIR/harmonyos-command-line-sdk.pkg"
+            SDK_ARCHIVE="$DOWNLOAD_DIR/$(basename "${HARMONYOS_SDK_URL%%[?#]*}")"
+            [ -n "$SDK_ARCHIVE" ] || SDK_ARCHIVE="$DOWNLOAD_DIR/harmonyos-command-line-sdk.pkg"
             if ! download_direct_url "$SDK_ARCHIVE" "$HARMONYOS_SDK_URL"; then
               if echo "$HARMONYOS_SDK_URL" | grep -qE '/releases/download/'; then
                 SDK_TAG="${HARMONYOS_SDK_URL#*/releases/download/}"
@@ -99,9 +100,29 @@ jobs:
                 exit 1
               fi
             fi
+            if echo "$SDK_ARCHIVE" | grep -qE '\.7z\.00[0-9]+$'; then
+              SDK_TAG="${HARMONYOS_SDK_URL#*/releases/download/}"
+              SDK_TAG="${SDK_TAG%%/*}"
+              if [ -n "$SDK_TAG" ] && [ "$SDK_TAG" != "$HARMONYOS_SDK_URL" ]; then
+                echo "Direct URL points to a multipart 7z piece; downloading all release parts."
+                download_from_release_tag "$SDK_TAG"
+              fi
+            fi
           fi
 
-          SDK_ARCHIVE="$(find "$DOWNLOAD_DIR" -maxdepth 1 -type f \( -name '*.7z' -o -name '*.zip' -o -name '*.pkg' \) | sort | head -1)"
+          echo "Downloaded SDK files:"
+          find "$DOWNLOAD_DIR" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+
+          SDK_ARCHIVE="$(find "$DOWNLOAD_DIR" -maxdepth 1 -type f -name '*.7z.001' | sort | head -1)"
+          if [ -z "$SDK_ARCHIVE" ]; then
+            SDK_ARCHIVE="$(find "$DOWNLOAD_DIR" -maxdepth 1 -type f -name '*.7z' | sort | head -1)"
+          fi
+          if [ -z "$SDK_ARCHIVE" ]; then
+            SDK_ARCHIVE="$(find "$DOWNLOAD_DIR" -maxdepth 1 -type f -name '*.zip' | sort | head -1)"
+          fi
+          if [ -z "$SDK_ARCHIVE" ]; then
+            SDK_ARCHIVE="$(find "$DOWNLOAD_DIR" -maxdepth 1 -type f -name '*.pkg' | sort | head -1)"
+          fi
           if [ -z "$SDK_ARCHIVE" ]; then
             echo "No SDK archive downloaded. Check HARMONYOS_SDK_URL or release assets." >&2
             find "$DOWNLOAD_DIR" -maxdepth 2 -type f -print >&2 || true
