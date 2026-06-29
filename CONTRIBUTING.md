@@ -35,10 +35,10 @@
 
 当前 GitHub Actions 构建会输出 4 个 unsigned HAP artifact：
 
-- `comic-reader-hap-harmonyos-arm64`
-- `comic-reader-hap-harmonyos-x86_64`
-- `comic-reader-hap-openharmony-arm64`
-- `comic-reader-hap-openharmony-x86_64`
+- `漫画浏览器-HAP产物-harmonyos-arm64`
+- `漫画浏览器-HAP产物-harmonyos-x86_64`
+- `漫画浏览器-HAP产物-openharmony-arm64`
+- `漫画浏览器-HAP产物-openharmony-x86_64`
 
 修改工作流、SDK 安装脚本、CI 兼容补丁、SDK 来源、SDK 包格式、artifact 命名或 matrix 组合时，Pull Request 必须说明影响范围和验证方式。
 
