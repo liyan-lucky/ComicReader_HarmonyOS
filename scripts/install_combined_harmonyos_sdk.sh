@@ -41,6 +41,43 @@ print_sorted_dirs_head_stderr() {
   head -n "$limit" "$out" >&2 || true
 }
 
+find_command_line_tools_root() {
+  local hvigor_root="$1"
+  local ohos_dir="$2"
+  local parent="$(dirname "$hvigor_root")"
+
+  if [ -d "$parent/sdk/default/openharmony" ]; then
+    echo "$parent"
+    return 0
+  fi
+
+  while IFS= read -r candidate; do
+    if [ -d "$candidate/hvigor" ] && [ -d "$candidate/sdk/default/openharmony" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done < <(find "$SDK_EXTRACT" -type d -name command-line-tools | sort)
+
+  while IFS= read -r candidate; do
+    if [ -d "$candidate/hvigor" ] && [ -d "$candidate/sdk/default/openharmony" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done < <(find "$SDK_EXTRACT" -type d | sort)
+
+  if [ -n "$ohos_dir" ]; then
+    local default_dir="${ohos_dir%/openharmony}"
+    local sdk_dir="$(dirname "$default_dir")"
+    local maybe_tools_root="$(dirname "$sdk_dir")"
+    if [ -d "$maybe_tools_root/sdk/default/openharmony" ]; then
+      echo "$maybe_tools_root"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
 download_from_release_tag() {
   local tag="$1"
   echo "Downloading SDK release assets from tag: $tag"
@@ -164,23 +201,34 @@ fi
 HVIGOR_ROOT="$(dirname "$(dirname "$HVIGORW")")"
 SDK_DEFAULT_DIR="${OHOS_DIR%/openharmony}"
 SDK_CONTAINER_DIR="$(dirname "$SDK_DEFAULT_DIR")"
+COMMAND_LINE_TOOLS_ROOT="$(find_command_line_tools_root "$HVIGOR_ROOT" "$OHOS_DIR" || true)"
 
+echo "COMMAND_LINE_TOOLS_ROOT=$COMMAND_LINE_TOOLS_ROOT"
 echo "HVIGOR_ROOT=$HVIGOR_ROOT"
 echo "SDK_DEFAULT_DIR=$SDK_DEFAULT_DIR"
 echo "SDK_CONTAINER_DIR=$SDK_CONTAINER_DIR"
 
-rsync -a "$HVIGOR_ROOT/" "$TOOLS_ROOT/hvigor/"
-if [ -d "$(dirname "$HVIGOR_ROOT")/ohpm" ]; then
-  rsync -a "$(dirname "$HVIGOR_ROOT")/ohpm/" "$TOOLS_ROOT/ohpm/"
-fi
-if [ -d "$(dirname "$HVIGOR_ROOT")/bin" ]; then
-  rsync -a "$(dirname "$HVIGOR_ROOT")/bin/" "$TOOLS_ROOT/bin/"
-fi
-if [ "$(basename "$SDK_CONTAINER_DIR")" = "sdk" ]; then
-  rsync -a "$SDK_CONTAINER_DIR/" "$TOOLS_ROOT/sdk/"
+rm -rf "$TOOLS_ROOT"
+mkdir -p "$TOOLS_ROOT"
+
+if [ -n "$COMMAND_LINE_TOOLS_ROOT" ]; then
+  echo "Installing full command-line-tools layout from $COMMAND_LINE_TOOLS_ROOT"
+  rsync -a "$COMMAND_LINE_TOOLS_ROOT/" "$TOOLS_ROOT/"
 else
-  mkdir -p "$TOOLS_ROOT/sdk/default"
-  rsync -a "$SDK_DEFAULT_DIR/" "$TOOLS_ROOT/sdk/default/"
+  echo "Full command-line-tools root not found; installing detected components only."
+  rsync -a "$HVIGOR_ROOT/" "$TOOLS_ROOT/hvigor/"
+  if [ -d "$(dirname "$HVIGOR_ROOT")/ohpm" ]; then
+    rsync -a "$(dirname "$HVIGOR_ROOT")/ohpm/" "$TOOLS_ROOT/ohpm/"
+  fi
+  if [ -d "$(dirname "$HVIGOR_ROOT")/bin" ]; then
+    rsync -a "$(dirname "$HVIGOR_ROOT")/bin/" "$TOOLS_ROOT/bin/"
+  fi
+  if [ "$(basename "$SDK_CONTAINER_DIR")" = "sdk" ]; then
+    rsync -a "$SDK_CONTAINER_DIR/" "$TOOLS_ROOT/sdk/"
+  else
+    mkdir -p "$TOOLS_ROOT/sdk/default"
+    rsync -a "$SDK_DEFAULT_DIR/" "$TOOLS_ROOT/sdk/default/"
+  fi
 fi
 
 chmod +x "$TOOLS_ROOT/hvigor/bin"/* 2>/dev/null || true
@@ -192,7 +240,13 @@ chmod +x "$TOOLS_ROOT/sdk/default/openharmony/native/build-tools/cmake/bin"/* 2>
 chmod +x "$TOOLS_ROOT/sdk/default/openharmony/ets/build-tools/ets-loader/bin/ark/build/bin"/* 2>/dev/null || true
 
 echo "Installed command-line tools:"
-print_sorted_dirs_head "$TOOLS_ROOT" 5 220
+print_sorted_dirs_head "$TOOLS_ROOT" 5 260
+
+echo "Installed command-line-tools top-level entries:"
+find "$TOOLS_ROOT" -maxdepth 1 -mindepth 1 -printf '%f\n' | sort
+
+echo "Installed sdk/default entries:"
+find "$TOOLS_ROOT/sdk/default" -maxdepth 1 -mindepth 1 -printf '%f\n' | sort || true
 
 test -f "$TOOLS_ROOT/hvigor/bin/hvigorw.js"
 test -f "$TOOLS_ROOT/hvigor/hvigor-ohos-plugin/node_modules/@ohos/hos-sdkmanager-common/build/src/hos/mapper/platform-sdks.js"
