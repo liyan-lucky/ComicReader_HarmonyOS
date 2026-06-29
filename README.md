@@ -88,25 +88,22 @@ https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/i
 
 `build-profile.json5` 当前未包含签名配置。GitHub Actions 产物是 unsigned HAP，仅用于构建验证和后续签名流程输入。正式安装、上架或分发前，请在本地 DevEco Studio 或独立签名流程中配置合法签名，并确认 `.gitignore` 已排除证书、密钥和本地配置文件。
 
-## GitHub Actions 构建入口
+## GitHub Actions 流程
 
-工作流文件：
+| 流程名 | 文件 | 用途 |
+| --- | --- | --- |
+| `构建漫画浏览器 HAP` | `.github/workflows/manual-build-entry.yml` | 4 平台 unsigned HAP 构建。 |
+| `合规检查` | `.github/workflows/compliance-check.yml` | 检查合规文档、许可证、禁止提交的发布包和签名文件。 |
+| `基础测试` | `.github/workflows/basic-test.yml` | 检查 JS/Shell 脚本语法、版本文件和 workflow 关键结构。 |
+| `清理旧构建产物` | `.github/workflows/cleanup-artifacts.yml` | 手动或定时清理旧 artifact，可选清理旧 workflow runs。 |
 
-```text
-.github/workflows/manual-build-entry.yml
-```
-
-触发方式：
-
-- `workflow_dispatch` 手动触发；
-- 推送到 `main`；
-- 针对 `main` 的 Pull Request。
-
-工作流会上传：
+构建流程会上传：
 
 - `漫画浏览器-HAP产物-*`：unsigned HAP 产物；
 - `漫画浏览器-SDK安装日志-*`：SDK 下载和解压日志；
 - `漫画浏览器-hvigor诊断日志-*`：hvigor 诊断日志。
+
+清理流程默认使用预览模式，不会真正删除；需要手动触发并把 `dry_run` 改为 `false` 才会删除符合条件的旧 artifact。
 
 ## 从 GitHub 更新规则
 
