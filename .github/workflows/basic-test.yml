@@ -72,9 +72,9 @@ jobs:
           grep -q '^name: 合规检查$' .github/workflows/compliance-check.yml
           grep -q '^name: 清理旧构建产物$' .github/workflows/cleanup-artifacts.yml
           grep -q '^name: 基础测试$' .github/workflows/basic-test.yml
-          grep -q '漫画浏览器-HAP产物-' .github/workflows/manual-build-entry.yml
-          grep -q '漫画浏览器-SDK安装日志-' .github/workflows/manual-build-entry.yml
-          grep -q '漫画浏览器-hvigor诊断日志-' .github/workflows/manual-build-entry.yml
+          grep -q 'comic-reader-hap-' .github/workflows/manual-build-entry.yml
+          grep -q 'comic-reader-sdk-install-logs-' .github/workflows/manual-build-entry.yml
+          grep -q 'comic-reader-hvigor-logs-' .github/workflows/manual-build-entry.yml
 
       - name: 检查禁止提交的构建产物和签名文件
         shell: bash
