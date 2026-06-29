@@ -8,6 +8,7 @@ TOOLS_ROOT="$SDK_BASE/command-line-tools"
 DOWNLOAD_DIR="${RUNNER_TEMP:-/tmp}/harmonyos-sdk-download"
 SDK_EXTRACT="${RUNNER_TEMP:-/tmp}/harmonyos-command-line-sdk"
 SDK_REPO="${HARMONYOS_SDK_REPO:-liyan-lucky/HarmonyOS_SDK_Tools}"
+SDK_TAG_FALLBACK="${HARMONYOS_SDK_TAG:-linux_command_line_tool_6.1.1}"
 
 rm -rf "$SDK_BASE" "$SDK_EXTRACT" "$DOWNLOAD_DIR"
 mkdir -p "$TOOLS_ROOT" "$SDK_EXTRACT" "$DOWNLOAD_DIR"
@@ -51,11 +52,14 @@ if echo "$HARMONYOS_SDK_URL" | grep -qE '/releases/tag/'; then
 else
   SDK_ARCHIVE="$DOWNLOAD_DIR/sdk-direct-download"
   if ! download_direct_url "$SDK_ARCHIVE" "$HARMONYOS_SDK_URL"; then
+    rm -f "$SDK_ARCHIVE"
     if echo "$HARMONYOS_SDK_URL" | grep -qE '/releases/download/'; then
       SDK_TAG="${HARMONYOS_SDK_URL#*/releases/download/}"
       SDK_TAG="${SDK_TAG%%/*}"
-      rm -f "$SDK_ARCHIVE"
       download_from_release_tag "$SDK_TAG"
+    elif [ -n "$SDK_TAG_FALLBACK" ]; then
+      echo "Direct SDK URL failed; falling back to release tag: $SDK_TAG_FALLBACK"
+      download_from_release_tag "$SDK_TAG_FALLBACK"
     else
       echo "SDK download failed. HARMONYOS_SDK_URL is not reachable." >&2
       exit 1
