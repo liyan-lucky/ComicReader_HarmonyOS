@@ -8,10 +8,10 @@
 
 | Matrix package | Runtime OS | ABI | Product | Artifact |
 | --- | --- | --- | --- | --- |
-| `harmonyos-arm64` | `HarmonyOS` | `arm64-v8a` | `default` | `comic-reader-hap-harmonyos-arm64` |
-| `harmonyos-x86_64` | `HarmonyOS` | `x86_64` | `default` | `comic-reader-hap-harmonyos-x86_64` |
-| `openharmony-arm64` | `OpenHarmony` | `arm64-v8a` | `openharmony_verify` | `comic-reader-hap-openharmony-arm64` |
-| `openharmony-x86_64` | `OpenHarmony` | `x86_64` | `openharmony_verify` | `comic-reader-hap-openharmony-x86_64` |
+| `harmonyos-arm64` | `HarmonyOS` | `arm64-v8a` | `default` | `漫画浏览器-HAP产物-harmonyos-arm64` |
+| `harmonyos-x86_64` | `HarmonyOS` | `x86_64` | `default` | `漫画浏览器-HAP产物-harmonyos-x86_64` |
+| `openharmony-arm64` | `OpenHarmony` | `arm64-v8a` | `openharmony_verify` | `漫画浏览器-HAP产物-openharmony-arm64` |
+| `openharmony-x86_64` | `OpenHarmony` | `x86_64` | `openharmony_verify` | `漫画浏览器-HAP产物-openharmony-x86_64` |
 
 产物文件会被复制到：
 
@@ -297,9 +297,9 @@ OpenHarmony 的 `openharmony_verify` 主要用于 CI 验证和 4 平台产物输
 每个 matrix job 都会上传：
 
 ```text
-comic-reader-sdk-install-logs-<matrix-package>
-comic-reader-hvigor-logs-<matrix-package>
-comic-reader-hap-<matrix-package>
+漫画浏览器-SDK安装日志-<matrix-package>
+漫画浏览器-hvigor诊断日志-<matrix-package>
+漫画浏览器-HAP产物-<matrix-package>
 ```
 
 如果构建失败，优先检查：
@@ -307,8 +307,8 @@ comic-reader-hap-<matrix-package>
 1. 第 6 步：SDK 是否下载和解压成功；
 2. 第 7 步：SDK 环境变量和路径是否正确；
 3. 第 8 步：hvigor 构建错误；
-4. `comic-reader-hvigor-logs-*`：详细任务链和堆栈；
-5. `comic-reader-sdk-install-logs-*`：SDK 包格式、Release 资产、解压路径。
+4. `漫画浏览器-hvigor诊断日志-*`：详细任务链和堆栈；
+5. `漫画浏览器-SDK安装日志-*`：SDK 包格式、Release 资产、解压路径。
 
 ## 维护原则
 
