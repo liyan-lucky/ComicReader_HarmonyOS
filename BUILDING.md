@@ -1,0 +1,212 @@
+# 构建说明
+
+本文记录当前仓库的 GitHub Actions 构建状态、SDK 连接方式、4 平台产物名称和 CI 兼容补丁边界。
+
+## 当前状态
+
+当前 `main` 分支的 `Build ComicReader HAP` 工作流已经能够生成 4 个 unsigned HAP 产物：
+
+| Matrix package | Runtime OS | ABI | Product | Artifact |
+| --- | --- | --- | --- | --- |
+| `harmonyos-arm64` | `HarmonyOS` | `arm64-v8a` | `default` | `comic-reader-hap-harmonyos-arm64` |
+| `harmonyos-x86_64` | `HarmonyOS` | `x86_64` | `default` | `comic-reader-hap-harmonyos-x86_64` |
+| `openharmony-arm64` | `OpenHarmony` | `arm64-v8a` | `openharmony_verify` | `comic-reader-hap-openharmony-arm64` |
+| `openharmony-x86_64` | `OpenHarmony` | `x86_64` | `openharmony_verify` | `comic-reader-hap-openharmony-x86_64` |
+
+产物文件会被复制到：
+
+```text
+/tmp/comic_reader_harmonyos_artifacts/<matrix-package>/
+```
+
+文件名前缀会带上 matrix package，例如：
+
+```text
+harmonyos-arm64-*.hap
+openharmony-x86_64-*.hap
+```
+
+> 这些产物均为 unsigned HAP。正式安装、发布或上架前，必须使用合法签名流程重新处理。
+
+## 工作流入口
+
+文件：
+
+```text
+.github/workflows/manual-build-entry.yml
+```
+
+触发方式：
+
+- `workflow_dispatch` 手动触发；
+- push 到 `main`；
+- pull request 到 `main`。
+
+工作流使用 matrix 构建，不再只生成单一平台包。
+
+## SDK 来源
+
+SDK 不提交到本仓库。
+
+当前 CI 从私有仓库下载命令行 SDK：
+
+```text
+liyan-lucky/HarmonyOS_SDK_Tools
+```
+
+当前推荐 SDK Release tag：
+
+```text
+linux_command_line_tool_6.1.1
+```
+
+当前推荐 SDK 资产格式：
+
+```text
+单包 .7z
+```
+
+安装脚本：
+
+```text
+scripts/install_combined_harmonyos_sdk.sh
+```
+
+安装目标：
+
+```text
+/home/runner/harmonyos-sdk/command-line-tools
+```
+
+脚本会自动识别完整 `command-line-tools` 布局，并要求最终存在：
+
+```text
+command-line-tools/hvigor/bin/hvigorw.js
+command-line-tools/sdk/default/openharmony/native
+command-line-tools/sdk/default/openharmony/native/build/cmake/ohos.toolchain.cmake
+```
+
+## 必需的 GitHub Actions 配置
+
+### Secret
+
+```text
+HARMONYOS_SDK_TOKEN
+```
+
+用途：读取私有 SDK 仓库 `HarmonyOS_SDK_Tools` 的 Release 资产。
+
+Token 至少需要能读取：
+
+```text
+liyan-lucky/HarmonyOS_SDK_Tools
+```
+
+不要把 Token 写入代码、文档示例输出、日志或 issue。
+
+### Secret 或 Variable
+
+```text
+HARMONYOS_SDK_URL
+```
+
+用途：指定 SDK 来源。
+
+可以填 Release tag 页面，例如：
+
+```text
+https://github.com/liyan-lucky/HarmonyOS_SDK_Tools/releases/tag/linux_command_line_tool_6.1.1
+```
+
+也可以填 Release 资产直链。直链失败时，脚本会尝试从 URL 解析 tag 或回退到 `linux_command_line_tool_6.1.1`。
+
+## CI 环境变量
+
+workflow matrix 会设置：
+
+```text
+BUILD_PLATFORM
+BUILD_PLATFORM_NAME
+BUILD_RUNTIME_OS
+BUILD_ABI
+BUILD_PRODUCT
+BUILD_PACKAGE_SUFFIX
+```
+
+核心映射：
+
+```text
+HarmonyOS → BUILD_PRODUCT=default
+OpenHarmony → BUILD_PRODUCT=openharmony_verify
+```
+
+## 构建脚本入口
+
+GitHub Actions 第 8 步执行：
+
+```bash
+node scripts/build_hap_ci.js assembleHap
+```
+
+该脚本会：
+
+1. 预加载 CI 兼容补丁；
+2. 选择 matrix 对应 product；
+3. 调用 SDK 内的 `hvigorw.js`；
+4. 传入 `product`、`module`、`pageType` 和资源编译参数。
+
+## OpenHarmony CI 兼容补丁
+
+当前 OpenHarmony 命令行 SDK 在 GitHub Actions 环境下会缺少部分本地 DevEco Studio 环境自动注入的信息。仓库中保留了若干 CI 专用兼容脚本，均由 `scripts/build_hap_ci.js` 预加载。
+
+主要脚本：
+
+| 脚本 | 作用 |
+| --- | --- |
+| `scripts/patch_openharmony_device_types_ci.js` | OpenHarmony CI 使用 `comic_reader_ci` 自定义设备和 syscap 文件，避免 SDK 内置设备能力集为空。 |
+| `scripts/patch_sdk_info_paths.js` | 补齐 native、toolchains、restool、readelf、strip、cmake、ninja 等 SDK 路径 accessor。 |
+| `scripts/patch_syscap_transform_ci.js` | 兜底处理 OpenHarmony syscap 工具路径、PackageHap 打包 jar 路径等 CI 缺失值。 |
+| `scripts/link_ci_node_tools.js` | 为 OpenHarmony CI 准备项目本地 webpack 入口；当仓库没有 `webpack.config.js` 时跳过 webpack 并创建 loader 输出目录。 |
+| `scripts/patch_jsonfile_empty_schema.js` | 兼容 SDK 内部空 schema 读取。 |
+| `scripts/patch_prebuild_sdk_version_check.js` | 兼容 SDK 版本检查。 |
+| `scripts/run_hvigor_with_sdk_patch.js` | 运行 hvigor 前加载 SDK 兼容补丁。 |
+
+这些补丁只用于 CI 构建兼容，不代表正式 DevEco Studio 本地项目结构需要这样配置。
+
+## 本地构建建议
+
+本地开发建议直接使用 DevEco Studio：
+
+1. 打开仓库根目录；
+2. 等待 hvigor 同步；
+3. 使用 `default` / `HarmonyOS` / `phone` 作为常规调试目标；
+4. 配置本地签名；
+5. 运行 `entry` 模块。
+
+OpenHarmony 的 `openharmony_verify` 主要用于 CI 验证和 4 平台产物输出。
+
+## 日志和诊断
+
+每个 matrix job 都会上传：
+
+```text
+comic-reader-sdk-install-logs-<matrix-package>
+comic-reader-hvigor-logs-<matrix-package>
+comic-reader-hap-<matrix-package>
+```
+
+如果构建失败，优先检查：
+
+1. 第 6 步：SDK 是否下载和解压成功；
+2. 第 7 步：SDK 环境变量和路径是否正确；
+3. 第 8 步：hvigor 构建错误；
+4. `comic-reader-hvigor-logs-*`：详细任务链和堆栈；
+5. `comic-reader-sdk-install-logs-*`：SDK 包格式、Release 资产、解压路径。
+
+## 维护原则
+
+- 不把 SDK 压缩包、签名证书、私钥、Token 或 HAP/APP 发布包提交到仓库；
+- SDK 私有仓库 Token 只放在 GitHub Actions secret 中；
+- 如 SDK 版本、Release tag、资产格式或 artifact 命名发生变化，必须同步更新 `README.md`、`BUILDING.md` 和 `RELEASE_CHECKLIST.md`；
+- 如新增第三方依赖或随 App 分发的资源，必须更新 `THIRD_PARTY_NOTICES.md` 和 `PRIVACY.md`；
+- 如 CI 兼容补丁变更构建边界，必须更新 `COMPLIANCE.md` 和 `MAINTAINERS.md`。
