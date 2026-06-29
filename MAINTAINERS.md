@@ -2,7 +2,7 @@
 
 ## 当前 CI 状态
 
-当前 `Build ComicReader HAP` 工作流已配置 4 平台 unsigned HAP 构建：
+当前 `构建漫画浏览器 HAP` 工作流已配置 4 平台 unsigned HAP 构建：
 
 - HarmonyOS ARM64：`comic-reader-hap-harmonyos-arm64`
 - HarmonyOS x86_64：`comic-reader-hap-harmonyos-x86_64`
