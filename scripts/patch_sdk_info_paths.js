@@ -101,8 +101,17 @@ function toolPath(toolchainsDir, names) {
   for (const name of names) {
     candidates.push(path.resolve(toolchainsDir, name));
     candidates.push(path.resolve(openharmonyRoot, 'toolchains', name));
+    candidates.push(path.resolve(openharmonyRoot, 'ets/build-tools', name));
+    candidates.push(path.resolve(openharmonyRoot, 'ets/build-tools/bin', name));
+    candidates.push(path.resolve(openharmonyRoot, 'tool', name));
+    candidates.push(path.resolve(openharmonyRoot, 'tool/bin', name));
     candidates.push(path.resolve(nativeDirFromLayout, 'build-tools/cmake/bin', name));
     candidates.push(path.resolve(nativeDirFromLayout, 'llvm/bin', name));
+    candidates.push(path.resolve(hmsRoot, 'toolchains', name));
+    candidates.push(path.resolve(hmsRoot, 'ets/build-tools', name));
+    candidates.push(path.resolve(hmsRoot, 'ets/build-tools/bin', name));
+    candidates.push(path.resolve(hmsRoot, 'tool', name));
+    candidates.push(path.resolve(hmsRoot, 'tool/bin', name));
     candidates.push(path.resolve(hmsRoot, 'native/build-tools/cmake/bin', name));
     candidates.push(path.resolve(hmsRoot, 'native/llvm/bin', name));
   }
@@ -144,6 +153,7 @@ function patchInfoClass(value, label) {
   const nmTool = toolPath(toolchainsDir, ['llvm-nm', 'llvm-nm.exe', 'nm', 'nm.exe']);
   const objcopyTool = toolPath(toolchainsDir, ['llvm-objcopy', 'llvm-objcopy.exe', 'objcopy', 'objcopy.exe']);
   const stripTool = toolPath(toolchainsDir, ['llvm-strip', 'llvm-strip.exe', 'strip', 'strip.exe']);
+  const resTool = toolPath(toolchainsDir, ['restool', 'restool.exe', 'resource_compiler', 'resource_compiler.exe', 'res_compiler', 'res_compiler.exe']);
   const nativeInfo = nativeComponent(nativeDir, toolchainsDir);
   const v24 = apiVersion(24);
 
@@ -177,6 +187,15 @@ function patchInfoClass(value, label) {
   proto.getSdkLlvmStrip = function () { return stripTool; };
   proto.getLlvmStrip = function () { return stripTool; };
   proto.getStrip = function () { return stripTool; };
+  proto.getSdkResTool = function () { return resTool; };
+  proto.getResTool = function () { return resTool; };
+  proto.getRestool = function () { return resTool; };
+  proto.getResToolPath = function () { return resTool; };
+  proto.getResourceTool = function () { return resTool; };
+  proto.getResourceCompiler = function () { return resTool; };
+  proto.getResourceCompilerPath = function () { return resTool; };
+  proto.getCompileResourceTool = function () { return resTool; };
+  proto.getCompileResourceToolPath = function () { return resTool; };
   proto.getApiVersion = function () { return v24; };
   proto.getFullApiVersion = function () { return v24; };
   proto.getVersion = function () { return '6.1.1.125'; };
