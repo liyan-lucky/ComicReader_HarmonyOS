@@ -12,16 +12,16 @@ permissions:
 
 jobs:
   build:
-    name: Build unsigned OpenHarmony HAP
+    name: Build unsigned HarmonyOS phone HAP
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       CI: "true"
-      BUILD_PLATFORM: openharmony
-      BUILD_PLATFORM_NAME: OpenHarmony
-      BUILD_RUNTIME_OS: OpenHarmony
-      BUILD_ABI: x86_64
-      BUILD_PRODUCT: openharmony_verify
+      BUILD_PLATFORM: harmonyos
+      BUILD_PLATFORM_NAME: HarmonyOS
+      BUILD_RUNTIME_OS: HarmonyOS
+      BUILD_ABI: arm64-v8a
+      BUILD_PRODUCT: default
       HARMONYOS_SDK_URL: ${{ secrets.HARMONYOS_SDK_URL || vars.HARMONYOS_SDK_URL }}
       GH_TOKEN: ${{ secrets.HARMONYOS_SDK_TOKEN || github.token }}
       ARTIFACT_DIR: /tmp/comic_reader_harmonyos_artifacts
