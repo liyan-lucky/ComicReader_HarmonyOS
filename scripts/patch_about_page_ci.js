@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const INDEX_FILE = path.resolve(__dirname, '../entry/src/main/ets/pages/Index.ets');
+const BACKUP_DIR = path.resolve(__dirname, '../.ui-backups');
 
 function replaceOnce(content, from, to, label) {
   if (!content.includes(from)) {
@@ -17,6 +18,14 @@ function replaceRegex(content, regex, to, label) {
     return content;
   }
   return content.replace(regex, to);
+}
+
+function backupIndex(content) {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupFile = path.join(BACKUP_DIR, `Index.ets.${stamp}.bak`);
+  fs.writeFileSync(backupFile, content);
+  console.log('ComicReader UI source backup:', path.relative(path.resolve(__dirname, '..'), backupFile));
 }
 
 function ensureBuildInfoImport(content) {
@@ -651,7 +660,8 @@ function patchIndexUi() {
     return;
   }
 
-  let content = fs.readFileSync(INDEX_FILE, 'utf8');
+  const originalContent = fs.readFileSync(INDEX_FILE, 'utf8');
+  let content = originalContent;
   content = ensureBuildInfoImport(content);
   content = ensureUiState(content);
   content = ensureUiHelpers(content);
@@ -664,8 +674,13 @@ function patchIndexUi() {
   content = patchBottomTabs(content);
   content = patchBuild(content);
 
-  fs.writeFileSync(INDEX_FILE, content);
-  console.log('ComicReader CI ensured HarmonyOS style UI, theme, language, shelf progress, reader and about page.');
+  if (content !== originalContent) {
+    backupIndex(originalContent);
+    fs.writeFileSync(INDEX_FILE, content);
+    console.log('ComicReader CI ensured HarmonyOS style UI, theme, language, shelf progress, reader and about page.');
+  } else {
+    console.log('ComicReader CI UI source patch made no changes.');
+  }
 }
 
 patchIndexUi();
