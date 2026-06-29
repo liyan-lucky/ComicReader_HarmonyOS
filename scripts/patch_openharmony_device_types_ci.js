@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
+require('./link_ci_node_tools.js');
+
 const PHONE_DEVICE_TYPE = 'phone';
 const OPENHARMONY_CUSTOM_DEVICE_TYPE = 'comic_reader_ci';
 const OPENHARMONY_CUSTOM_SYSCAPS = [
