@@ -53,11 +53,11 @@ function syscapBody() {
   if (isOpenHarmony()) {
     const customDevice = { [OPENHARMONY_CUSTOM_DEVICE_TYPE]: OPENHARMONY_CUSTOM_SYSCAPS };
     return {
-      general: [],
+      general: [OPENHARMONY_CUSTOM_DEVICE_TYPE],
       custom: [customDevice],
-      devices: { general: [], custom: [customDevice] },
-      development: { addedSysCaps: [] },
-      production: { addedSysCaps: [], removedSysCaps: [] }
+      devices: { general: [OPENHARMONY_CUSTOM_DEVICE_TYPE], custom: [customDevice] },
+      development: { addedSysCaps: OPENHARMONY_CUSTOM_SYSCAPS },
+      production: { addedSysCaps: OPENHARMONY_CUSTOM_SYSCAPS, removedSysCaps: [] }
     };
   }
 
