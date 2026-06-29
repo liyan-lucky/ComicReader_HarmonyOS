@@ -8,7 +8,7 @@ GitHub Actions 当前从私有 SDK 工具仓库 `liyan-lucky/HarmonyOS_SDK_Tools
 
 ## 当前 CI 构建状态
 
-`Build ComicReader HAP` 工作流当前输出：
+`构建漫画浏览器 HAP` 工作流当前输出：
 
 - `comic-reader-hap-harmonyos-arm64`
 - `comic-reader-hap-harmonyos-x86_64`
