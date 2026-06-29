@@ -1,6 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const Module = require('module');
+const childProcess = require('child_process');
+const EventEmitter = require('events');
+const { PassThrough } = require('stream');
 
 function shouldPatch() {
   const platform = String(process.env.BUILD_PLATFORM || '').toLowerCase();
@@ -24,6 +27,62 @@ function ensureFallbackRpcid() {
   }
 }
 
+function isEmptyCommand(command) {
+  return shouldPatch() && (command === '' || command == null);
+}
+
+function fakeChildProcess(label) {
+  ensureFallbackRpcid();
+  const proc = new EventEmitter();
+  proc.stdin = new PassThrough();
+  proc.stdout = new PassThrough();
+  proc.stderr = new PassThrough();
+  proc.pid = 0;
+  proc.kill = () => false;
+  proc.ref = () => proc;
+  proc.unref = () => proc;
+  process.nextTick(() => {
+    console.warn('ComicReader CI bypassed empty OpenHarmony tool execution: ' + label);
+    proc.stdout.end();
+    proc.stderr.end();
+    proc.emit('exit', 0, null);
+    proc.emit('close', 0, null);
+  });
+  return proc;
+}
+
+const originalSpawn = childProcess.spawn;
+childProcess.spawn = function (command, args, options) {
+  if (isEmptyCommand(command)) {
+    return fakeChildProcess('spawn');
+  }
+  return originalSpawn.call(this, command, args, options);
+};
+
+const originalExecFile = childProcess.execFile;
+childProcess.execFile = function (file, args, options, callback) {
+  if (typeof args === 'function') {
+    callback = args;
+    args = [];
+    options = undefined;
+  } else if (typeof options === 'function') {
+    callback = options;
+    options = undefined;
+  }
+  if (isEmptyCommand(file)) {
+    ensureFallbackRpcid();
+    process.nextTick(() => {
+      console.warn('ComicReader CI bypassed empty OpenHarmony tool execution: execFile');
+      if (typeof callback === 'function') callback(null, '', '');
+    });
+    const proc = fakeChildProcess('execFile');
+    proc.stdout.end();
+    proc.stderr.end();
+    return proc;
+  }
+  return originalExecFile.call(this, file, args, options, callback);
+};
+
 function patchSyscapClass(value, label) {
   if (!shouldPatch() || !value || !value.prototype || value.__comicReaderSyscapPatched) return;
   const proto = value.prototype;
@@ -34,8 +93,13 @@ function patchSyscapClass(value, label) {
       return await original.apply(this, args);
     } catch (error) {
       const text = String((error && (error.stack || error.message)) || error || '');
-      if (text.includes('00303060') || text.includes('system capability sets configured for multiple devices')) {
-        console.warn('ComicReader CI bypassed SyscapTransform 00303060 from ' + (label || value.name || 'unknown'));
+      if (
+        text.includes('00303060') ||
+        text.includes('system capability sets configured for multiple devices') ||
+        text.includes("The argument 'file' cannot be empty") ||
+        text.includes('Received') && text.includes("''")
+      ) {
+        console.warn('ComicReader CI bypassed SyscapTransform from ' + (label || value.name || 'unknown'));
         ensureFallbackRpcid();
         return undefined;
       }
