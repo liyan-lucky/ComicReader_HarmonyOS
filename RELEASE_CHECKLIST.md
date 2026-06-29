@@ -24,7 +24,7 @@
 
 ## GitHub Actions 构建
 
-- [ ] `Build ComicReader HAP` 工作流已成功完成 4 个 matrix job：
+- [ ] `构建漫画浏览器 HAP` 工作流已成功完成 4 个 matrix job：
   - [ ] `harmonyos-arm64`
   - [ ] `harmonyos-x86_64`
   - [ ] `openharmony-arm64`
