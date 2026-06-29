@@ -30,6 +30,9 @@ signing-config.json5
 .env.*
 !.env.example
 
+# UI patch local backups
+.ui-backups/
+
 # OS/editor
 .DS_Store
 Thumbs.db
