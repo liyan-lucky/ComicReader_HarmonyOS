@@ -109,6 +109,24 @@ function toolPath(toolchainsDir, names) {
   return firstExisting(candidates);
 }
 
+function nativeComponent(nativeDir, toolchainsDir) {
+  const readElf = toolPath(toolchainsDir, ['llvm-readelf', 'llvm-readelf.exe', 'readelf', 'readelf.exe']);
+  const nm = toolPath(toolchainsDir, ['llvm-nm', 'llvm-nm.exe', 'nm', 'nm.exe']);
+  const objcopy = toolPath(toolchainsDir, ['llvm-objcopy', 'llvm-objcopy.exe', 'objcopy', 'objcopy.exe']);
+  const strip = toolPath(toolchainsDir, ['llvm-strip', 'llvm-strip.exe', 'strip', 'strip.exe']);
+  return {
+    getLocation: () => nativeDir,
+    getPath: () => 'native',
+    getName: () => 'native',
+    getLlvmReadElf: () => readElf,
+    getReadElf: () => readElf,
+    getLlvmNm: () => nm,
+    getLlvmObjcopy: () => objcopy,
+    getLlvmStrip: () => strip,
+    getStrip: () => strip
+  };
+}
+
 function patchInfoClass(value, label) {
   if (typeof value !== 'function' || !value.prototype) return;
   const proto = value.prototype;
@@ -122,6 +140,11 @@ function patchInfoClass(value, label) {
   const ninjaTool = toolPath(toolchainsDir, ['ninja', 'ninja.exe']);
   const cmakeTool = toolPath(toolchainsDir, ['cmake', 'cmake.exe']);
   const makeTool = toolPath(toolchainsDir, ['make', 'make.exe']);
+  const readElfTool = toolPath(toolchainsDir, ['llvm-readelf', 'llvm-readelf.exe', 'readelf', 'readelf.exe']);
+  const nmTool = toolPath(toolchainsDir, ['llvm-nm', 'llvm-nm.exe', 'nm', 'nm.exe']);
+  const objcopyTool = toolPath(toolchainsDir, ['llvm-objcopy', 'llvm-objcopy.exe', 'objcopy', 'objcopy.exe']);
+  const stripTool = toolPath(toolchainsDir, ['llvm-strip', 'llvm-strip.exe', 'strip', 'strip.exe']);
+  const nativeInfo = nativeComponent(nativeDir, toolchainsDir);
   const v24 = apiVersion(24);
 
   proto.contains = function () { return true; };
@@ -129,6 +152,9 @@ function patchInfoClass(value, label) {
   proto.getLocation = function () { return openharmonyRoot; };
   proto.getSdkRoot = function () { return sdkRoot; };
   proto.getSdkDir = function () { return openharmonyRoot; };
+  proto.getSdkNative = function () { return nativeInfo; };
+  proto.getNative = function () { return nativeInfo; };
+  proto.getNativeSdkInfo = function () { return nativeInfo; };
   proto.getSdkNativeDir = function () { return nativeDir; };
   proto.getNativeDir = function () { return nativeDir; };
   proto.getSdkToolchainsDir = function () { return toolchainsDir; };
@@ -141,6 +167,16 @@ function patchInfoClass(value, label) {
   proto.getCmakeTool = function () { return cmakeTool; };
   proto.getNativeMakeTool = function () { return makeTool; };
   proto.getMakeTool = function () { return makeTool; };
+  proto.getSdkLlvmReadElf = function () { return readElfTool; };
+  proto.getLlvmReadElf = function () { return readElfTool; };
+  proto.getReadElf = function () { return readElfTool; };
+  proto.getSdkLlvmNm = function () { return nmTool; };
+  proto.getLlvmNm = function () { return nmTool; };
+  proto.getSdkLlvmObjcopy = function () { return objcopyTool; };
+  proto.getLlvmObjcopy = function () { return objcopyTool; };
+  proto.getSdkLlvmStrip = function () { return stripTool; };
+  proto.getLlvmStrip = function () { return stripTool; };
+  proto.getStrip = function () { return stripTool; };
   proto.getApiVersion = function () { return v24; };
   proto.getFullApiVersion = function () { return v24; };
   proto.getVersion = function () { return '6.1.1.125'; };
