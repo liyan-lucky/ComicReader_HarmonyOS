@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-当前 `main` 分支的 `Build ComicReader HAP` 工作流已经能够生成 4 个 unsigned HAP 产物：
+当前 `main` 分支的 `构建漫画浏览器 HAP` 工作流已经能够生成 4 个 unsigned HAP 产物：
 
 | Matrix package | Runtime OS | ABI | Product | Artifact |
 | --- | --- | --- | --- | --- |
