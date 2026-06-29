@@ -1,6 +1,6 @@
 # 构建说明
 
-本文记录当前仓库的 GitHub Actions 构建状态、SDK 连接方式、4 平台产物名称和 CI 兼容补丁边界。
+本文记录当前仓库的 GitHub Actions 构建状态、SDK 连接方式、4 平台产物名称、版本自增脚本、安装辅助脚本和 CI 兼容补丁边界。
 
 ## 当前状态
 
@@ -27,6 +27,109 @@ openharmony-x86_64-*.hap
 ```
 
 > 这些产物均为 unsigned HAP。正式安装、发布或上架前，必须使用合法签名流程重新处理。
+
+## 版本规则
+
+App 当前使用三段版本号：
+
+```text
+主版本.全量构建号.增量构建号
+```
+
+当前初始值：
+
+```text
+0.0.0
+```
+
+规则：
+
+- 第一段 `major` 由维护者手动指定，当前定义为 `0`；
+- 第二段 `full` 由全量构建脚本自动增加，每次全量构建 `+1`；
+- 第三段 `incremental` 由增量构建脚本自动增加，每次增量构建 `+1`；
+- 全量构建时会把第三段重置为 `0`，例如 `0.3.7` 全量后变成 `0.4.0`；
+- `versionCode` 由三段号换算，最低为 `1`。
+
+版本状态文件：
+
+```text
+version.json
+```
+
+App 内构建信息文件：
+
+```text
+entry/src/main/ets/common/BuildInfo.ets
+```
+
+构建脚本会同步更新：
+
+```text
+AppScope/app.json5
+oh-package.json5
+entry/oh-package.json5
+entry/src/main/ets/common/BuildInfo.ets
+```
+
+App 的“关于”页会显示：
+
+- 版本；
+- versionCode；
+- 构建类型；
+- 构建目标；
+- 构建时间；
+- 版本结构说明。
+
+## 全量/增量构建脚本
+
+全量构建：
+
+```bash
+bash scripts/build_full.sh
+```
+
+增量构建：
+
+```bash
+bash scripts/build_incremental.sh
+```
+
+只更新版本号和构建信息，不真正执行 HAP 构建：
+
+```bash
+SKIP_HAP_BUILD=1 bash scripts/build_full.sh
+SKIP_HAP_BUILD=1 bash scripts/build_incremental.sh
+```
+
+手动指定第一段主版本：
+
+```bash
+node scripts/update_build_version.js --major 0 --full
+node scripts/update_build_version.js --major 0 --incremental
+```
+
+本地指定构建目标：
+
+```bash
+BUILD_PRODUCT=default BUILD_PACKAGE_SUFFIX=local-harmonyos bash scripts/build_full.sh
+BUILD_PRODUCT=openharmony_verify BUILD_PACKAGE_SUFFIX=local-openharmony bash scripts/build_incremental.sh
+```
+
+## HAP 安装辅助脚本
+
+连接设备或虚拟机后，可以使用 hdc 安装：
+
+```bash
+bash scripts/hdc_install_hap.sh /path/to/app.hap
+```
+
+如果不传入路径，脚本会尝试在当前仓库和 `/tmp/comic_reader_harmonyos_artifacts` 中寻找最新的 `.hap` 文件：
+
+```bash
+bash scripts/hdc_install_hap.sh
+```
+
+前提：`hdc` 已安装并在 `PATH` 中。
 
 ## 工作流入口
 
@@ -150,10 +253,12 @@ node scripts/build_hap_ci.js assembleHap
 
 该脚本会：
 
-1. 预加载 CI 兼容补丁；
-2. 选择 matrix 对应 product；
-3. 调用 SDK 内的 `hvigorw.js`；
-4. 传入 `product`、`module`、`pageType` 和资源编译参数。
+1. 刷新构建时间并写入 `BuildInfo.ets`；
+2. 注入 App “关于”页；
+3. 预加载 CI 兼容补丁；
+4. 选择 matrix 对应 product；
+5. 调用 SDK 内的 `hvigorw.js`；
+6. 传入 `product`、`module`、`pageType` 和资源编译参数。
 
 ## OpenHarmony CI 兼容补丁
 
@@ -163,6 +268,8 @@ node scripts/build_hap_ci.js assembleHap
 
 | 脚本 | 作用 |
 | --- | --- |
+| `scripts/update_build_version.js` | 维护三段版本号，写入 App 元数据和 `BuildInfo.ets`。 |
+| `scripts/patch_about_page_ci.js` | 在构建前把“关于”页和底部“关于”Tab 注入到 App 页面。 |
 | `scripts/patch_openharmony_device_types_ci.js` | OpenHarmony CI 使用 `comic_reader_ci` 自定义设备和 syscap 文件，避免 SDK 内置设备能力集为空。 |
 | `scripts/patch_sdk_info_paths.js` | 补齐 native、toolchains、restool、readelf、strip、cmake、ninja 等 SDK 路径 accessor。 |
 | `scripts/patch_syscap_transform_ci.js` | 兜底处理 OpenHarmony syscap 工具路径、PackageHap 打包 jar 路径等 CI 缺失值。 |
