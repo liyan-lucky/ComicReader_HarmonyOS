@@ -18,6 +18,7 @@ function makeWebpackStub() {
   return `#!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
+const childProcess = require('child_process');
 
 const toolsRoot = path.resolve(process.env.DEVECO_TOOLS_ROOT || process.env.DEVECO_TOOLS_HOME || '/home/runner/harmonyos-sdk/command-line-tools');
 const candidates = [
@@ -35,9 +36,19 @@ for (const candidate of candidates) {
   }
 }
 
-console.error('ComicReader CI could not find SDK webpack. Checked:');
-for (const candidate of candidates) console.error(' - ' + candidate);
-process.exit(1);
+console.error('ComicReader CI could not find SDK webpack; falling back to npx webpack@5 + webpack-cli@5.');
+const npxArgs = ['--yes', '-p', 'webpack@5', '-p', 'webpack-cli@5', 'webpack'].concat(process.argv.slice(2));
+const result = childProcess.spawnSync('npx', npxArgs, {
+  stdio: 'inherit',
+  cwd: process.cwd(),
+  env: process.env
+});
+
+if (result.error) {
+  console.error('ComicReader CI npx webpack fallback failed: ' + (result.error.stack || result.error.message || result.error));
+  process.exit(1);
+}
+process.exit(typeof result.status === 'number' ? result.status : 1);
 `;
 }
 
