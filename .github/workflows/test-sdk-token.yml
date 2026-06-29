@@ -1,0 +1,66 @@
+name: Test SDK Token
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-sdk-token:
+    name: Test HarmonyOS SDK token access
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.HARMONYOS_SDK_TOKEN }}
+      SDK_REPO: liyan-lucky/HarmonyOS_SDK_Tools
+      SDK_TAG: linux_command_line_tool_6.1.1
+      SDK_ASSET: linux-harmonyos-command-line-tool-full.7z
+    steps:
+      - name: Check secret exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "HARMONYOS_SDK_TOKEN is empty or not configured." >&2
+            exit 1
+          fi
+          echo "HARMONYOS_SDK_TOKEN exists. Length: ${#GH_TOKEN}"
+
+      - name: Check token identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh auth status || true
+          echo "Viewer login:"
+          gh api user --jq '.login'
+
+      - name: Check private SDK repo access
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Checking repo access: $SDK_REPO"
+          gh repo view "$SDK_REPO" --json nameWithOwner,isPrivate --jq '.nameWithOwner + " private=" + (.isPrivate|tostring)'
+
+      - name: Check release and asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Checking release tag: $SDK_TAG"
+          gh release view "$SDK_TAG" --repo "$SDK_REPO" --json tagName,assets --jq '.tagName as $tag | "tag=" + $tag, (.assets[] | .name + " size=" + (.size|tostring))'
+          echo "Checking asset exists: $SDK_ASSET"
+          gh release view "$SDK_TAG" --repo "$SDK_REPO" --json assets --jq '.assets[].name' | grep -Fx "$SDK_ASSET"
+
+      - name: Test small authenticated download
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sdk-token-test"
+          echo "Downloading asset through gh release download..."
+          gh release download "$SDK_TAG" \
+            --repo "$SDK_REPO" \
+            --pattern "$SDK_ASSET" \
+            --dir "$RUNNER_TEMP/sdk-token-test" \
+            --clobber
+          find "$RUNNER_TEMP/sdk-token-test" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+          test -s "$RUNNER_TEMP/sdk-token-test/$SDK_ASSET"
