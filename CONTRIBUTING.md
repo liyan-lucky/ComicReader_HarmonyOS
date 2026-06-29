@@ -10,13 +10,15 @@
 2. 没有提交漫画图片、章节正文、站点 Logo、字体、HAP/APP 包、SDK 压缩包、签名证书、私钥、账号数据、Cookie、Token 或本地用户配置；
 3. 没有提交用于登录绕过、付费绕过、验证码绕过、DRM 绕过、加密接口破解、反爬规避或伪造专有客户端协议的代码；
 4. 如参考第三方代码、规则、图标、字体、模板或 SDK，请记录来源、作者和许可证；
-5. 修改远程规则加载、网络请求或 WebView 行为时，应说明安全影响；
-6. 修改 GitHub Actions、SDK 下载、CI 兼容补丁、artifact 名称或构建矩阵时，应同步更新 `README.md`、`BUILDING.md` 和 `RELEASE_CHECKLIST.md`。
+5. App 内图标资源必须来自 `https://proicons.com/` 上的开源图标集合，并在 `THIRD_PARTY_NOTICES.md` 记录集合名、作者、许可证和来源页面；
+6. 修改远程规则加载、网络请求或 WebView 行为时，应说明安全影响；
+7. 修改 GitHub Actions、SDK 下载、CI 兼容补丁、artifact 名称或构建矩阵时，应同步更新 `README.md`、`BUILDING.md` 和 `RELEASE_CHECKLIST.md`。
 
 ## 允许提交
 
 - ArkTS / HarmonyOS App 功能改进；
 - UI 和阅读体验修复；
+- 来自 ProIcons 开源图标集合且已记录许可证的 SVG 图标；
 - 公开网页读取规则兼容逻辑；
 - 远程规则加载安全校验；
 - 文档、合规和构建配置；
@@ -28,8 +30,22 @@
 - 付费内容复制件；
 - 破解、绕过、伪造客户端或规避访问控制的代码；
 - 未经授权复制的第三方规则或资源；
+- 自建设计图标、来源不明图标、截图裁剪图标、未授权 UI 包图标；
 - 来源不明的二进制文件；
 - SDK 压缩包、SDK 解压目录、HAP/APP 产物、签名证书、私钥、Cookie、Token 或本地配置。
+
+## 图标贡献要求
+
+新增或替换 App 图标时，请在 PR 中说明：
+
+- ProIcons 集合名称；
+- 图标原始名称；
+- 原作者或项目；
+- 许可证；
+- ProIcons 来源页面；
+- 是否随 App 分发。
+
+不允许为了省事使用字符图标长期替代正式图标。临时调试字符必须在正式合并前替换为 ProIcons SVG。
 
 ## CI 构建相关变更
 
