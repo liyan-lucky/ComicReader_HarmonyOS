@@ -51,10 +51,11 @@ jobs:
           set -euo pipefail
           test -n "${HARMONYOS_SDK_URL:-}"
           SDK_BASE="/home/runner/harmonyos-sdk"
+          TOOLS_ROOT="$SDK_BASE/command-line-tools"
           SDK_ARCHIVE="$RUNNER_TEMP/harmonyos-command-line-sdk.pkg"
           SDK_EXTRACT="$RUNNER_TEMP/harmonyos-command-line-sdk"
           rm -rf "$SDK_BASE" "$SDK_EXTRACT"
-          mkdir -p "$SDK_BASE" "$SDK_EXTRACT"
+          mkdir -p "$TOOLS_ROOT" "$SDK_EXTRACT"
           curl -L --fail --retry 3 --retry-delay 5 -o "$SDK_ARCHIVE" "$HARMONYOS_SDK_URL"
           if 7z l "$SDK_ARCHIVE" >/dev/null 2>&1; then
             7z x -y "$SDK_ARCHIVE" "-o$SDK_EXTRACT"
@@ -63,27 +64,58 @@ jobs:
           fi
           echo "Archive directories:"
           find "$SDK_EXTRACT" -maxdepth 8 -type d | sort | head -260
-          HVIGORW="$(find "$SDK_EXTRACT" -type f -path '*/command-line-tools/hvigor/bin/hvigorw.js' | sort | head -1)"
+
+          HVIGORW="$(find "$SDK_EXTRACT" -type f -name hvigorw.js | sort | head -1)"
+          OHOS_DIR="$(find "$SDK_EXTRACT" -type d -path '*/sdk/default/openharmony' | sort | head -1)"
+          if [ -z "$OHOS_DIR" ]; then
+            OHOS_DIR="$(find "$SDK_EXTRACT" -type d -path '*/openharmony' | while read -r d; do [ -d "$d/native" ] && echo "$d"; done | sort | head -1)"
+          fi
           if [ -z "$HVIGORW" ]; then
-            echo "Could not locate command-line-tools/hvigor/bin/hvigorw.js." >&2
-            find "$SDK_EXTRACT" -maxdepth 10 -type f | sort | head -260 >&2
+            echo "Could not locate hvigorw.js in combined SDK archive." >&2
+            find "$SDK_EXTRACT" -maxdepth 12 -type f | sort | head -320 >&2
             exit 1
           fi
-          CLI_ROOT="$(dirname "$(dirname "$(dirname "$HVIGORW")")")"
-          echo "CLI_ROOT=$CLI_ROOT"
-          test -d "$CLI_ROOT/sdk/default/openharmony"
-          rsync -a "$CLI_ROOT/" "$SDK_BASE/command-line-tools/"
-          chmod +x "$SDK_BASE/command-line-tools/hvigor/bin"/* 2>/dev/null || true
-          chmod +x "$SDK_BASE/command-line-tools/ohpm/bin"/* 2>/dev/null || true
-          chmod +x "$SDK_BASE/command-line-tools/bin"/* 2>/dev/null || true
-          chmod +x "$SDK_BASE/command-line-tools/sdk/default/openharmony/toolchains"/* 2>/dev/null || true
-          chmod +x "$SDK_BASE/command-line-tools/sdk/default/openharmony/native/llvm/bin"/* 2>/dev/null || true
-          chmod +x "$SDK_BASE/command-line-tools/sdk/default/openharmony/native/build-tools/cmake/bin"/* 2>/dev/null || true
-          chmod +x "$SDK_BASE/command-line-tools/sdk/default/openharmony/ets/build-tools/ets-loader/bin/ark/build/bin"/* 2>/dev/null || true
-          test -f "$SDK_BASE/command-line-tools/hvigor/bin/hvigorw.js"
-          test -f "$SDK_BASE/command-line-tools/hvigor/hvigor-ohos-plugin/node_modules/@ohos/hos-sdkmanager-common/build/src/hos/mapper/platform-sdks.js"
-          test -d "$SDK_BASE/command-line-tools/sdk/default/openharmony/native"
-          test -f "$SDK_BASE/command-line-tools/sdk/default/openharmony/native/build/cmake/ohos.toolchain.cmake"
+          if [ -z "$OHOS_DIR" ]; then
+            echo "Could not locate OpenHarmony SDK directory in combined SDK archive." >&2
+            find "$SDK_EXTRACT" -maxdepth 12 -type d | sort | head -320 >&2
+            exit 1
+          fi
+
+          HVIGOR_ROOT="$(dirname "$(dirname "$HVIGORW")")"
+          SDK_DEFAULT_DIR="${OHOS_DIR%/openharmony}"
+          SDK_CONTAINER_DIR="$(dirname "$SDK_DEFAULT_DIR")"
+          echo "HVIGOR_ROOT=$HVIGOR_ROOT"
+          echo "SDK_DEFAULT_DIR=$SDK_DEFAULT_DIR"
+          echo "SDK_CONTAINER_DIR=$SDK_CONTAINER_DIR"
+
+          rsync -a "$HVIGOR_ROOT/" "$TOOLS_ROOT/hvigor/"
+          if [ -d "$(dirname "$HVIGOR_ROOT")/ohpm" ]; then
+            rsync -a "$(dirname "$HVIGOR_ROOT")/ohpm/" "$TOOLS_ROOT/ohpm/"
+          fi
+          if [ -d "$(dirname "$HVIGOR_ROOT")/bin" ]; then
+            rsync -a "$(dirname "$HVIGOR_ROOT")/bin/" "$TOOLS_ROOT/bin/"
+          fi
+          if [ "$(basename "$SDK_CONTAINER_DIR")" = "sdk" ]; then
+            rsync -a "$SDK_CONTAINER_DIR/" "$TOOLS_ROOT/sdk/"
+          else
+            mkdir -p "$TOOLS_ROOT/sdk/default"
+            rsync -a "$SDK_DEFAULT_DIR/" "$TOOLS_ROOT/sdk/default/"
+          fi
+
+          chmod +x "$TOOLS_ROOT/hvigor/bin"/* 2>/dev/null || true
+          chmod +x "$TOOLS_ROOT/ohpm/bin"/* 2>/dev/null || true
+          chmod +x "$TOOLS_ROOT/bin"/* 2>/dev/null || true
+          chmod +x "$TOOLS_ROOT/sdk/default/openharmony/toolchains"/* 2>/dev/null || true
+          chmod +x "$TOOLS_ROOT/sdk/default/openharmony/native/llvm/bin"/* 2>/dev/null || true
+          chmod +x "$TOOLS_ROOT/sdk/default/openharmony/native/build-tools/cmake/bin"/* 2>/dev/null || true
+          chmod +x "$TOOLS_ROOT/sdk/default/openharmony/ets/build-tools/ets-loader/bin/ark/build/bin"/* 2>/dev/null || true
+
+          echo "Installed command-line tools:"
+          find "$TOOLS_ROOT" -maxdepth 5 -type d | sort | head -220
+          test -f "$TOOLS_ROOT/hvigor/bin/hvigorw.js"
+          test -f "$TOOLS_ROOT/hvigor/hvigor-ohos-plugin/node_modules/@ohos/hos-sdkmanager-common/build/src/hos/mapper/platform-sdks.js"
+          test -d "$TOOLS_ROOT/sdk/default/openharmony/native"
+          test -f "$TOOLS_ROOT/sdk/default/openharmony/native/build/cmake/ohos.toolchain.cmake"
 
       - name: Configure SDK environment
         shell: bash
