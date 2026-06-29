@@ -8,10 +8,10 @@ GitHub Actions 当前已配置并验证通过 4 个 unsigned HAP 构建产物：
 
 | 产物 | Runtime OS | ABI | Product | Artifact 名称 |
 | --- | --- | --- | --- | --- |
-| HarmonyOS ARM64 | `HarmonyOS` | `arm64-v8a` | `default` | `comic-reader-hap-harmonyos-arm64` |
-| HarmonyOS x86_64 | `HarmonyOS` | `x86_64` | `default` | `comic-reader-hap-harmonyos-x86_64` |
-| OpenHarmony ARM64 | `OpenHarmony` | `arm64-v8a` | `openharmony_verify` | `comic-reader-hap-openharmony-arm64` |
-| OpenHarmony x86_64 | `OpenHarmony` | `x86_64` | `openharmony_verify` | `comic-reader-hap-openharmony-x86_64` |
+| HarmonyOS ARM64 | `HarmonyOS` | `arm64-v8a` | `default` | `漫画浏览器-HAP产物-harmonyos-arm64` |
+| HarmonyOS x86_64 | `HarmonyOS` | `x86_64` | `default` | `漫画浏览器-HAP产物-harmonyos-x86_64` |
+| OpenHarmony ARM64 | `OpenHarmony` | `arm64-v8a` | `openharmony_verify` | `漫画浏览器-HAP产物-openharmony-arm64` |
+| OpenHarmony x86_64 | `OpenHarmony` | `x86_64` | `openharmony_verify` | `漫画浏览器-HAP产物-openharmony-x86_64` |
 
 CI 使用私有 SDK 仓库 `liyan-lucky/HarmonyOS_SDK_Tools` 的单包 `.7z` 命令行 SDK。需要在本仓库 Actions secrets/variables 中配置：
 
@@ -104,9 +104,9 @@ https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/i
 
 工作流会上传：
 
-- `comic-reader-hap-*`：unsigned HAP 产物；
-- `comic-reader-sdk-install-logs-*`：SDK 下载和解压日志；
-- `comic-reader-hvigor-logs-*`：hvigor 诊断日志。
+- `漫画浏览器-HAP产物-*`：unsigned HAP 产物；
+- `漫画浏览器-SDK安装日志-*`：SDK 下载和解压日志；
+- `漫画浏览器-hvigor诊断日志-*`：hvigor 诊断日志。
 
 ## 从 GitHub 更新规则
 
