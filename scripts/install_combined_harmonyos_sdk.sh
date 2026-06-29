@@ -29,20 +29,22 @@ download_direct_url() {
   local output="$1"
   local url="$2"
   local headers="$DOWNLOAD_DIR/download-headers.txt"
+  local curl_status=0
   echo "Downloading SDK direct URL"
   if echo "$url" | grep -qE '^https://github.com/'; then
     curl -L --fail --retry 3 --retry-delay 5 \
       -H "Authorization: Bearer ${GH_TOKEN:-}" \
       -H "Accept: application/octet-stream" \
       -D "$headers" \
-      -o "$output" "$url"
+      -o "$output" "$url" || curl_status=$?
   else
     curl -L --fail --retry 3 --retry-delay 5 \
       -D "$headers" \
-      -o "$output" "$url"
+      -o "$output" "$url" || curl_status=$?
   fi
   echo "Download response headers summary:"
   grep -iE '^(HTTP/|content-length:|content-type:|content-disposition:)' "$headers" || true
+  return "$curl_status"
 }
 
 if echo "$HARMONYOS_SDK_URL" | grep -qE '/releases/tag/'; then
@@ -56,6 +58,7 @@ else
     if echo "$HARMONYOS_SDK_URL" | grep -qE '/releases/download/'; then
       SDK_TAG="${HARMONYOS_SDK_URL#*/releases/download/}"
       SDK_TAG="${SDK_TAG%%/*}"
+      echo "Direct SDK URL failed; falling back to release tag from URL: $SDK_TAG"
       download_from_release_tag "$SDK_TAG"
     elif [ -n "$SDK_TAG_FALLBACK" ]; then
       echo "Direct SDK URL failed; falling back to release tag: $SDK_TAG_FALLBACK"
