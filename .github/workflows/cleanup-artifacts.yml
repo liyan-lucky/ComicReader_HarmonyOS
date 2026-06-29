@@ -60,7 +60,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const dryRun = '${{ github.event.inputs.dry_run || 'true' }}' !== 'false';
+            const isManual = context.eventName === 'workflow_dispatch';
+            const dryRun = isManual ? '${{ github.event.inputs.dry_run || 'true' }}' !== 'false' : false;
             const keepDays = Math.max(1, Number.parseInt('${{ github.event.inputs.artifact_keep_days || '14' }}', 10) || 14);
             const keepLatestPerName = Math.max(0, Number.parseInt('${{ github.event.inputs.artifact_keep_latest_per_name || '2' }}', 10) || 2);
             const cutoff = Date.now() - keepDays * 24 * 60 * 60 * 1000;
@@ -95,6 +96,7 @@ jobs:
             }
 
             core.summary.addHeading('Artifact 清理结果');
+            core.summary.addRaw(`触发方式：${context.eventName}\n\n`);
             core.summary.addRaw(`预览模式：${dryRun}\n\n`);
             core.summary.addRaw(`Artifact 总数：${artifacts.length}\n\n`);
             core.summary.addRaw(`候选删除数：${deleteCandidates.length}\n\n`);
