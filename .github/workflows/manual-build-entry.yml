@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: Build unsigned ${{ matrix.package }} HAP
+    name: 构建 ${{ matrix.package }} 未签名 HAP
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -56,26 +56,26 @@ jobs:
       ARTIFACT_DIR: /tmp/comic_reader_harmonyos_artifacts/${{ matrix.package }}
 
     steps:
-      - name: Checkout repository
+      - name: 检出仓库
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: 设置 Java 17
         uses: actions/setup-java@v4
         with:
           distribution: zulu
           java-version: "17"
 
-      - name: Set up Node 20
+      - name: 设置 Node 20
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Install Linux tools
+      - name: 安装 Linux 工具
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip p7zip-full zip curl jq python3 rsync file
 
-      - name: Install combined HarmonyOS command line SDK
+      - name: 安装 HarmonyOS 命令行 SDK
         shell: bash
         run: |
           set -euo pipefail
@@ -83,7 +83,7 @@ jobs:
           bash scripts/install_combined_harmonyos_sdk.sh 2>&1 | tee "$RUNNER_TEMP/comicreader-logs/sdk-install.log"
           test "${PIPESTATUS[0]}" -eq 0
 
-      - name: Configure SDK environment
+      - name: 配置 SDK 环境
         shell: bash
         run: |
           set -euo pipefail
@@ -115,7 +115,7 @@ jobs:
             echo "npm.dir=$NODE_ROOT"
           } > local.properties
 
-      - name: Build unsigned HAP
+      - name: 构建未签名 HAP
         shell: bash
         run: |
           set -euo pipefail
@@ -125,7 +125,7 @@ jobs:
           echo "Possible artifacts after hvigor:"
           find "$GITHUB_WORKSPACE" -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' -o -name '*.zip' \) -print | sort || true
 
-      - name: Collect HAP artifacts
+      - name: 收集 HAP 产物
         shell: bash
         run: |
           set -euo pipefail
@@ -141,7 +141,7 @@ jobs:
           done
           find "$ARTIFACT_DIR" -maxdepth 1 -type f -print | sort
 
-      - name: Upload SDK install logs
+      - name: 上传 SDK 安装日志
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -149,7 +149,7 @@ jobs:
           path: ${{ runner.temp }}/comicreader-logs/**
           if-no-files-found: ignore
 
-      - name: Upload hvigor diagnostic logs
+      - name: 上传 hvigor 诊断日志
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -159,7 +159,7 @@ jobs:
             entry/.hvigor/outputs/**
           if-no-files-found: ignore
 
-      - name: Upload HAP artifact
+      - name: 上传 HAP 产物
         uses: actions/upload-artifact@v4
         with:
           name: comic-reader-hap-${{ matrix.package }}
