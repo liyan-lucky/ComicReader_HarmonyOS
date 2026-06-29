@@ -20,6 +20,33 @@ CI 使用私有 SDK 仓库 `liyan-lucky/HarmonyOS_SDK_Tools` 的单包 `.7z` 命
 
 完整构建说明见 [`BUILDING.md`](BUILDING.md)。
 
+## 当前版本规则
+
+App 使用三段版本号：
+
+```text
+主版本.全量构建号.增量构建号
+```
+
+当前初始版本：
+
+```text
+0.0.0
+```
+
+- 第一段由维护者手动指定，当前为 `0`；
+- `scripts/build_full.sh` 每次全量构建自动增加第二段，并把第三段重置为 `0`；
+- `scripts/build_incremental.sh` 每次增量构建自动增加第三段；
+- App 的“关于”页显示版本、versionCode、构建类型、构建目标和构建时间。
+
+常用命令：
+
+```bash
+bash scripts/build_full.sh
+bash scripts/build_incremental.sh
+bash scripts/hdc_install_hap.sh /path/to/app.hap
+```
+
 ## 仓库拆分
 
 - App 主仓库：`liyan-lucky/ComicReader_HarmonyOS`
@@ -33,7 +60,7 @@ https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/i
 
 ## App 功能
 
-- 三个 Tab：搜索 / 书架 / 设置
+- 四个 Tab：搜索 / 书架 / 设置 / 关于
 - 搜索现有主流搜索引擎
 - 聚合公开 API / 公开 HTML 漫画源
 - 按漫画名称归类显示
@@ -43,6 +70,7 @@ https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/i
 - 公开卷轴网页渲染兜底
 - 书架和阅读历史
 - 设置页可调整搜索、过滤、显示、阅读、规则等选项
+- 关于页显示构建时间和三段版本信息
 - 从 GitHub 远程更新规则
 
 ## 导入 DevEco Studio
