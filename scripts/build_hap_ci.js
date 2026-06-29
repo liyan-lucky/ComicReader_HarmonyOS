@@ -76,6 +76,7 @@ function installPrimitiveSdkComponentCompat() {
 }
 
 installPrimitiveSdkComponentCompat();
+require('./patch_openharmony_device_types_ci.js');
 require('./patch_jsonfile_empty_schema.js');
 require('./patch_sdk_info_paths.js');
 require('./patch_prebuild_sdk_version_check.js');
