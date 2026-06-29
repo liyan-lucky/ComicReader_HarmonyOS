@@ -30,18 +30,18 @@
   - [ ] `openharmony-arm64`
   - [ ] `openharmony-x86_64`
 - [ ] Actions 已上传 4 个 unsigned HAP artifact：
-  - [ ] `comic-reader-hap-harmonyos-arm64`
-  - [ ] `comic-reader-hap-harmonyos-x86_64`
-  - [ ] `comic-reader-hap-openharmony-arm64`
-  - [ ] `comic-reader-hap-openharmony-x86_64`
-- [ ] Actions 已上传 SDK 安装日志和 hvigor 诊断日志，便于回溯失败原因。
+  - [ ] `漫画浏览器-HAP产物-harmonyos-arm64`
+  - [ ] `漫画浏览器-HAP产物-harmonyos-x86_64`
+  - [ ] `漫画浏览器-HAP产物-openharmony-arm64`
+  - [ ] `漫画浏览器-HAP产物-openharmony-x86_64`
+- [ ] Actions 已上传中文命名的 SDK 安装日志和 hvigor 诊断日志，便于回溯失败原因。
 - [ ] `HARMONYOS_SDK_TOKEN` 仍只保存在 GitHub Actions Secret 中，没有写入仓库文件或日志。
 - [ ] `HARMONYOS_SDK_URL` 指向当前可用的 SDK Release tag 或资产直链。
 - [ ] 私有 SDK 仓库 `liyan-lucky/HarmonyOS_SDK_Tools` 的 Token 授权仍然有效。
 
 ## 虚拟机/设备安装测试
 
-- [ ] 已下载目标平台对应的 `comic-reader-hap-*` artifact。
+- [ ] 已下载目标平台对应的 `漫画浏览器-HAP产物-*` artifact。
 - [ ] HAP 已按测试环境要求完成签名，或确认测试环境允许 unsigned HAP。
 - [ ] `hdc` 可用，且能看到目标虚拟机或设备。
 - [ ] 可使用 `bash scripts/hdc_install_hap.sh /path/to/app.hap` 安装。
