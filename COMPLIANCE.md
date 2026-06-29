@@ -10,10 +10,10 @@ GitHub Actions 当前从私有 SDK 工具仓库 `liyan-lucky/HarmonyOS_SDK_Tools
 
 `构建漫画浏览器 HAP` 工作流当前输出：
 
-- `漫画浏览器-HAP产物-harmonyos-arm64`
-- `漫画浏览器-HAP产物-harmonyos-x86_64`
-- `漫画浏览器-HAP产物-openharmony-arm64`
-- `漫画浏览器-HAP产物-openharmony-x86_64`
+- `comic-reader-hap-harmonyos-arm64`
+- `comic-reader-hap-harmonyos-x86_64`
+- `comic-reader-hap-openharmony-arm64`
+- `comic-reader-hap-openharmony-x86_64`
 
 这些产物均为 unsigned HAP，仅用于构建验证和后续签名流程输入。
 
