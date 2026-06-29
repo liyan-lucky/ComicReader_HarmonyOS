@@ -86,4 +86,10 @@ export interface BookshelfItem {
   lastChapterTitle: string;
   addedTimeText: string;
   lastReadTimeText: string;
+  /** 最近阅读章节 URL，用于从书架继续阅读。 */
+  lastReadUrl?: string;
+  /** 估算阅读进度百分比。章节目录无法准确计算时保留最近值。 */
+  progressPercent?: number;
+  /** 累计打开阅读次数，用于书架管理排序和展示。 */
+  readCount?: number;
 }
