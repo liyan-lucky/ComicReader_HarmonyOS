@@ -12,19 +12,48 @@ permissions:
 
 jobs:
   build:
-    name: Build unsigned HarmonyOS phone HAP
+    name: Build unsigned ${{ matrix.package }} HAP
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: harmonyos-arm64
+            platform: harmonyos
+            platform_name: HarmonyOS
+            runtime_os: HarmonyOS
+            abi: arm64-v8a
+            product: default
+          - package: harmonyos-x86_64
+            platform: harmonyos
+            platform_name: HarmonyOS
+            runtime_os: HarmonyOS
+            abi: x86_64
+            product: default
+          - package: openharmony-arm64
+            platform: openharmony
+            platform_name: OpenHarmony
+            runtime_os: OpenHarmony
+            abi: arm64-v8a
+            product: openharmony_verify
+          - package: openharmony-x86_64
+            platform: openharmony
+            platform_name: OpenHarmony
+            runtime_os: OpenHarmony
+            abi: x86_64
+            product: openharmony_verify
     env:
       CI: "true"
-      BUILD_PLATFORM: harmonyos
-      BUILD_PLATFORM_NAME: HarmonyOS
-      BUILD_RUNTIME_OS: HarmonyOS
-      BUILD_ABI: arm64-v8a
-      BUILD_PRODUCT: default
+      BUILD_PLATFORM: ${{ matrix.platform }}
+      BUILD_PLATFORM_NAME: ${{ matrix.platform_name }}
+      BUILD_RUNTIME_OS: ${{ matrix.runtime_os }}
+      BUILD_ABI: ${{ matrix.abi }}
+      BUILD_PRODUCT: ${{ matrix.product }}
+      BUILD_PACKAGE_SUFFIX: ${{ matrix.package }}
       HARMONYOS_SDK_URL: ${{ secrets.HARMONYOS_SDK_URL || vars.HARMONYOS_SDK_URL }}
       GH_TOKEN: ${{ secrets.HARMONYOS_SDK_TOKEN || github.token }}
-      ARTIFACT_DIR: /tmp/comic_reader_harmonyos_artifacts
+      ARTIFACT_DIR: /tmp/comic_reader_harmonyos_artifacts/${{ matrix.package }}
 
     steps:
       - name: Checkout repository
@@ -91,6 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           unset NODE_OPTIONS
+          echo "Building package=$BUILD_PACKAGE_SUFFIX platform=$BUILD_PLATFORM runtime=$BUILD_RUNTIME_OS abi=$BUILD_ABI product=$BUILD_PRODUCT"
           node scripts/build_hap_ci.js assembleHap
           echo "Possible artifacts after hvigor:"
           find "$GITHUB_WORKSPACE" -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' -o -name '*.zip' \) -print | sort || true
@@ -107,7 +137,7 @@ jobs:
             exit 1
           fi
           grep '\.hap$' "$RUNNER_TEMP/artifact-list.txt" | while IFS= read -r hap; do
-            cp -f "$hap" "$ARTIFACT_DIR/$(basename "$hap")"
+            cp -f "$hap" "$ARTIFACT_DIR/${BUILD_PACKAGE_SUFFIX}-$(basename "$hap")"
           done
           find "$ARTIFACT_DIR" -maxdepth 1 -type f -print | sort
 
@@ -115,7 +145,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: comic-reader-sdk-install-logs
+          name: comic-reader-sdk-install-logs-${{ matrix.package }}
           path: ${{ runner.temp }}/comicreader-logs/**
           if-no-files-found: ignore
 
@@ -123,7 +153,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: comic-reader-hvigor-logs
+          name: comic-reader-hvigor-logs-${{ matrix.package }}
           path: |
             .hvigor/outputs/**
             entry/.hvigor/outputs/**
@@ -132,6 +162,6 @@ jobs:
       - name: Upload HAP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: comic-reader-hap
-          path: /tmp/comic_reader_harmonyos_artifacts/*
+          name: comic-reader-hap-${{ matrix.package }}
+          path: /tmp/comic_reader_harmonyos_artifacts/${{ matrix.package }}/*
           if-no-files-found: error
