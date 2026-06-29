@@ -145,7 +145,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: comic-reader-sdk-install-logs-${{ matrix.package }}
+          name: 漫画浏览器-SDK安装日志-${{ matrix.package }}
           path: ${{ runner.temp }}/comicreader-logs/**
           if-no-files-found: ignore
 
@@ -153,7 +153,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: comic-reader-hvigor-logs-${{ matrix.package }}
+          name: 漫画浏览器-hvigor诊断日志-${{ matrix.package }}
           path: |
             .hvigor/outputs/**
             entry/.hvigor/outputs/**
@@ -162,6 +162,6 @@ jobs:
       - name: 上传 HAP 产物
         uses: actions/upload-artifact@v4
         with:
-          name: comic-reader-hap-${{ matrix.package }}
+          name: 漫画浏览器-HAP产物-${{ matrix.package }}
           path: /tmp/comic_reader_harmonyos_artifacts/${{ matrix.package }}/*
           if-no-files-found: error
