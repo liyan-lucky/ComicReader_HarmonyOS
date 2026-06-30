@@ -92,8 +92,9 @@ struct Index {
   @State private includeSearchEngineDiscovered: boolean = true;
   @State private excludeLoginPayResults: boolean = true;
 
-  @State private coverOnlyMode: boolean = false;
-  @State private resultColumns: number = 2;
+  @State private coverOnlyMode: boolean = true;
+  @State private resultColumns: number = 3;
+  @State private resultViewMode: string = 'grid';
   @State private autoCoverEnabled: boolean = true;
   @State private groupByName: boolean = true;
   @State private maxSearchResults: number = 80;
@@ -1179,48 +1180,73 @@ struct Index {
 
   @Builder
   private SearchHome() {
-    Scroll() {
+    Column() {
+      Blank().layoutWeight(1)
       Column() {
-        Column() {
-          Text('今天想看什么漫画？')
-            .fontSize(24)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.primaryText())
-            .width('100%')
-          Text('输入作品名，自动聚合公开来源并整理成封面列表。')
-            .fontSize(13)
-            .fontColor(this.secondaryText())
-            .lineHeight(20)
-            .width('100%')
-            .margin({ top: 6 })
-          Row() {
-            this.SearchChip('斗罗大陆')
-            this.SearchChip('火影忍者')
-            this.SearchChip('one piece')
-          }
-          .width('100%')
-          .margin({ top: 14 })
+        Image($r('app.media.icon'))
+          .width(92)
+          .height(92)
+          .margin({ bottom: 18 })
+        Text('漫画浏览器')
+          .fontSize(26)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
+        Text('输入漫画名称，开始搜索公开资源')
+          .fontSize(13)
+          .fontColor(this.secondaryText())
+          .margin({ top: 6, bottom: 20 })
+        Row() {
+          TextInput({ placeholder: this.t('searchPlaceholder'), text: this.queryText })
+            .height(50)
+            .layoutWeight(1)
+            .fontSize(15)
+            .backgroundColor(this.cardBg())
+            .borderRadius(25)
+            .padding({ left: 16, right: 16 })
+            .onChange((value: string) => { this.queryText = value; })
+            .onSubmit(() => { this.startSearch(); })
+          Button(this.t('search'))
+            .height(50)
+            .fontSize(15)
+            .fontColor('#FFFFFF')
+            .backgroundColor(this.accent())
+            .borderRadius(25)
+            .margin({ left: 10 })
+            .enabled(!this.isLoading)
+            .onClick(() => { this.startSearch(); })
         }
         .width('100%')
-        .padding(18)
-        .backgroundColor(this.cardBg())
-        .borderRadius(22)
-        .margin({ top: 10, bottom: 14 })
+        .padding({ left: 20, right: 20 })
+        Row() {
+          this.SearchChip('斗罗大陆')
+          this.SearchChip('火影忍者')
+          this.SearchChip('one piece')
+        }
+        .justifyContent(FlexAlign.Center)
+        .width('100%')
+        .margin({ top: 16 })
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Center)
+      Blank().layoutWeight(1)
+    }
+    .layoutWeight(1)
+    .backgroundColor(this.appBg())
+  }
 
-        this.StatusCard()
+  @Builder
+  private LegacySearchHomeRemoved() {
+    Text('')
+  }
 
-        Text('最近阅读')
+  @Builder
+  private SearchHomeOldUnusedAnchor() {
+    Text('最近阅读')
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
           .width('100%')
           .margin({ bottom: 8 })
-        this.HistoryList(false)
       }
-      .width('100%')
-      .padding(14)
-    }
-    .layoutWeight(1)
-    .backgroundColor(this.appBg())
   }
 
   @Builder
@@ -1347,6 +1373,44 @@ struct Index {
   }
 
   @Builder
+  private ResultListCard(item: SearchResultItem) {
+    Row() {
+      this.CoverBox(item, 108)
+      Column() {
+        Text(item.title)
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.primaryText())
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        Text(item.sourceName)
+          .fontSize(12)
+          .fontColor(this.secondaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ top: 6 })
+        Button('阅读')
+          .height(30)
+          .fontSize(12)
+          .fontColor('#FFFFFF')
+          .backgroundColor(this.accent())
+          .borderRadius(15)
+          .margin({ top: 10 })
+          .onClick(() => this.openSearchResult(item))
+      }
+      .layoutWeight(1)
+      .margin({ left: 12 })
+    }
+    .width('100%')
+    .padding(10)
+    .backgroundColor(this.cardBg())
+    .borderRadius(18)
+    .margin({ bottom: 10 })
+    .onClick(() => this.openSearchResult(item))
+  }
+
+  @Builder
   private ResultGroupView(group: ResultGroup) {
     Column() {
       Row() {
@@ -1366,15 +1430,24 @@ struct Index {
       .width('100%')
       .margin({ bottom: 8 })
 
-      Grid() {
-        ForEach(group.items, (item: SearchResultItem) => {
-          GridItem() { this.ResultCard(item) }
-        }, (item: SearchResultItem) => item.url)
+      if (this.resultViewMode === 'list') {
+        Column() {
+          ForEach(group.items, (item: SearchResultItem) => {
+            this.ResultListCard(item)
+          }, (item: SearchResultItem) => item.url)
+        }
+        .width('100%')
+      } else {
+        Grid() {
+          ForEach(group.items, (item: SearchResultItem) => {
+            GridItem() { this.ResultCard(item) }
+          }, (item: SearchResultItem) => item.url)
+        }
+        .columnsTemplate(this.resultColumns === 3 ? '1fr 1fr 1fr' : '1fr 1fr')
+        .columnsGap(12)
+        .rowsGap(12)
+        .width('100%')
       }
-      .columnsTemplate(this.resultColumns === 3 || this.coverOnlyMode ? '1fr 1fr 1fr' : '1fr 1fr')
-      .columnsGap(12)
-      .rowsGap(12)
-      .width('100%')
     }
     .width('100%')
     .margin({ bottom: 18 })
@@ -1398,10 +1471,20 @@ struct Index {
               .margin({ top: 3 })
           }
           .layoutWeight(1)
-          Button(this.groupByName ? '已归类' : '不归类')
-            .height(32)
-            .fontSize(12)
-            .onClick(() => { this.groupByName = !this.groupByName; })
+          if (this.results.length > 0) {
+            Button(this.resultViewMode === 'grid' ? '网格' : '列表')
+              .height(32)
+              .fontSize(12)
+              .fontColor('#FFFFFF')
+              .backgroundColor(this.accent())
+              .borderRadius(16)
+              .onClick(() => { this.resultViewMode = this.resultViewMode === 'grid' ? 'list' : 'grid'; })
+            Button(this.resultColumns === 3 ? '三列' : '两列')
+              .height(32)
+              .fontSize(12)
+              .margin({ left: 8 })
+              .onClick(() => { this.resultColumns = this.resultColumns === 3 ? 2 : 3; })
+          }
         }
         .width('100%')
         .margin({ bottom: 8 })
@@ -1682,6 +1765,80 @@ struct Index {
   }
 
   @Builder
+  private HistoryPage() {
+    Scroll() {
+      Column() {
+        Text('历史')
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
+          .width('100%')
+          .margin({ top: 12, bottom: 6 })
+        Text('观看历史、收藏记录和下载任务统一放在这里。')
+          .fontSize(13)
+          .fontColor(this.secondaryText())
+          .lineHeight(20)
+          .width('100%')
+          .margin({ bottom: 12 })
+
+        this.SettingSectionTitle('历史记录', '最近打开的章节和卷轴阅读记录。')
+        this.HistoryList(true)
+
+        this.SettingSectionTitle('收藏记录', '从结果、章节或阅读页加入书架的内容。')
+        if (this.bookshelf.length === 0) {
+          Text('暂无收藏。阅读页或结果卡片加入书架后会显示在这里。')
+            .fontSize(14)
+            .fontColor(this.secondaryText())
+            .width('100%')
+            .padding(14)
+            .backgroundColor(this.cardBg())
+            .borderRadius(16)
+            .margin({ bottom: 12 })
+        } else {
+          ForEach(this.bookshelf, (item: BookshelfItem) => {
+            Column() {
+              Text(item.title)
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.primaryText())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+              Text((item.lastChapterTitle.length > 0 ? item.lastChapterTitle : '未阅读') + ' · ' + item.sourceName)
+                .fontSize(12)
+                .fontColor(this.secondaryText())
+                .margin({ top: 5 })
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+            }
+            .width('100%')
+            .padding(14)
+            .backgroundColor(this.cardBg())
+            .borderRadius(16)
+            .margin({ bottom: 8 })
+            .onClick(() => this.loadChapterByUrl(item.lastChapterUrl.length > 0 ? item.lastChapterUrl : item.url, item.lastChapterTitle, ruleForPublicUrl(item.url, this.genericRule())))
+          }, (item: BookshelfItem) => item.url)
+        }
+
+        this.SettingSectionTitle('下载', '下载能力暂时保留，后续接入离线章节。')
+        Text('暂无下载任务。')
+          .fontSize(14)
+          .fontColor(this.secondaryText())
+          .width('100%')
+          .padding(14)
+          .backgroundColor(this.cardBg())
+          .borderRadius(16)
+          .margin({ bottom: 18 })
+      }
+      .width('100%')
+      .padding(14)
+    }
+    .layoutWeight(1)
+    .backgroundColor(this.appBg())
+  }
+
+  @Builder
   private ShelfPage() {
     Scroll() {
       Column() {
@@ -1690,7 +1847,7 @@ struct Index {
           .fontWeight(FontWeight.Bold)
           .width('100%')
           .margin({ top: 12, bottom: 6 })
-        Text('搜索结果、章节页或阅读页可加入书架；书架会显示封面、名称、来源和最近阅读章节。')
+        Text('书架能力保留，收藏内容已移动到历史页的收藏记录中管理。')
           .fontSize(13)
           .fontColor(this.secondaryText())
           .lineHeight(20)
@@ -2117,6 +2274,8 @@ struct Index {
       Image($r('app.media.ic_shelf')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
     } else if (name === 'settings') {
       Image($r('app.media.ic_settings')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
+    } else if (name === 'history') {
+      Image($r('app.media.ic_history')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
     } else if (name === 'about') {
       Image($r('app.media.ic_about')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
     } else if (name === 'back') {
@@ -2155,10 +2314,10 @@ struct Index {
   @Builder
   private BottomTabs() {
     Row() {
-      this.TabPill('search', this.t('search'))
-      this.TabPill('shelf', this.t('shelf'))
-      this.TabPill('settings', this.t('settings'))
-      this.TabPill('about', this.t('about'))
+      this.TabPill('search', '搜索')
+      this.TabPill('shelf', '书架')
+      this.TabPill('history', '历史')
+      this.TabPill('settings', '设置')
     }
     .width('92%')
     .height(68)
@@ -2170,7 +2329,7 @@ struct Index {
 
   build() {
     Column() {
-      if (this.activeTab === 'search' && this.mode !== 'reader' && this.mode !== 'rendered_reader' && this.mode !== 'chapters') {
+      if (this.activeTab === 'search' && this.mode === 'results') {
         this.SearchHeader()
       }
 
@@ -2186,10 +2345,10 @@ struct Index {
         }
       } else if (this.activeTab === 'shelf') {
         this.ShelfPage()
-      } else if (this.activeTab === 'settings') {
-        this.SettingsPage()
+      } else if (this.activeTab === 'history') {
+        this.HistoryPage()
       } else {
-        this.AboutPage()
+        this.SettingsPage()
       }
 
       if (this.mode !== 'reader' && this.mode !== 'rendered_reader' && this.mode !== 'chapters') {
