@@ -11,6 +11,17 @@ from pathlib import Path
 path = Path('entry/src/main/ets/pages/Index.ets')
 text = path.read_text(encoding='utf-8')
 
+
+def replace_between(source: str, start: str, end: str, replacement: str) -> str:
+    start_index = source.find(start)
+    if start_index < 0:
+        return source
+    end_index = source.find(end, start_index)
+    if end_index < 0:
+        raise SystemExit(f'End anchor not found after {start!r}: {end!r}')
+    return source[:start_index] + replacement + source[end_index:]
+
+
 # Defaults: search result page uses image-first grid.
 text = text.replace('@State private coverOnlyMode: boolean = false;', '@State private coverOnlyMode: boolean = true;')
 text = text.replace('@State private resultColumns: number = 2;', '@State private resultColumns: number = 3;')
@@ -154,6 +165,74 @@ if 'private SettingSectionTitle(title: string, desc: string)' not in text:
   private SettingsPage() {"""
     )
 
+# Shelf is no longer the favorites/history display page. Keep only a functional placeholder.
+shelf_page = """  @Builder
+  private ShelfPage() {
+    Scroll() {
+      Column() {
+        Text('书架')
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
+          .width('100%')
+          .margin({ top: 12, bottom: 6 })
+        Text('书架能力暂时保留，收藏内容已移动到“历史 → 收藏记录”中管理。')
+          .fontSize(13)
+          .fontColor(this.secondaryText())
+          .lineHeight(20)
+          .width('100%')
+          .margin({ bottom: 12 })
+
+        Column() {
+          Text('功能保留')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.primaryText())
+            .width('100%')
+          Text('后续这里用于书架分组、同步、整理等能力；当前不再展示收藏列表，避免和历史页重复。')
+            .fontSize(13)
+            .fontColor(this.secondaryText())
+            .lineHeight(20)
+            .width('100%')
+            .margin({ top: 6 })
+          Row() {
+            Text('收藏 ' + this.bookshelf.length + ' 本')
+              .fontSize(13)
+              .fontColor(this.secondaryText())
+              .layoutWeight(1)
+            Button('查看收藏')
+              .height(34)
+              .fontSize(12)
+              .fontColor('#FFFFFF')
+              .backgroundColor(this.accent())
+              .borderRadius(17)
+              .onClick(() => { this.activeTab = 'history'; })
+          }
+          .width('100%')
+          .margin({ top: 14 })
+        }
+        .width('100%')
+        .padding(16)
+        .backgroundColor(this.cardBg())
+        .borderRadius(18)
+      }
+      .width('100%')
+      .padding(14)
+    }
+    .layoutWeight(1)
+    .backgroundColor(this.appBg())
+  }
+
+"""
+text = replace_between(
+    text,
+    """  @Builder
+  private ShelfPage() {""",
+    """  @Builder
+  private SettingCard(title: string, desc: string, value: string) {""",
+    shelf_page
+)
+
 # Off / disabled status should be gray, not green.
 text = text.replace(
     """        Text(value)
@@ -174,6 +253,14 @@ text = text.replace(
 for marker in ['LegacySearchHomeRemoved', 'SearchHomeOldUnusedAnchor']:
     if marker in text:
         raise SystemExit(f'Unexpected leftover marker still present: {marker}')
+
+# Validate ShelfPage does not contain old favorites/history display content.
+shelf_start = text.find('private ShelfPage()')
+shelf_end = text.find('private SettingCard(', shelf_start)
+shelf_body = text[shelf_start:shelf_end]
+for forbidden in ['Grid() {', 'this.HistoryList(true)', '清书架', '清历史']:
+    if forbidden in shelf_body:
+        raise SystemExit(f'ShelfPage still contains old content: {forbidden}')
 
 path.write_text(text, encoding='utf-8')
 print('UI polish cleanup applied to', path)
