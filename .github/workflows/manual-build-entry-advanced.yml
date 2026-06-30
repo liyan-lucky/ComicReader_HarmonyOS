@@ -1,0 +1,294 @@
+name: 高级构建漫画浏览器 HAP
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_scope:
+        description: "构建目标范围（默认全部；也可以只跑一个失败目标，显示区域尽量写完整）"
+        required: true
+        default: "全部目标：HarmonyOS arm64 + HarmonyOS x86_64 + OpenHarmony arm64 + OpenHarmony x86_64"
+        type: choice
+        options:
+          - "全部目标：HarmonyOS arm64 + HarmonyOS x86_64 + OpenHarmony arm64 + OpenHarmony x86_64"
+          - "仅 HarmonyOS arm64：手机/平板 ARM64 未签名 HAP"
+          - "仅 HarmonyOS x86_64：虚拟机/模拟器 x86_64 未签名 HAP"
+          - "仅 OpenHarmony arm64：OpenHarmony ARM64 校验包"
+          - "仅 OpenHarmony x86_64：OpenHarmony x86_64 校验包"
+      run_validate:
+        description: "是否执行构建前校验（建议开启：校验 package 配置、workflow 关键字、脚本语法）"
+        required: true
+        default: "是：执行基础校验后再构建"
+        type: choice
+        options:
+          - "是：执行基础校验后再构建"
+          - "否：跳过基础校验，直接进入构建"
+      only_validate:
+        description: "是否只校验不构建（用于快速检查流程，不下载 SDK、不产出 HAP）"
+        required: true
+        default: "否：校验后继续构建 HAP"
+        type: choice
+        options:
+          - "否：校验后继续构建 HAP"
+          - "是：只做校验，不构建 HAP"
+      version_mode:
+        description: "构建信息处理方式（只影响本次 CI 工作区的 BuildInfo，不自动提交源码）"
+        required: true
+        default: "写入 CI 构建信息：使用当前目标名称和运行编号"
+        type: choice
+        options:
+          - "写入 CI 构建信息：使用当前目标名称和运行编号"
+          - "保持源码版本信息：不额外改版本号文件"
+      create_tag:
+        description: "是否在全部选中目标成功后创建 Git 标签（默认否；标签名由流程自动生成）"
+        required: true
+        default: "否：不创建标签"
+        type: choice
+        options:
+          - "否：不创建标签"
+          - "是：成功后创建标签"
+      upload_hap:
+        description: "是否上传 HAP 产物（建议开启；关闭后只看构建日志）"
+        required: true
+        default: "是：上传 HAP 产物"
+        type: choice
+        options:
+          - "是：上传 HAP 产物"
+          - "否：不上传 HAP 产物"
+      upload_logs:
+        description: "是否上传 SDK 安装日志和 hvigor 诊断日志（建议开启，失败排查需要）"
+        required: true
+        default: "是：上传全部诊断日志"
+        type: choice
+        options:
+          - "是：上传全部诊断日志"
+          - "否：不上传诊断日志"
+      wait_minutes:
+        description: "流程结束前等待时间（方便你打开日志观察；0 表示不等待）"
+        required: true
+        default: "0 分钟：不等待"
+        type: choice
+        options:
+          - "0 分钟：不等待"
+          - "5 分钟：等待你查看日志"
+          - "10 分钟：等待你查看日志"
+          - "20 分钟：等待你查看日志"
+
+permissions:
+  contents: write
+
+env:
+  CI: "true"
+
+jobs:
+  build:
+    name: 高级构建 ${{ matrix.package }} 未签名 HAP
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: harmonyos-arm64
+            scope_name: "仅 HarmonyOS arm64：手机/平板 ARM64 未签名 HAP"
+            platform: harmonyos
+            platform_name: HarmonyOS
+            runtime_os: HarmonyOS
+            abi: arm64-v8a
+            product: default
+          - package: harmonyos-x86_64
+            scope_name: "仅 HarmonyOS x86_64：虚拟机/模拟器 x86_64 未签名 HAP"
+            platform: harmonyos
+            platform_name: HarmonyOS
+            runtime_os: HarmonyOS
+            abi: x86_64
+            product: default
+          - package: openharmony-arm64
+            scope_name: "仅 OpenHarmony arm64：OpenHarmony ARM64 校验包"
+            platform: openharmony
+            platform_name: OpenHarmony
+            runtime_os: OpenHarmony
+            abi: arm64-v8a
+            product: openharmony_verify
+          - package: openharmony-x86_64
+            scope_name: "仅 OpenHarmony x86_64：OpenHarmony x86_64 校验包"
+            platform: openharmony
+            platform_name: OpenHarmony
+            runtime_os: OpenHarmony
+            abi: x86_64
+            product: openharmony_verify
+    env:
+      BUILD_PLATFORM: ${{ matrix.platform }}
+      BUILD_PLATFORM_NAME: ${{ matrix.platform_name }}
+      BUILD_RUNTIME_OS: ${{ matrix.runtime_os }}
+      BUILD_ABI: ${{ matrix.abi }}
+      BUILD_PRODUCT: ${{ matrix.product }}
+      BUILD_PACKAGE_SUFFIX: ${{ matrix.package }}
+      HARMONYOS_SDK_URL: ${{ secrets.HARMONYOS_SDK_URL || vars.HARMONYOS_SDK_URL }}
+      GH_TOKEN: ${{ secrets.HARMONYOS_SDK_TOKEN || github.token }}
+      ARTIFACT_DIR: /tmp/comic_reader_harmonyos_artifacts/${{ matrix.package }}
+    steps:
+      - name: 判断当前 matrix 是否需要构建
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.only_validate }}" = "是：只做校验，不构建 HAP" ]; then
+            echo "SHOULD_BUILD=false" >> "$GITHUB_ENV"
+            echo "只校验不构建。"
+          elif [ "${{ inputs.build_scope }}" = "全部目标：HarmonyOS arm64 + HarmonyOS x86_64 + OpenHarmony arm64 + OpenHarmony x86_64" ] || [ "${{ inputs.build_scope }}" = "${{ matrix.scope_name }}" ]; then
+            echo "SHOULD_BUILD=true" >> "$GITHUB_ENV"
+            echo "当前目标需要构建：${{ matrix.package }}"
+          else
+            echo "SHOULD_BUILD=false" >> "$GITHUB_ENV"
+            echo "当前目标不在本次选择范围内，后续步骤跳过：${{ matrix.package }}"
+          fi
+
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 设置 Java 17
+        if: env.SHOULD_BUILD == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: 设置 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 基础校验
+        if: ${{ inputs.run_validate == '是：执行基础校验后再构建' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f scripts/validate_oh_package_json5_ci.js ]; then node scripts/validate_oh_package_json5_ci.js; fi
+          node --check scripts/build_hap_ci.js
+          test -s oh-package.json5
+          test -s entry/oh-package.json5
+
+      - name: 安装 Linux 工具
+        if: env.SHOULD_BUILD == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip p7zip-full zip curl jq python3 rsync file
+
+      - name: 安装 HarmonyOS 命令行 SDK
+        if: env.SHOULD_BUILD == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/comicreader-logs"
+          bash scripts/install_combined_harmonyos_sdk.sh 2>&1 | tee "$RUNNER_TEMP/comicreader-logs/sdk-install.log"
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: 配置 SDK 环境
+        if: env.SHOULD_BUILD == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_BASE="/home/runner/harmonyos-sdk"
+          TOOLS_ROOT="$SDK_BASE/command-line-tools"
+          SDK_ROOT="$TOOLS_ROOT/sdk/default"
+          OHOS_ROOT="$SDK_ROOT/openharmony"
+          NATIVE_ROOT="$OHOS_ROOT/native"
+          NODE_ROOT="$(dirname "$(dirname "$(command -v node)")")"
+          {
+            echo "DEVECO_SDK_HOME=$SDK_ROOT"
+            echo "OHOS_HVIGOR_SDK_ROOT=$SDK_ROOT"
+            echo "TABSSH_HWSDK_ROOT=$SDK_ROOT"
+            echo "HARMONYOS_SDK_ROOT=$SDK_ROOT"
+            echo "HARMONYOS_SDK_DIR=$OHOS_ROOT"
+            echo "OHOS_SDK_HOME=$OHOS_ROOT"
+            echo "OHOS_NDK_HOME=$NATIVE_ROOT"
+            echo "DEVECO_TOOLS_HOME=$TOOLS_ROOT"
+            echo "DEVECO_TOOLS_ROOT=$TOOLS_ROOT"
+            echo "HARMONYOS_NODE_DIR=$NODE_ROOT"
+            echo "DEVECO_NODE_EXE=$(command -v node)"
+            echo "PATH=$TOOLS_ROOT/bin:$TOOLS_ROOT/ohpm/bin:$TOOLS_ROOT/hvigor/bin:$OHOS_ROOT/toolchains:$NATIVE_ROOT/llvm/bin:$NATIVE_ROOT/build-tools/cmake/bin:$PATH"
+            echo "LD_LIBRARY_PATH=$OHOS_ROOT/previewer/common/bin:$OHOS_ROOT/ets/build-tools/ets-loader/bin/ark/build/bin:$OHOS_ROOT/toolchains:$OHOS_ROOT/toolchains/lib:$NATIVE_ROOT/sysroot/usr/lib/x86_64-linux-ohos:${LD_LIBRARY_PATH:-}"
+          } >> "$GITHUB_ENV"
+          {
+            echo "sdk.dir=$SDK_ROOT"
+            echo "hwsdk.dir=$SDK_ROOT"
+            echo "npm.dir=$NODE_ROOT"
+          } > local.properties
+
+      - name: 构建未签名 HAP
+        if: env.SHOULD_BUILD == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset NODE_OPTIONS
+          if [ "${{ inputs.version_mode }}" = "保持源码版本信息：不额外改版本号文件" ]; then
+            export COMIC_READER_SKIP_BUILDINFO_WRITE=1
+          fi
+          node scripts/build_hap_ci.js assembleHap
+          find "$GITHUB_WORKSPACE" -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' -o -name '*.zip' \) -print | sort || true
+
+      - name: 收集 HAP 产物
+        if: env.SHOULD_BUILD == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ARTIFACT_DIR"
+          find "$GITHUB_WORKSPACE" -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' \) -print | sort | tee "$RUNNER_TEMP/artifact-list.txt"
+          grep '\.hap$' "$RUNNER_TEMP/artifact-list.txt"
+          grep '\.hap$' "$RUNNER_TEMP/artifact-list.txt" | while IFS= read -r hap; do
+            cp -f "$hap" "$ARTIFACT_DIR/${BUILD_PACKAGE_SUFFIX}-$(basename "$hap")"
+          done
+
+      - name: 上传 SDK 安装日志
+        if: ${{ always() && inputs.upload_logs == '是：上传全部诊断日志' && env.SHOULD_BUILD == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: comic-reader-sdk-install-logs-${{ matrix.package }}
+          path: ${{ runner.temp }}/comicreader-logs/**
+          if-no-files-found: ignore
+
+      - name: 上传 hvigor 诊断日志
+        if: ${{ always() && inputs.upload_logs == '是：上传全部诊断日志' && env.SHOULD_BUILD == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: comic-reader-hvigor-logs-${{ matrix.package }}
+          path: |
+            .hvigor/outputs/**
+            entry/.hvigor/outputs/**
+          if-no-files-found: ignore
+
+      - name: 上传 HAP 产物
+        if: ${{ inputs.upload_hap == '是：上传 HAP 产物' && env.SHOULD_BUILD == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: comic-reader-hap-${{ matrix.package }}
+          path: /tmp/comic_reader_harmonyos_artifacts/${{ matrix.package }}/*
+          if-no-files-found: error
+
+      - name: 结束前等待你查看日志
+        if: ${{ always() && inputs.wait_minutes != '0 分钟：不等待' && env.SHOULD_BUILD == 'true' }}
+        shell: bash
+        run: |
+          case "${{ inputs.wait_minutes }}" in
+            "5 分钟：等待你查看日志") sleep 300 ;;
+            "10 分钟：等待你查看日志") sleep 600 ;;
+            "20 分钟：等待你查看日志") sleep 1200 ;;
+            *) echo "不等待" ;;
+          esac
+
+  tag:
+    name: 成功后创建构建标签
+    needs: build
+    if: ${{ inputs.create_tag == '是：成功后创建标签' && success() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+      - name: 创建并推送标签
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$TAG"
+          git push origin "refs/tags/$TAG" --force
