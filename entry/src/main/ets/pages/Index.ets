@@ -1767,6 +1767,27 @@ struct Index {
           .width('100%')
           .margin({ bottom: 12 })
 
+        Row() {
+          Text('历史 ' + this.history.length + ' 条 · 收藏 ' + this.bookshelf.length + ' 本')
+            .fontSize(13)
+            .fontColor(this.secondaryText())
+            .layoutWeight(1)
+          Button('清历史')
+            .height(32)
+            .fontSize(12)
+            .onClick(() => { this.history = []; this.statusText = '阅读历史已清空。'; })
+          Button('清收藏')
+            .height(32)
+            .fontSize(12)
+            .margin({ left: 6 })
+            .onClick(() => { this.bookshelf = []; this.statusText = '收藏记录已清空。'; })
+        }
+        .width('100%')
+        .padding(12)
+        .backgroundColor(this.cardBg())
+        .borderRadius(16)
+        .margin({ bottom: 12 })
+
         this.SettingSectionTitle('历史记录', '最近打开的章节和卷轴阅读记录。')
         this.HistoryList(true)
 
@@ -1797,18 +1818,33 @@ struct Index {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
+              Row() {
+                Button('打开')
+                  .height(30)
+                  .fontSize(12)
+                  .layoutWeight(1)
+                  .onClick(() => this.openShelf(item))
+                Button('移除')
+                  .height(30)
+                  .fontSize(12)
+                  .layoutWeight(1)
+                  .margin({ left: 8 })
+                  .onClick(() => this.removeShelf(item.url))
+              }
+              .width('100%')
+              .margin({ top: 10 })
             }
             .width('100%')
             .padding(14)
             .backgroundColor(this.cardBg())
             .borderRadius(16)
             .margin({ bottom: 8 })
-            .onClick(() => this.loadChapterByUrl(item.lastChapterUrl.length > 0 ? item.lastChapterUrl : item.url, item.lastChapterTitle, ruleForPublicUrl(item.url, this.genericRule())))
+            .onClick(() => this.openShelf(item))
           }, (item: BookshelfItem) => item.url)
         }
 
         this.SettingSectionTitle('下载', '下载能力暂时保留，后续接入离线章节。')
-        Text('暂无下载任务。')
+        Text('暂无下载任务。后续下载任务、缓存章节和离线阅读入口会集中在这里。')
           .fontSize(14)
           .fontColor(this.secondaryText())
           .width('100%')
@@ -1828,101 +1864,73 @@ struct Index {
   private ShelfPage() {
     Scroll() {
       Column() {
-        Text('书架')
+        Text('热门题材')
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
           .width('100%')
           .margin({ top: 12, bottom: 6 })
-        Text('书架能力保留，收藏内容已移动到历史页的收藏记录中管理。')
+        Text('这里将自动更新热门题材推荐，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
           .fontSize(13)
           .fontColor(this.secondaryText())
           .lineHeight(20)
           .width('100%')
           .margin({ bottom: 12 })
-        this.StatusCard()
 
-        Row() {
-          Text('收藏 ' + this.bookshelf.length + ' 本 · 历史 ' + this.history.length + ' 条')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .layoutWeight(1)
-          Button('清历史')
-            .height(32)
-            .fontSize(12)
-            .onClick(() => { this.history = []; this.statusText = '阅读历史已清空。'; })
-          Button('清书架')
-            .height(32)
-            .fontSize(12)
-            .margin({ left: 6 })
-            .onClick(() => { this.bookshelf = []; this.statusText = '书架已清空。'; })
+        Column() {
+          Text('自动推荐')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.primaryText())
+            .width('100%')
+          Text('后续会从规则仓库热门题材索引自动更新；当前先提供常用题材入口。')
+            .fontSize(13)
+            .fontColor(this.secondaryText())
+            .lineHeight(20)
+            .width('100%')
+            .margin({ top: 6 })
         }
         .width('100%')
+        .padding(16)
+        .backgroundColor(this.cardBg())
+        .borderRadius(18)
         .margin({ bottom: 12 })
 
-        if (this.bookshelf.length === 0) {
-          Text('书架为空。请在搜索结果卡片、章节页或阅读页点击“书架”。')
-            .fontSize(14)
-            .fontColor(this.secondaryText())
-            .width('100%')
-            .padding(12)
-            .backgroundColor(this.cardBg())
-            .borderRadius(10)
-            .margin({ bottom: 16 })
-        } else {
-          Grid() {
-            ForEach(this.bookshelf, (item: BookshelfItem) => {
-              GridItem() {
-                Column() {
-                  if (item.cover.length > 0) {
-                    Image(item.cover)
-                      .width('100%')
-                      .height(160)
-                      .objectFit(ImageFit.Cover)
-                      .backgroundColor('#EEEEEE')
-                  } else {
-                    Column() {
-                      Text(item.title.substring(0, 1)).fontSize(30).fontWeight(FontWeight.Bold).fontColor('#34C759')
-                      Text('无封面').fontSize(11).fontColor(this.secondaryText()).margin({ top: 6 })
-                    }.width('100%').height(160).justifyContent(FlexAlign.Center).backgroundColor('#ECFFF1')
-                  }
-                  Text(item.title)
-                    .fontSize(14)
-                    .fontWeight(FontWeight.Medium)
-                    .maxLines(2)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .width('100%')
-                    .padding({ left: 8, right: 8, top: 8 })
-                  Text((item.lastChapterTitle.length > 0 ? item.lastChapterTitle : '未阅读') + ' · ' + item.sourceName)
-                    .fontSize(10)
-                    .fontColor(this.secondaryText())
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .width('100%')
-                    .padding({ left: 8, right: 8, top: 3, bottom: 8 })
-                  Row() {
-                    Button('打开').height(28).fontSize(11).layoutWeight(1).onClick(() => this.openShelf(item))
-                    Button('移除').height(28).fontSize(11).layoutWeight(1).margin({ left: 6 }).onClick(() => this.removeShelf(item.url))
-                  }.width('100%').padding({ left: 8, right: 8, bottom: 8 })
-                }
-                .width('100%')
-                .backgroundColor(this.cardBg())
-                .borderRadius(12)
+        Grid() {
+          ForEach(['玄幻', '修真', '恋爱', '校园', '宫斗', '都市', '热血', '冒险', '悬疑', '科幻', '搞笑', '治愈'], (topic: string) => {
+            GridItem() {
+              Column() {
+                Text(topic)
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(this.accent())
+                Text('点击搜索')
+                  .fontSize(11)
+                  .fontColor(this.secondaryText())
+                  .margin({ top: 5 })
               }
-            }, (item: BookshelfItem) => item.url)
-          }
-          .columnsTemplate('1fr 1fr')
-          .columnsGap(10)
-          .rowsGap(10)
-          .width('100%')
-          .margin({ bottom: 18 })
+              .width('100%')
+              .height(82)
+              .justifyContent(FlexAlign.Center)
+              .backgroundColor(this.cardBg())
+              .borderRadius(18)
+              .onClick(() => { this.activeTab = 'search'; this.queryText = topic; this.startSearch(); })
+            }
+          }, (topic: string) => topic)
         }
+        .columnsTemplate('1fr 1fr 1fr')
+        .columnsGap(10)
+        .rowsGap(10)
+        .width('100%')
 
-        Text('阅读历史')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .width('100%')
-          .margin({ bottom: 8 })
-        this.HistoryList(true)
+        Button('刷新热门题材')
+          .height(42)
+          .fontSize(14)
+          .fontColor('#FFFFFF')
+          .backgroundColor(this.accent())
+          .borderRadius(21)
+          .margin({ top: 16, bottom: 18 })
+          .onClick(() => { this.statusText = '热门题材后续将从规则仓库自动更新。'; })
       }
       .width('100%')
       .padding(14)
