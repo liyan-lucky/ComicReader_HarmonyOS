@@ -1,0 +1,30 @@
+name: 临时固化 UI 到 develop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-solidify-ui-to-develop.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  solidify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash scripts/solidify_ui_source_ci.sh
+          git add .
+          git commit -m "app: solidify modern UI source on develop" || exit 0
+          git push origin HEAD:develop
