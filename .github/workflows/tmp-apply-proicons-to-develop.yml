@@ -1,0 +1,31 @@
+name: 临时应用 ProIcons 到 develop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-apply-proicons-to-develop.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash scripts/apply_proicons_ci.sh
+          git rm scripts/apply_proicons_ci.sh
+          git add .
+          git commit -m "app: replace temporary UI glyphs with ProIcons SVG" || exit 0
+          git push origin HEAD:develop
