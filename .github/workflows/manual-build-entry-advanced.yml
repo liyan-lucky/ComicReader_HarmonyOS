@@ -39,13 +39,13 @@ on:
           - "写入 CI 构建信息：使用当前目标名称和运行编号"
           - "保持源码版本信息：不额外改版本号文件"
       create_tag:
-        description: "是否在构建成功后创建 Git 标签（默认否；需要 contents:write 权限）"
+        description: "是否在全部选中目标成功后创建 Git 标签（默认否；标签名由流程自动生成）"
         required: true
         default: "否：不创建标签"
         type: choice
         options:
           - "否：不创建标签"
-          - "是：成功后创建标签 build-${{ github.run_number }}-${{ github.run_attempt }}"
+          - "是：成功后创建标签"
       upload_hap:
         description: "是否上传 HAP 产物（建议开启；关闭后只看构建日志）"
         required: true
@@ -160,7 +160,6 @@ jobs:
             runtime_os: OpenHarmony
             abi: x86_64
             product: openharmony_verify
-    if: ${{ inputs.only_validate == '否：校验后继续构建 HAP' && (inputs.build_scope == '全部目标：HarmonyOS arm64 + HarmonyOS x86_64 + OpenHarmony arm64 + OpenHarmony x86_64' || inputs.build_scope == matrix.scope_name) }}
     env:
       BUILD_PLATFORM: ${{ matrix.platform }}
       BUILD_PLATFORM_NAME: ${{ matrix.platform_name }}
@@ -173,26 +172,43 @@ jobs:
       ARTIFACT_DIR: /tmp/comic_reader_harmonyos_artifacts/${{ matrix.package }}
 
     steps:
+      - name: 判断当前 matrix 是否需要构建
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.build_scope }}" = "全部目标：HarmonyOS arm64 + HarmonyOS x86_64 + OpenHarmony arm64 + OpenHarmony x86_64" ] || [ "${{ inputs.build_scope }}" = "${{ matrix.scope_name }}" ]; then
+            echo "SHOULD_BUILD=true" >> "$GITHUB_ENV"
+            echo "当前目标需要构建：${{ matrix.package }}"
+          else
+            echo "SHOULD_BUILD=false" >> "$GITHUB_ENV"
+            echo "当前目标不在本次选择范围内，后续步骤跳过：${{ matrix.package }}"
+          fi
+
       - name: 检出仓库
+        if: env.SHOULD_BUILD == 'true'
         uses: actions/checkout@v4
 
       - name: 设置 Java 17
+        if: env.SHOULD_BUILD == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: zulu
           java-version: "17"
 
       - name: 设置 Node 20
+        if: env.SHOULD_BUILD == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       - name: 安装 Linux 工具
+        if: env.SHOULD_BUILD == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip p7zip-full zip curl jq python3 rsync file
 
       - name: 构建前再次校验包配置完整性
+        if: env.SHOULD_BUILD == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -200,6 +216,7 @@ jobs:
           wc -c oh-package.json5 entry/oh-package.json5
 
       - name: 安装 HarmonyOS 命令行 SDK
+        if: env.SHOULD_BUILD == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -208,6 +225,7 @@ jobs:
           test "${PIPESTATUS[0]}" -eq 0
 
       - name: 配置 SDK 环境
+        if: env.SHOULD_BUILD == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -240,6 +258,7 @@ jobs:
           } > local.properties
 
       - name: 构建未签名 HAP
+        if: env.SHOULD_BUILD == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -253,6 +272,7 @@ jobs:
           find "$GITHUB_WORKSPACE" -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' -o -name '*.zip' \) -print | sort || true
 
       - name: 收集 HAP 产物
+        if: env.SHOULD_BUILD == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -269,7 +289,7 @@ jobs:
           find "$ARTIFACT_DIR" -maxdepth 1 -type f -print | sort
 
       - name: 上传 SDK 安装日志
-        if: ${{ always() && inputs.upload_logs == '是：上传全部诊断日志' }}
+        if: ${{ always() && inputs.upload_logs == '是：上传全部诊断日志' && env.SHOULD_BUILD == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: comic-reader-sdk-install-logs-${{ matrix.package }}
@@ -277,7 +297,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: 上传 hvigor 诊断日志
-        if: ${{ always() && inputs.upload_logs == '是：上传全部诊断日志' }}
+        if: ${{ always() && inputs.upload_logs == '是：上传全部诊断日志' && env.SHOULD_BUILD == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: comic-reader-hvigor-logs-${{ matrix.package }}
@@ -287,7 +307,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: 上传 HAP 产物
-        if: ${{ inputs.upload_hap == '是：上传 HAP 产物' }}
+        if: ${{ inputs.upload_hap == '是：上传 HAP 产物' && env.SHOULD_BUILD == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: comic-reader-hap-${{ matrix.package }}
@@ -295,7 +315,7 @@ jobs:
           if-no-files-found: error
 
       - name: 结束前等待你查看日志
-        if: ${{ always() && inputs.wait_minutes != '0 分钟：不等待' }}
+        if: ${{ always() && inputs.wait_minutes != '0 分钟：不等待' && env.SHOULD_BUILD == 'true' }}
         shell: bash
         run: |
           case "${{ inputs.wait_minutes }}" in
@@ -308,7 +328,7 @@ jobs:
   tag:
     name: 成功后创建构建标签
     needs: build
-    if: ${{ inputs.create_tag == '是：成功后创建标签 build-${{ github.run_number }}-${{ github.run_attempt }}' && always() && !cancelled() }}
+    if: ${{ inputs.create_tag == '是：成功后创建标签' && success() }}
     runs-on: ubuntu-latest
     steps:
       - name: 检出仓库
