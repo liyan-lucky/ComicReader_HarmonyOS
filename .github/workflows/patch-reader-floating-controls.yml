@@ -31,12 +31,7 @@ jobs:
           ref: ${{ github.event.inputs.target_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 拉取默认分支上的 UI 优化脚本
-        run: |
-          git fetch origin ${{ github.event.repository.default_branch }}
-          git checkout origin/${{ github.event.repository.default_branch }} -- scripts/polish_ui.py
-
-      - name: 执行 UI 优化脚本
+      - name: 执行目标分支 UI 优化脚本
         run: python3 scripts/polish_ui.py
 
       - name: 提交到目标分支
