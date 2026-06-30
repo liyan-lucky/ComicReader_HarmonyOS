@@ -1,10 +1,13 @@
 name: 合规检查
 
 on:
+  workflow_dispatch:
   pull_request:
+    branches:
+      - develop
   push:
     branches:
-      - main
+      - develop
 
 permissions:
   contents: read
@@ -31,6 +34,14 @@ jobs:
           test -f MAINTAINERS.md
           test -f COPYRIGHT
           test -f RELEASE_CHECKLIST.md
+          test -f docs/README.md
+          test -f docs/development/DEVELOPMENT_REQUIREMENTS.md
+          test -f docs/development/DEVELOPMENT_ISSUES.md
+          test -f docs/development/REPOSITORY_STANDARDS.md
+          test -f docs/development/BRANCH_RULES.md
+          test -f docs/development/GITHUB_WORKFLOW.md
+          test -f docs/development/UI_RULES.md
+          test -f docs/architecture/ARCHITECTURE.md
           test -f entry/src/main/ets/common/RuleValidator.ets
 
       - name: 检查禁止提交的发布包和签名文件
