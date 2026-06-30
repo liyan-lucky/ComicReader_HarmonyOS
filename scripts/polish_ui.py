@@ -2,8 +2,13 @@
 # -*- coding: utf-8 -*-
 """Idempotent UI polish script for the target development branch.
 
-This script normalizes already-agreed UI structure, cleans old text-patch
-leftovers, and keeps search result presentation consistent.
+Goals:
+- Bottom tabs: 搜索 / 书架 / 历史 / 设置
+- Search home stays clean; search header only appears on result page
+- Search results: list/grid only; grid fixed to 3 columns; compact list cards
+- Display-only title cleanup for repeated long names
+- Shelf becomes hot-topic recommendation entry
+- History owns history / favorites / download placeholders
 """
 from pathlib import Path
 
@@ -27,8 +32,8 @@ text = text.replace('@State private resultColumns: number = 2;', '@State private
 if "@State private resultViewMode: string = 'grid';" not in text:
     text = text.replace("@State private resultColumns: number = 3;", "@State private resultColumns: number = 3;\n  @State private resultViewMode: string = 'grid';")
 
-# Clean malformed old SearchHome leftovers from earlier migration.
-leftovers = [
+# Clean old malformed migration leftovers.
+for marker_block in [
     """
   @Builder
   private LegacySearchHomeRemoved() {
@@ -51,39 +56,31 @@ leftovers = [
     Text('')
   }
 """,
-]
-for block in leftovers:
-    text = text.replace(block, '\n')
+]:
+    text = text.replace(marker_block, '\n')
 
-# Ensure SearchHeader is only used after results, not on the clean search home.
+# Search header only appears on the result page.
 text = text.replace(
     "if (this.activeTab === 'search' && this.mode !== 'reader' && this.mode !== 'rendered_reader' && this.mode !== 'chapters') {\n        this.SearchHeader()\n      }",
     "if (this.activeTab === 'search' && this.mode === 'results') {\n        this.SearchHeader()\n      }"
 )
 
-# Bottom tab final structure: Search / Shelf / History / Settings.
-text = text.replace(
+# Bottom tab final structure.
+for old_tabs in [
     """      this.TabPill('search', this.t('search'))
       this.TabPill('shelf', this.t('shelf'))
       this.TabPill('settings', this.t('settings'))
       this.TabPill('about', this.t('about'))""",
     """      this.TabPill('search', '搜索')
       this.TabPill('shelf', '书架')
-      this.TabPill('history', '历史')
-      this.TabPill('settings', '设置')"""
-)
-text = text.replace(
-    """      this.TabPill('search', '搜索')
-      this.TabPill('shelf', '书架')
       this.TabPill('settings', '设置')
       this.TabPill('about', '关于')""",
-    """      this.TabPill('search', '搜索')
+]:
+    text = text.replace(old_tabs, """      this.TabPill('search', '搜索')
       this.TabPill('shelf', '书架')
       this.TabPill('history', '历史')
-      this.TabPill('settings', '设置')"""
-)
+      this.TabPill('settings', '设置')""")
 
-# Add history icon mapping if missing.
 if "name === 'history'" not in text:
     text = text.replace(
         """    } else if (name === 'settings') {
@@ -94,7 +91,6 @@ if "name === 'history'" not in text:
       Image($r('app.media.ic_history')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())"""
     )
 
-# Build routing: About is folded into Settings, History has its own page.
 text = text.replace(
     """      } else if (this.activeTab === 'shelf') {
         this.ShelfPage()
@@ -112,8 +108,8 @@ text = text.replace(
       }"""
 )
 
-# Result header: only list/grid switch after results exist. Grid is always 3 columns.
-old_result_switches = [
+# Result view switch: only list/grid, visible only when results exist.
+for old_switch in [
     """          if (this.results.length > 0) {
             Button(this.resultViewMode === 'grid' ? '网格' : '列表')
               .height(32)
@@ -132,8 +128,8 @@ old_result_switches = [
             .height(32)
             .fontSize(12)
             .onClick(() => { this.groupByName = !this.groupByName; })""",
-]
-new_result_switch = """          if (this.results.length > 0) {
+]:
+    text = text.replace(old_switch, """          if (this.results.length > 0) {
             Button('列表')
               .height(32)
               .fontSize(12)
@@ -149,11 +145,9 @@ new_result_switch = """          if (this.results.length > 0) {
               .borderRadius(16)
               .margin({ left: 8 })
               .onClick(() => { this.resultViewMode = 'grid'; this.resultColumns = 3; })
-          }"""
-for old in old_result_switches:
-    text = text.replace(old, new_result_switch)
+          }""")
 
-# Settings section title helper, used by Settings and History pages.
+# Shared section title helper.
 if 'private SettingSectionTitle(title: string, desc: string)' not in text:
     text = text.replace(
         """  @Builder
@@ -183,7 +177,6 @@ if 'private SettingSectionTitle(title: string, desc: string)' not in text:
   private SettingsPage() {"""
     )
 
-# Search result cards: list = compact horizontal strip, grid = 3-column card with image + cleaned title.
 result_card_block = """  private cleanResultTitle(raw: string): string {
     let title = raw.trim();
     while (title.indexOf('  ') >= 0) {
@@ -347,16 +340,10 @@ result_card_block = """  private cleanResultTitle(raw: string): string {
   }
 
 """
-text = replace_between(
-    text,
-    """  @Builder
-  private ResultCard(item: SearchResultItem) {""",
-    """  @Builder
-  private ResultsPage() {""",
-    result_card_block
-)
+text = replace_between(text, """  @Builder
+  private ResultCard(item: SearchResultItem) {""", """  @Builder
+  private ResultsPage() {""", result_card_block)
 
-# History owns previous shelf/history functions: clear history, clear favorites, open/remove favorites, downloads placeholder.
 history_page = """  @Builder
   private HistoryPage() {
     Scroll() {
@@ -373,7 +360,6 @@ history_page = """  @Builder
           .lineHeight(20)
           .width('100%')
           .margin({ bottom: 12 })
-
         Row() {
           Text('历史 ' + this.history.length + ' 条 · 收藏 ' + this.bookshelf.length + ' 本')
             .fontSize(13)
@@ -394,10 +380,8 @@ history_page = """  @Builder
         .backgroundColor(this.cardBg())
         .borderRadius(16)
         .margin({ bottom: 12 })
-
         this.SettingSectionTitle('历史记录', '最近打开的章节和卷轴阅读记录。')
         this.HistoryList(true)
-
         this.SettingSectionTitle('收藏记录', '从结果、章节或阅读页加入书架的内容。')
         if (this.bookshelf.length === 0) {
           Text('暂无收藏。阅读页或结果卡片加入书架后会显示在这里。')
@@ -449,7 +433,6 @@ history_page = """  @Builder
             .onClick(() => this.openShelf(item))
           }, (item: BookshelfItem) => item.url)
         }
-
         this.SettingSectionTitle('下载', '下载能力暂时保留，后续接入离线章节。')
         Text('暂无下载任务。后续下载任务、缓存章节和离线阅读入口会集中在这里。')
           .fontSize(14)
@@ -468,16 +451,10 @@ history_page = """  @Builder
   }
 
 """
-text = replace_between(
-    text,
-    """  @Builder
-  private HistoryPage() {""",
-    """  @Builder
-  private ShelfPage() {""",
-    history_page
-)
+text = replace_between(text, """  @Builder
+  private HistoryPage() {""", """  @Builder
+  private ShelfPage() {""", history_page)
 
-# Shelf becomes the hot-topic recommendation entry. It no longer displays favorites/history.
 shelf_page = """  @Builder
   private ShelfPage() {
     Scroll() {
@@ -494,7 +471,6 @@ shelf_page = """  @Builder
           .lineHeight(20)
           .width('100%')
           .margin({ bottom: 12 })
-
         Column() {
           Text('自动推荐')
             .fontSize(18)
@@ -513,7 +489,6 @@ shelf_page = """  @Builder
         .backgroundColor(this.cardBg())
         .borderRadius(18)
         .margin({ bottom: 12 })
-
         Grid() {
           ForEach(['玄幻', '修真', '恋爱', '校园', '宫斗', '都市', '热血', '冒险', '悬疑', '科幻', '搞笑', '治愈'], (topic: string) => {
             GridItem() {
@@ -540,7 +515,6 @@ shelf_page = """  @Builder
         .columnsGap(10)
         .rowsGap(10)
         .width('100%')
-
         Button('刷新热门题材')
           .height(42)
           .fontSize(14)
@@ -558,16 +532,10 @@ shelf_page = """  @Builder
   }
 
 """
-text = replace_between(
-    text,
-    """  @Builder
-  private ShelfPage() {""",
-    """  @Builder
-  private SettingCard(title: string, desc: string, value: string) {""",
-    shelf_page
-)
+text = replace_between(text, """  @Builder
+  private ShelfPage() {""", """  @Builder
+  private SettingCard(title: string, desc: string, value: string) {""", shelf_page)
 
-# Off / disabled status should be gray, not green.
 text = text.replace(
     """        Text(value)
           .fontSize(12)
@@ -583,23 +551,20 @@ text = text.replace(
           .borderRadius(14)"""
 )
 
-# Validate no known malformed migration leftovers remain.
 for marker in ['LegacySearchHomeRemoved', 'SearchHomeOldUnusedAnchor']:
     if marker in text:
         raise SystemExit(f'Unexpected leftover marker still present: {marker}')
 
-# Validate result presentation.
-result_start = text.find('private ResultCard(')
+result_start = text.find('private cleanResultTitle(')
 result_end = text.find('private ResultsPage()', result_start)
 result_body = text[result_start:result_end]
 for required in ['private cleanResultTitle(', 'private ResultListCard(', ".columnsTemplate('1fr 1fr 1fr')", 'height(94)', 'this.resultTitle(item)']:
     if required not in result_body:
         raise SystemExit(f'Result UI missing required content: {required}')
-for forbidden in ['this.coverOnlyMode ? 150 : 185', "this.resultColumns === 3 ? '1fr 1fr 1fr' : '1fr 1fr'", 'Button(\'书架\')']:
+for forbidden in ['this.coverOnlyMode ? 150 : 185', "this.resultColumns === 3 ? '1fr 1fr 1fr' : '1fr 1fr'", "Button('书架')"]:
     if forbidden in result_body:
         raise SystemExit(f'Result UI still contains old content: {forbidden}')
 
-# Validate ShelfPage does not contain old favorites/history display content.
 shelf_start = text.find('private ShelfPage()')
 shelf_end = text.find('private SettingCard(', shelf_start)
 shelf_body = text[shelf_start:shelf_end]
@@ -610,7 +575,6 @@ for required in ['热门题材', '自动推荐', '刷新热门题材']:
     if required not in shelf_body:
         raise SystemExit(f'ShelfPage missing recommendation content: {required}')
 
-# Validate HistoryPage owns the migrated functions.
 history_start = text.find('private HistoryPage()')
 history_end = text.find('private ShelfPage()', history_start)
 history_body = text[history_start:history_end]
