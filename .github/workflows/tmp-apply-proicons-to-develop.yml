@@ -29,3 +29,4 @@ jobs:
           git add .
           git commit -m "app: replace temporary UI glyphs with ProIcons SVG" || exit 0
           git push origin HEAD:develop
+# trigger: 1
