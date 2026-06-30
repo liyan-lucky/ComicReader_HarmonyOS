@@ -9,21 +9,20 @@
 
 ## 需要在 `Index.ets` 中继续处理的关键问题
 
-### 1. 主页面不要有“设置”入口
+### 1. 搜索主页面不要出现“设置”快捷入口
 
 当前问题：
 
-- README 标注四个 Tab：搜索 / 书架 / 设置 / 关于。
-- `Index.ets` 的 `BottomTabs()` 里仍渲染 `settings` Tab。
-- `build()` 中仍存在 `activeTab === 'settings'` 时进入 `SettingsPage()` 的逻辑。
-- 搜索首页还有“去设置引擎”按钮，会把 `activeTab` 改为 `settings`。
+- 设置功能和底部“设置”Tab 应保留。
+- 搜索首页里的“去设置引擎”按钮看起来像主页面功能入口，视觉上比较突兀。
+- 这个按钮会直接把 `activeTab` 改为 `settings`，用户在搜索首页误触后容易跳到复杂设置页。
 
 建议处理：
 
-- 底部 Tab 改为：搜索 / 书架 / 关于，删除设置 Tab。
-- 主搜索页删除“去设置引擎”按钮。
-- `build()` 不再暴露 `SettingsPage()` 作为主 Tab。
-- 设置功能不建议直接删除逻辑，建议转为内部调试入口或折叠到关于页的高级入口，避免误触。
+- 保留底部 Tab：搜索 / 书架 / 设置 / 关于。
+- 保留 `SettingsPage()` 和 `activeTab === 'settings'` 的页面逻辑。
+- 只删除搜索首页中的“去设置引擎”按钮。
+- 搜索相关配置仍放在设置页里，用户需要时从底部设置 Tab 进入。
 
 ### 2. 设置中所有功能审计
 
@@ -34,13 +33,13 @@
 - “当前搜索引擎”点击后直接 `cycleEngine()`，没有二次说明，容易被误认为无效点击或误切。
 - “搜索模式 / 来源过滤模式 / 搜索语言倾向”等点击即轮换，没有弹窗或确认，容易误触。
 - API Key / CX 输入框在主设置页裸露，不适合普通用户主流程。
-- 自定义 HTML 源规则输入框和远程规则更新属于高级功能，应从主页面隐藏。
+- 自定义 HTML 源规则输入框和远程规则更新属于高级功能，应在设置页内做分区或高级折叠，不应放到搜索主页面。
 
 建议处理：
 
 - 默认锁定中文：移除 `toggleLanguage()` 的可点击入口，或仅保留 `appLanguage='zh'`。
-- 把搜索相关设置拆成“搜索设置”子页或高级面板，点击设置卡片后给明确状态提示。
-- 远程规则、自定义规则、API Key 统一放到“高级设置 / 调试设置”。
+- 把搜索相关设置放在设置页内的“搜索设置”分区，点击设置卡片后给明确状态提示。
+- 远程规则、自定义规则、API Key 统一放到设置页的“高级设置 / 调试设置”。
 - 所有开关值统一使用绿色选中态，不使用红色表达正常选中。
 
 ### 3. 绿色选中风格统一
@@ -82,7 +81,7 @@ Image($r('app.media.ic_search'))
 
 ```ts
 .fontColor(this.activeTab === tab ? this.accent() : this.secondaryText())
-.backgroundColor('#00000000')
+.backgroundColor(this.activeTab === tab ? this.selectedSoftBg() : '#00000000')
 ```
 
 ### 4. 图标资源补齐
@@ -97,8 +96,10 @@ Image($r('app.media.ic_search'))
 - `ic_add_shelf.svg`
 - `ic_refresh.svg`
 - `ic_more.svg`
+- `ic_theme.svg`
+- `ic_language.svg`
 
-建议补充：
+已补充：
 
 - `ic_home.svg`：主搜索 / 首页
 - `ic_reader.svg`：阅读器
@@ -107,8 +108,6 @@ Image($r('app.media.ic_search'))
 - `ic_globe.svg`：公开源 / 网络
 - `ic_engine.svg`：搜索引擎
 - `ic_rule.svg`：规则
-- `ic_theme.svg`：主题
-- `ic_language.svg`：语言（若保留）
 - `ic_check.svg`：选中
 - `ic_close.svg`：关闭 / 移除
 
@@ -117,6 +116,6 @@ Image($r('app.media.ic_search'))
 ## 建议 PR 拆分
 
 1. 资源 PR：APP 图标、自绘图标替换、外部 SVG 图标补齐。
-2. 主页面 PR：删除设置 Tab 和首页设置入口。
+2. 主页面 PR：只删除搜索首页里的设置快捷入口，保留底部设置 Tab。
 3. 设置审计 PR：隐藏语言切换，设置项改为高级面板，所有点击给明确中文反馈。
 4. 绿色风格 PR：统一 `accent()`，移除红色选中与 Tab 绿色填充块。
