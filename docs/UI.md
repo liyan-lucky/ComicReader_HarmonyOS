@@ -132,7 +132,7 @@ appLanguage = zh | en
 搜索 / 书架 / 设置 / 关于
 ```
 
-当前选中的 Tab 使用绿色胶囊背景，未选中状态使用透明背景和次级文字色。Tab 图标必须使用 ProIcons 来源的 SVG，不使用字符图标长期替代。
+当前选中的 Tab 使用绿色胶囊背景，未选中状态使用透明背景和次级文字色。Tab 图标使用 ProIcons / Lucide Icons 来源的 SVG，不使用字符图标长期替代。
 
 ## 书架与阅读进度
 
@@ -161,7 +161,7 @@ readCount?: number
 - 顶部显示悬浮标题胶囊；
 - 底部显示悬浮返回、加入书架、刷新按钮；
 - 渲染阅读模式继续使用 WebView 兜底，但外层采用同样全屏结构；
-- 阅读页悬浮按钮必须使用 ProIcons SVG 图标。
+- 阅读页悬浮按钮使用 ProIcons / Lucide Icons 来源的 SVG 图标。
 
 ## 注意事项
 

@@ -6,20 +6,20 @@ const SEARCH_UA = 'Mozilla/5.0 (Linux; HarmonyOS; Mobile) AppleWebKit/537.36 Chr
 
 export const DEFAULT_SEARCH_ENGINES: SearchEngineConfig[] = [
   {
+    id: 'bing_web_html',
+    name: 'Bing 网页结果',
+    description: '无 API Key 模式，读取 Bing 普通网页搜索结果页；如遇验证码/地区限制会自动失败并继续其它源。',
+    engineType: 'bing-html',
+    searchUrl: 'https://www.bing.com/search?q={query}',
+    requiresKey: false,
+    enabled: true
+  },
+  {
     id: 'duckduckgo_html',
     name: 'DuckDuckGo 网页结果',
     description: '无 API Key 模式，读取 DuckDuckGo HTML/Lite 公开搜索结果；不绕过验证码或访问限制。',
     engineType: 'duckduckgo-html',
     searchUrl: 'https://duckduckgo.com/html/?q={query}',
-    requiresKey: false,
-    enabled: true
-  },
-  {
-    id: 'bing_web_html',
-    name: 'Bing 网页结果',
-    description: '读取 Bing 普通网页搜索结果页；如遇验证码/地区限制会自动失败并继续其它源。',
-    engineType: 'bing-html',
-    searchUrl: 'https://www.bing.com/search?q={query}',
     requiresKey: false,
     enabled: true
   },
@@ -48,7 +48,7 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngineConfig[] = [
     engineType: 'brave-api',
     searchUrl: 'https://api.search.brave.com/res/v1/web/search?q={query}&count=20',
     requiresKey: true,
-    enabled: true
+    enabled: false
   },
   {
     id: 'google_cse_api',
@@ -57,7 +57,7 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngineConfig[] = [
     engineType: 'google-cse-api',
     searchUrl: 'https://www.googleapis.com/customsearch/v1?key={googleKey}&cx={googleCx}&q={query}&num=10',
     requiresKey: true,
-    enabled: true
+    enabled: false
   }
 ];
 
@@ -75,6 +75,16 @@ function decodeEntities(text: string): string {
     .replace(/&#39;/g, "'")
     .replace(/&#x27;/g, "'")
     .replace(/&#x2F;/g, '/')
+    .replace(/&#x3D;/g, '=')
+    .replace(/&#x2B;/g, '+')
+    .replace(/&#x25;/g, '%')
+    .replace(/&#(\d+);/g, (_m: string, code: string): string => {
+      const value = Number.parseInt(code, 10);
+      if (Number.isFinite(value) && value > 0) {
+        return String.fromCharCode(value);
+      }
+      return ' ';
+    })
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -216,6 +226,9 @@ function isUsefulUrl(url: string): boolean {
   if (lower.indexOf('javascript:') >= 0 || lower.indexOf('mailto:') >= 0 || lower.indexOf('tel:') >= 0) {
     return false;
   }
+  if (lower.indexOf('/aclick?') >= 0 || lower.indexOf('/ads/') >= 0 || lower.indexOf('doubleclick.net') >= 0) {
+    return false;
+  }
   return true;
 }
 
@@ -228,13 +241,13 @@ function looksComicRelated(title: string, url: string, keyword: string): boolean
   return /(comic|comics|manga|manhua|manhwa|webtoon|webcomic|graphic novel|cartoon|chapter|read|reader|episode|scan|漫画|漫话|マンガ|漫画家|코믹|만화)/i.test(text);
 }
 
-function makeSearchItem(title: string, url: string, engine: SearchEngineConfig, keyword: string, desc: string): SearchResultItem | null {
+function makeSearchItem(title: string, url: string, engine: SearchEngineConfig, keyword: string, desc: string, strict: boolean): SearchResultItem | null {
   const cleanTitle = cleanHtmlText(decodeEntities(title));
   const cleanUrl = stripRedirect(url);
   if (cleanTitle.length === 0 || !isUsefulUrl(cleanUrl)) {
     return null;
   }
-  if (!looksComicRelated(cleanTitle, cleanUrl, keyword)) {
+  if (strict && !looksComicRelated(cleanTitle, cleanUrl, keyword)) {
     return null;
   }
   return {
@@ -301,32 +314,46 @@ export function engineHeaders(engine: SearchEngineConfig, braveKey: string): Rec
   return headers;
 }
 
-function parseGenericHtmlResults(html: string, engine: SearchEngineConfig, keyword: string, baseUrl: string): SearchResultItem[] {
+function addParsedItem(items: SearchResultItem[], title: string, url: string, engine: SearchEngineConfig, keyword: string, desc: string, strict: boolean): void {
+  const item = makeSearchItem(title, url, engine, keyword, desc, strict);
+  if (item !== null && !items.some((old: SearchResultItem) => old.url === item.url)) {
+    items.push(item);
+  }
+}
+
+function parseByPatterns(html: string, engine: SearchEngineConfig, keyword: string, baseUrl: string, strict: boolean): SearchResultItem[] {
   const items: SearchResultItem[] = [];
   const patterns: RegExp[] = [
-    /<a[^>]+class=["'][^"']*(?:result__a|result-link|result-title|organic__url|serp-item__title-link)[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,260}?)<\/a>/gim,
-    /<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,260}?)<\/a>[\s\S]*?<\/h2>/gim,
-    /<a[^>]+href=["']((?:https?:\/\/|\/url\?q=|\/l\/\?kh=|[^"']*uddg=)[^"']+)["'][^>]*>([\s\S]{1,220}?)<\/a>/gim
+    /<li[^>]+class=["'][^"']*b_algo[^"']*["'][\s\S]*?<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<\/li>/gim,
+    /<a[^>]+class=["'][^"']*(?:result__a|result-link|result-title|organic__url|serp-item__title-link)[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
+    /<a[^>]+href=["']([^"']+)["'][^>]+class=["'][^"']*(?:result__a|result-link|result-title|organic__url|serp-item__title-link)[^"']*["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
+    /<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<\/h2>/gim,
+    /<h3[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<\/h3>/gim,
+    /<a[^>]+href=["']((?:https?:\/\/|\/url\?q=|\/l\/\?kh=|[^"']*uddg=)[^"']+)["'][^>]*>([\s\S]{1,300}?)<\/a>/gim
   ];
   for (let p = 0; p < patterns.length; p++) {
     const regex = patterns[p];
     let match = regex.exec(html);
     let guard = 0;
-    while (match !== null && guard < 120) {
+    while (match !== null && guard < 180) {
       guard++;
-      const url = resolveUrl(match[1], baseUrl);
-      const title = match[2];
-      const item = makeSearchItem(title, url, engine, keyword, engine.description);
-      if (item !== null && !items.some((old: SearchResultItem) => old.url === item.url)) {
-        items.push(item);
-      }
+      addParsedItem(items, match[2], resolveUrl(match[1], baseUrl), engine, keyword, engine.description, strict);
       if (regex.lastIndex === match.index) {
         regex.lastIndex++;
       }
       match = regex.exec(html);
     }
   }
-  return items.slice(0, 50);
+  return items;
+}
+
+function parseGenericHtmlResults(html: string, engine: SearchEngineConfig, keyword: string, baseUrl: string): SearchResultItem[] {
+  const strictItems = parseByPatterns(html, engine, keyword, baseUrl, true);
+  if (strictItems.length > 0) {
+    return strictItems.slice(0, 50);
+  }
+  const looseItems = parseByPatterns(html, engine, keyword, baseUrl, false);
+  return looseItems.slice(0, 30);
 }
 
 function parseGoogleCseResults(jsonText: string, engine: SearchEngineConfig, keyword: string): SearchResultItem[] {
@@ -336,10 +363,7 @@ function parseGoogleCseResults(jsonText: string, engine: SearchEngineConfig, key
     const title = readJsonString(blocks[i], 'title');
     const link = readJsonString(blocks[i], 'link');
     const snippet = readJsonString(blocks[i], 'snippet');
-    const item = makeSearchItem(title, link, engine, keyword, snippet);
-    if (item !== null && !items.some((old: SearchResultItem) => old.url === item.url)) {
-      items.push(item);
-    }
+    addParsedItem(items, title, link, engine, keyword, snippet, true);
   }
   return items;
 }
@@ -351,10 +375,7 @@ function parseBraveResults(jsonText: string, engine: SearchEngineConfig, keyword
     const title = readJsonString(blocks[i], 'title');
     const url = readJsonString(blocks[i], 'url');
     const desc = readJsonString(blocks[i], 'description');
-    const item = makeSearchItem(title, url, engine, keyword, desc);
-    if (item !== null && !items.some((old: SearchResultItem) => old.url === item.url)) {
-      items.push(item);
-    }
+    addParsedItem(items, title, url, engine, keyword, desc, true);
   }
   return items;
 }

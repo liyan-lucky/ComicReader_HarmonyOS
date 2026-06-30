@@ -80,8 +80,52 @@ env:
   CI: "true"
 
 jobs:
+  precheck:
+    name: 构建前校验（包配置 / 脚本 / 工作流）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 设置 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 包配置完整性校验与自动恢复
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/validate_oh_package_json5_ci.js
+          echo "校验后的包配置文件大小："
+          wc -c oh-package.json5 entry/oh-package.json5
+          head -40 oh-package.json5
+          head -40 entry/oh-package.json5
+
+      - name: 基础脚本语法校验
+        if: ${{ inputs.run_validate == '是：执行基础校验后再构建' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/build_hap_ci.js
+          node --check scripts/validate_oh_package_json5_ci.js
+          node --check scripts/update_build_version.js
+          node --check scripts/patch_jsonfile_empty_schema.js
+
+      - name: 工作流关键字校验
+        if: ${{ inputs.run_validate == '是：执行基础校验后再构建' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R "comic-reader-hap-" .github/workflows
+          grep -R "comic-reader-hvigor-logs-" .github/workflows
+          grep -R "comic-reader-sdk-install-logs-" .github/workflows
+
   build:
     name: 高级构建 ${{ matrix.package }} 未签名 HAP
+    needs: precheck
+    if: ${{ inputs.only_validate == '否：校验后继续构建 HAP' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -126,15 +170,13 @@ jobs:
       HARMONYOS_SDK_URL: ${{ secrets.HARMONYOS_SDK_URL || vars.HARMONYOS_SDK_URL }}
       GH_TOKEN: ${{ secrets.HARMONYOS_SDK_TOKEN || github.token }}
       ARTIFACT_DIR: /tmp/comic_reader_harmonyos_artifacts/${{ matrix.package }}
+
     steps:
       - name: 判断当前 matrix 是否需要构建
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ inputs.only_validate }}" = "是：只做校验，不构建 HAP" ]; then
-            echo "SHOULD_BUILD=false" >> "$GITHUB_ENV"
-            echo "只校验不构建。"
-          elif [ "${{ inputs.build_scope }}" = "全部目标：HarmonyOS arm64 + HarmonyOS x86_64 + OpenHarmony arm64 + OpenHarmony x86_64" ] || [ "${{ inputs.build_scope }}" = "${{ matrix.scope_name }}" ]; then
+          if [ "${{ inputs.build_scope }}" = "全部目标：HarmonyOS arm64 + HarmonyOS x86_64 + OpenHarmony arm64 + OpenHarmony x86_64" ] || [ "${{ inputs.build_scope }}" = "${{ matrix.scope_name }}" ]; then
             echo "SHOULD_BUILD=true" >> "$GITHUB_ENV"
             echo "当前目标需要构建：${{ matrix.package }}"
           else
@@ -143,6 +185,7 @@ jobs:
           fi
 
       - name: 检出仓库
+        if: env.SHOULD_BUILD == 'true'
         uses: actions/checkout@v4
 
       - name: 设置 Java 17
@@ -153,25 +196,24 @@ jobs:
           java-version: "17"
 
       - name: 设置 Node 20
+        if: env.SHOULD_BUILD == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-
-      - name: 基础校验
-        if: ${{ inputs.run_validate == '是：执行基础校验后再构建' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f scripts/validate_oh_package_json5_ci.js ]; then node scripts/validate_oh_package_json5_ci.js; fi
-          node --check scripts/build_hap_ci.js
-          test -s oh-package.json5
-          test -s entry/oh-package.json5
 
       - name: 安装 Linux 工具
         if: env.SHOULD_BUILD == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip p7zip-full zip curl jq python3 rsync file
+
+      - name: 构建前再次校验包配置完整性
+        if: env.SHOULD_BUILD == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/validate_oh_package_json5_ci.js
+          wc -c oh-package.json5 entry/oh-package.json5
 
       - name: 安装 HarmonyOS 命令行 SDK
         if: env.SHOULD_BUILD == 'true'
@@ -193,6 +235,7 @@ jobs:
           OHOS_ROOT="$SDK_ROOT/openharmony"
           NATIVE_ROOT="$OHOS_ROOT/native"
           NODE_ROOT="$(dirname "$(dirname "$(command -v node)")")"
+          find "$SDK_BASE" -maxdepth 7 -type d | sort || true
           {
             echo "DEVECO_SDK_HOME=$SDK_ROOT"
             echo "OHOS_HVIGOR_SDK_ROOT=$SDK_ROOT"
@@ -223,7 +266,9 @@ jobs:
           if [ "${{ inputs.version_mode }}" = "保持源码版本信息：不额外改版本号文件" ]; then
             export COMIC_READER_SKIP_BUILDINFO_WRITE=1
           fi
+          echo "高级构建 package=$BUILD_PACKAGE_SUFFIX platform=$BUILD_PLATFORM runtime=$BUILD_RUNTIME_OS abi=$BUILD_ABI product=$BUILD_PRODUCT"
           node scripts/build_hap_ci.js assembleHap
+          echo "Possible artifacts after hvigor:"
           find "$GITHUB_WORKSPACE" -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' -o -name '*.zip' \) -print | sort || true
 
       - name: 收集 HAP 产物
@@ -233,10 +278,15 @@ jobs:
           set -euo pipefail
           mkdir -p "$ARTIFACT_DIR"
           find "$GITHUB_WORKSPACE" -type f \( -name '*.hap' -o -name '*.app' -o -name '*.har' \) -print | sort | tee "$RUNNER_TEMP/artifact-list.txt"
-          grep '\.hap$' "$RUNNER_TEMP/artifact-list.txt"
+          if ! grep -q '\.hap$' "$RUNNER_TEMP/artifact-list.txt"; then
+            echo "No HAP found." >&2
+            find "$GITHUB_WORKSPACE/entry" -maxdepth 10 -type f | sort | head -300 >&2 || true
+            exit 1
+          fi
           grep '\.hap$' "$RUNNER_TEMP/artifact-list.txt" | while IFS= read -r hap; do
             cp -f "$hap" "$ARTIFACT_DIR/${BUILD_PACKAGE_SUFFIX}-$(basename "$hap")"
           done
+          find "$ARTIFACT_DIR" -maxdepth 1 -type f -print | sort
 
       - name: 上传 SDK 安装日志
         if: ${{ always() && inputs.upload_logs == '是：上传全部诊断日志' && env.SHOULD_BUILD == 'true' }}

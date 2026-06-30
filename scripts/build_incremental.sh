@@ -14,9 +14,7 @@ export BUILD_PRODUCT BUILD_PLATFORM BUILD_RUNTIME_OS BUILD_PACKAGE_SUFFIX
 node scripts/update_build_version.js --incremental --target "$BUILD_PACKAGE_SUFFIX"
 
 if [ "${SKIP_HAP_BUILD:-0}" = "1" ]; then
-  node scripts/patch_about_page_ci.js
-  node scripts/patch_modern_ui_ci.js
-  echo "Version and UI source patch updated only. SKIP_HAP_BUILD=1, skip hvigor build."
+  echo "Version updated only. SKIP_HAP_BUILD=1, skip hvigor build."
   exit 0
 fi
 
