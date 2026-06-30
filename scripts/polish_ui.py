@@ -96,5 +96,98 @@ text = text.replace(
 text = text.replace(".columnsGap(10)\n      .rowsGap(10)", ".columnsGap(12)\n      .rowsGap(12)")
 text = text.replace("Text(this.isLoading ? '正在抓取公开源...' : '暂无结果。')", "Text(this.isLoading ? '正在搜索公开来源...' : '没有找到结果，换个关键词试试。')")
 
+# Settings page: make section hierarchy clearer and make off states gray instead of green.
+old_setting_value = """        Text(value)
+          .fontSize(12)
+          .fontColor('#FFFFFF')
+          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+          .backgroundColor(this.accent())
+          .borderRadius(14)"""
+new_setting_value = """        Text(value)
+          .fontSize(12)
+          .fontColor((value === '关' || value === '停用') ? this.secondaryText() : '#FFFFFF')
+          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+          .backgroundColor((value === '关' || value === '停用') ? (this.isDarkTheme() ? '#2A333D' : '#EEF1F4') : this.accent())
+          .borderRadius(14)"""
+if old_setting_value in text:
+    text = text.replace(old_setting_value, new_setting_value, 1)
+
+section_anchor = """  @Builder
+  private SettingsPage() {"""
+section_builder = """  @Builder
+  private SettingSectionTitle(title: string, desc: string) {
+    Column() {
+      Text(title)
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.primaryText())
+        .width('100%')
+      if (desc.length > 0) {
+        Text(desc)
+          .fontSize(12)
+          .fontColor(this.secondaryText())
+          .lineHeight(18)
+          .width('100%')
+          .margin({ top: 4 })
+      }
+    }
+    .width('100%')
+    .padding({ left: 2, right: 2, top: 12, bottom: 8 })
+  }
+
+"""
+if 'private SettingSectionTitle(title: string, desc: string)' not in text:
+    if section_anchor not in text:
+        raise SystemExit('SettingsPage anchor not found')
+    text = text.replace(section_anchor, section_builder + section_anchor, 1)
+
+section_replacements = {
+"""        Text('外观与语言')
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.primaryText())
+          .width('100%')
+          .margin({ bottom: 8 })""": """        this.SettingSectionTitle('基础设置', '主题、语言与阅读页悬浮控制。')""",
+"""        Text('搜索引擎')
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .width('100%')
+          .margin({ bottom: 8 })""": """        this.SettingSectionTitle('搜索设置', '控制默认搜索方式、语言倾向和搜索引擎。')""",
+"""        Text('公开源开关')
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .width('100%')
+          .margin({ bottom: 8 })""": """        this.SettingSectionTitle('公开源开关', '选择参与搜索的公开 API、馆藏和 HTML 规则源。')""",
+"""        Text('显示与阅读')
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .width('100%')
+          .margin({ top: 10, bottom: 8 })""": """        this.SettingSectionTitle('显示与阅读', '控制结果卡片、卷轴阅读器和历史保留。')""",
+"""        Text('搜索引擎清单')
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .width('100%')
+          .margin({ top: 10, bottom: 8 })""": """        this.SettingSectionTitle('搜索引擎清单', '点击卡片切换当前搜索引擎，按钮用于启用或停用。')""",
+"""        Text('GitHub 远程规则')
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .width('100%')
+          .margin({ top: 10, bottom: 8 })""": """        this.SettingSectionTitle('远程规则', '从可信 GitHub index.json 拉取公开源规则，失败时保留内置规则。')""",
+"""        Text('公开HTML源规则')
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .width('100%')
+          .margin({ top: 10, bottom: 8 })""": """        this.SettingSectionTitle('高级规则', '展示当前公开 HTML 源，也可以粘贴自定义 JSON 规则。')"""
+}
+for old, new in section_replacements.items():
+    text = text.replace(old, new)
+
+# Theme-aware cards and inputs inside Settings.
+text = text.replace(".backgroundColor('#FFFFFF')", ".backgroundColor(this.cardBg())")
+text = text.replace(".fontColor('#666666')", ".fontColor(this.secondaryText())")
+text = text.replace(".fontColor('#777777')", ".fontColor(this.secondaryText())")
+text = text.replace(".fontColor('#888888')", ".fontColor(this.secondaryText())")
+text = text.replace(".fontColor('#999999')", ".fontColor(this.secondaryText())")
+
 path.write_text(text, encoding='utf-8')
 print('UI polish applied to', path)
