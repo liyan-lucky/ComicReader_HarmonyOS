@@ -1181,32 +1181,33 @@ struct Index {
   private SearchHome() {
     Scroll() {
       Column() {
-        Text('搜索公开漫画资源')
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
+        Column() {
+          Text('今天想看什么漫画？')
+            .fontSize(24)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.primaryText())
+            .width('100%')
+          Text('输入作品名，自动聚合公开来源并整理成封面列表。')
+            .fontSize(13)
+            .fontColor(this.secondaryText())
+            .lineHeight(20)
+            .width('100%')
+            .margin({ top: 6 })
+          Row() {
+            this.SearchChip('斗罗大陆')
+            this.SearchChip('火影忍者')
+            this.SearchChip('one piece')
+          }
           .width('100%')
-          .margin({ top: 10, bottom: 6 })
-        Text('输入漫画名称后开始搜索，结果会按名称归类并支持卷轴阅读。')
-          .fontSize(13)
-          .fontColor('#666666')
-          .lineHeight(20)
-          .width('100%')
-          .margin({ bottom: 12 })
-        this.StatusCard()
-
-        Grid() {
-          GridItem() { this.StepCard('1', '搜索引擎', 'DuckDuckGo/Bing/Google/Yandex/Brave/Google CSE 可切换') }
-          GridItem() { this.StepCard('2', '公开源聚合', 'Internet Archive/Open Library/LOC/Wikimedia/规则源') }
-          GridItem() { this.StepCard('3', '封面归类', '按名称分组，支持封面+名称或纯封面') }
-          GridItem() { this.StepCard('4', '卷轴阅读', '章节图片提取、多页追踪、连续滚动') }
+          .margin({ top: 14 })
         }
-        .columnsTemplate('1fr 1fr')
-        .columnsGap(10)
-        .rowsGap(10)
         .width('100%')
-        .margin({ bottom: 16 })
+        .padding(18)
+        .backgroundColor(this.cardBg())
+        .borderRadius(22)
+        .margin({ top: 10, bottom: 14 })
 
-
+        this.StatusCard()
 
         Text('最近阅读')
           .fontSize(18)
@@ -1219,7 +1220,19 @@ struct Index {
       .padding(14)
     }
     .layoutWeight(1)
-    .backgroundColor('#F7F7F7')
+    .backgroundColor(this.appBg())
+  }
+
+  @Builder
+  private SearchChip(keyword: string) {
+    Text(keyword)
+      .fontSize(12)
+      .fontColor(this.accent())
+      .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+      .backgroundColor(this.selectedSoftBg())
+      .borderRadius(16)
+      .margin({ right: 8 })
+      .onClick(() => { this.queryText = keyword; this.startSearch(); })
   }
 
   @Builder
@@ -1327,8 +1340,9 @@ struct Index {
     }
     .width('100%')
     .clip(true)
-    .backgroundColor('#FFFFFF')
-    .borderRadius(12)
+    .backgroundColor(this.cardBg())
+    .borderRadius(18)
+    .shadow({ radius: 8, color: '#12000000', offsetX: 0, offsetY: 3 })
     .onClick(() => this.openSearchResult(item))
   }
 
@@ -1358,8 +1372,8 @@ struct Index {
         }, (item: SearchResultItem) => item.url)
       }
       .columnsTemplate(this.resultColumns === 3 || this.coverOnlyMode ? '1fr 1fr 1fr' : '1fr 1fr')
-      .columnsGap(10)
-      .rowsGap(10)
+      .columnsGap(12)
+      .rowsGap(12)
       .width('100%')
     }
     .width('100%')
@@ -1395,7 +1409,7 @@ struct Index {
         this.StatusCard()
 
         if (this.results.length === 0) {
-          Text(this.isLoading ? '正在抓取公开源...' : '暂无结果。')
+          Text(this.isLoading ? '正在搜索公开来源...' : '没有找到结果，换个关键词试试。')
             .fontSize(14)
             .fontColor('#777777')
             .width('100%')
@@ -1410,7 +1424,7 @@ struct Index {
       .padding(14)
     }
     .layoutWeight(1)
-    .backgroundColor('#F7F7F7')
+    .backgroundColor(this.appBg())
   }
 
   @Builder
@@ -1496,7 +1510,7 @@ struct Index {
       .layoutWeight(1)
     }
     .layoutWeight(1)
-    .backgroundColor('#F7F7F7')
+    .backgroundColor(this.appBg())
   }
 
   @Builder
@@ -1771,7 +1785,7 @@ struct Index {
       .padding(14)
     }
     .layoutWeight(1)
-    .backgroundColor('#F7F7F7')
+    .backgroundColor(this.appBg())
   }
 
   @Builder
@@ -2020,7 +2034,7 @@ struct Index {
       .padding(14)
     }
     .layoutWeight(1)
-    .backgroundColor('#F7F7F7')
+    .backgroundColor(this.appBg())
   }
 
   @Builder
