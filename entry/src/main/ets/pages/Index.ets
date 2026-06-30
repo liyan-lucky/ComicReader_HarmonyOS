@@ -1181,32 +1181,33 @@ struct Index {
   private SearchHome() {
     Scroll() {
       Column() {
-        Text('搜索公开漫画资源')
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
+        Column() {
+          Text('今天想看什么漫画？')
+            .fontSize(24)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.primaryText())
+            .width('100%')
+          Text('输入作品名，自动聚合公开来源并整理成封面列表。')
+            .fontSize(13)
+            .fontColor(this.secondaryText())
+            .lineHeight(20)
+            .width('100%')
+            .margin({ top: 6 })
+          Row() {
+            this.SearchChip('斗罗大陆')
+            this.SearchChip('火影忍者')
+            this.SearchChip('one piece')
+          }
           .width('100%')
-          .margin({ top: 10, bottom: 6 })
-        Text('输入漫画名称后开始搜索，结果会按名称归类并支持卷轴阅读。')
-          .fontSize(13)
-          .fontColor('#666666')
-          .lineHeight(20)
-          .width('100%')
-          .margin({ bottom: 12 })
-        this.StatusCard()
-
-        Grid() {
-          GridItem() { this.StepCard('1', '搜索引擎', 'DuckDuckGo/Bing/Google/Yandex/Brave/Google CSE 可切换') }
-          GridItem() { this.StepCard('2', '公开源聚合', 'Internet Archive/Open Library/LOC/Wikimedia/规则源') }
-          GridItem() { this.StepCard('3', '封面归类', '按名称分组，支持封面+名称或纯封面') }
-          GridItem() { this.StepCard('4', '卷轴阅读', '章节图片提取、多页追踪、连续滚动') }
+          .margin({ top: 14 })
         }
-        .columnsTemplate('1fr 1fr')
-        .columnsGap(10)
-        .rowsGap(10)
         .width('100%')
-        .margin({ bottom: 16 })
+        .padding(18)
+        .backgroundColor(this.cardBg())
+        .borderRadius(22)
+        .margin({ top: 10, bottom: 14 })
 
-
+        this.StatusCard()
 
         Text('最近阅读')
           .fontSize(18)
@@ -1219,7 +1220,19 @@ struct Index {
       .padding(14)
     }
     .layoutWeight(1)
-    .backgroundColor('#F7F7F7')
+    .backgroundColor(this.appBg())
+  }
+
+  @Builder
+  private SearchChip(keyword: string) {
+    Text(keyword)
+      .fontSize(12)
+      .fontColor(this.accent())
+      .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+      .backgroundColor(this.selectedSoftBg())
+      .borderRadius(16)
+      .margin({ right: 8 })
+      .onClick(() => { this.queryText = keyword; this.startSearch(); })
   }
 
   @Builder
@@ -1240,14 +1253,14 @@ struct Index {
         .margin({ top: 8 })
       Text(desc)
         .fontSize(12)
-        .fontColor('#777777')
+        .fontColor(this.secondaryText())
         .lineHeight(17)
         .margin({ top: 4 })
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
     .padding(12)
-    .backgroundColor('#FFFFFF')
+    .backgroundColor(this.cardBg())
     .borderRadius(12)
   }
 
@@ -1267,7 +1280,7 @@ struct Index {
           .fontColor('#34C759')
         Text(this.autoCoverEnabled ? '封面解析中' : '无封面')
           .fontSize(11)
-          .fontColor('#999999')
+          .fontColor(this.secondaryText())
           .margin({ top: 6 })
       }
       .width('100%')
@@ -1291,7 +1304,7 @@ struct Index {
             .width('100%')
           Text(item.sourceName)
             .fontSize(11)
-            .fontColor('#888888')
+            .fontColor(this.secondaryText())
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .margin({ top: 4 })
@@ -1299,7 +1312,7 @@ struct Index {
           if (item.description !== undefined && item.description.length > 0) {
             Text(item.description)
               .fontSize(10)
-              .fontColor('#999999')
+              .fontColor(this.secondaryText())
               .maxLines(2)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .margin({ top: 3 })
@@ -1327,8 +1340,9 @@ struct Index {
     }
     .width('100%')
     .clip(true)
-    .backgroundColor('#FFFFFF')
-    .borderRadius(12)
+    .backgroundColor(this.cardBg())
+    .borderRadius(18)
+    .shadow({ radius: 8, color: '#12000000', offsetX: 0, offsetY: 3 })
     .onClick(() => this.openSearchResult(item))
   }
 
@@ -1358,8 +1372,8 @@ struct Index {
         }, (item: SearchResultItem) => item.url)
       }
       .columnsTemplate(this.resultColumns === 3 || this.coverOnlyMode ? '1fr 1fr 1fr' : '1fr 1fr')
-      .columnsGap(10)
-      .rowsGap(10)
+      .columnsGap(12)
+      .rowsGap(12)
       .width('100%')
     }
     .width('100%')
@@ -1380,7 +1394,7 @@ struct Index {
               .width('100%')
             Text('结果按名称归类显示，点封面进入阅读')
               .fontSize(12)
-              .fontColor('#777777')
+              .fontColor(this.secondaryText())
               .margin({ top: 3 })
           }
           .layoutWeight(1)
@@ -1395,12 +1409,12 @@ struct Index {
         this.StatusCard()
 
         if (this.results.length === 0) {
-          Text(this.isLoading ? '正在抓取公开源...' : '暂无结果。')
+          Text(this.isLoading ? '正在搜索公开来源...' : '没有找到结果，换个关键词试试。')
             .fontSize(14)
-            .fontColor('#777777')
+            .fontColor(this.secondaryText())
             .width('100%')
             .padding(12)
-            .backgroundColor('#FFFFFF')
+            .backgroundColor(this.cardBg())
             .borderRadius(10)
         } else {
           ForEach(this.groupedResults(), (group: ResultGroup) => { this.ResultGroupView(group) }, (group: ResultGroup) => group.key)
@@ -1410,7 +1424,7 @@ struct Index {
       .padding(14)
     }
     .layoutWeight(1)
-    .backgroundColor('#F7F7F7')
+    .backgroundColor(this.appBg())
   }
 
   @Builder
@@ -1430,7 +1444,7 @@ struct Index {
             .width('100%')
           Text('选择章节后生成竖向卷轴')
             .fontSize(11)
-            .fontColor('#888888')
+            .fontColor(this.secondaryText())
             .maxLines(1)
             .margin({ top: 3 })
             .width('100%')
@@ -1457,10 +1471,10 @@ struct Index {
           if (this.chapters.length === 0) {
             Text('没有章节。可能该结果本身就是单话漫画，或目录规则不匹配。')
               .fontSize(14)
-              .fontColor('#777777')
+              .fontColor(this.secondaryText())
               .width('100%')
               .padding(12)
-              .backgroundColor('#FFFFFF')
+              .backgroundColor(this.cardBg())
               .borderRadius(10)
           } else {
             ForEach(this.chapters, (chapter: ChapterItem) => {
@@ -1483,7 +1497,7 @@ struct Index {
               }
               .width('100%')
               .padding(12)
-              .backgroundColor('#FFFFFF')
+              .backgroundColor(this.cardBg())
               .borderRadius(10)
               .margin({ bottom: 8 })
               .onClick(() => this.loadChapter(chapter, this.findRule(chapter.sourceId)))
@@ -1496,7 +1510,7 @@ struct Index {
       .layoutWeight(1)
     }
     .layoutWeight(1)
-    .backgroundColor('#F7F7F7')
+    .backgroundColor(this.appBg())
   }
 
   @Builder
@@ -1635,10 +1649,10 @@ struct Index {
     if (this.history.length === 0) {
       Text('暂无历史。成功打开卷轴阅读后会显示在这里。')
         .fontSize(13)
-        .fontColor('#777777')
+        .fontColor(this.secondaryText())
         .width('100%')
         .padding(12)
-        .backgroundColor('#FFFFFF')
+        .backgroundColor(this.cardBg())
         .borderRadius(10)
     } else {
       ForEach(showAll ? this.history : this.history.slice(0, 5), (item: ReadingHistoryItem) => {
@@ -1651,7 +1665,7 @@ struct Index {
             .width('100%')
           Text(item.chapterTitle + ' · ' + item.sourceName + ' · ' + item.timeText)
             .fontSize(12)
-            .fontColor('#777777')
+            .fontColor(this.secondaryText())
             .margin({ top: 4 })
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -1659,7 +1673,7 @@ struct Index {
         }
         .width('100%')
         .padding(12)
-        .backgroundColor('#FFFFFF')
+        .backgroundColor(this.cardBg())
         .borderRadius(10)
         .margin({ bottom: 8 })
         .onClick(() => this.loadChapterByUrl(item.url, item.chapterTitle, ruleForPublicUrl(item.url, this.genericRule())))
@@ -1678,7 +1692,7 @@ struct Index {
           .margin({ top: 12, bottom: 6 })
         Text('搜索结果、章节页或阅读页可加入书架；书架会显示封面、名称、来源和最近阅读章节。')
           .fontSize(13)
-          .fontColor('#666666')
+          .fontColor(this.secondaryText())
           .lineHeight(20)
           .width('100%')
           .margin({ bottom: 12 })
@@ -1705,10 +1719,10 @@ struct Index {
         if (this.bookshelf.length === 0) {
           Text('书架为空。请在搜索结果卡片、章节页或阅读页点击“书架”。')
             .fontSize(14)
-            .fontColor('#777777')
+            .fontColor(this.secondaryText())
             .width('100%')
             .padding(12)
-            .backgroundColor('#FFFFFF')
+            .backgroundColor(this.cardBg())
             .borderRadius(10)
             .margin({ bottom: 16 })
         } else {
@@ -1725,7 +1739,7 @@ struct Index {
                   } else {
                     Column() {
                       Text(item.title.substring(0, 1)).fontSize(30).fontWeight(FontWeight.Bold).fontColor('#34C759')
-                      Text('无封面').fontSize(11).fontColor('#999999').margin({ top: 6 })
+                      Text('无封面').fontSize(11).fontColor(this.secondaryText()).margin({ top: 6 })
                     }.width('100%').height(160).justifyContent(FlexAlign.Center).backgroundColor('#ECFFF1')
                   }
                   Text(item.title)
@@ -1737,7 +1751,7 @@ struct Index {
                     .padding({ left: 8, right: 8, top: 8 })
                   Text((item.lastChapterTitle.length > 0 ? item.lastChapterTitle : '未阅读') + ' · ' + item.sourceName)
                     .fontSize(10)
-                    .fontColor('#888888')
+                    .fontColor(this.secondaryText())
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .width('100%')
@@ -1748,7 +1762,7 @@ struct Index {
                   }.width('100%').padding({ left: 8, right: 8, bottom: 8 })
                 }
                 .width('100%')
-                .backgroundColor('#FFFFFF')
+                .backgroundColor(this.cardBg())
                 .borderRadius(12)
               }
             }, (item: BookshelfItem) => item.url)
@@ -1771,7 +1785,7 @@ struct Index {
       .padding(14)
     }
     .layoutWeight(1)
-    .backgroundColor('#F7F7F7')
+    .backgroundColor(this.appBg())
   }
 
   @Builder
@@ -1784,9 +1798,9 @@ struct Index {
         }.layoutWeight(1)
         Text(value)
           .fontSize(12)
-          .fontColor('#FFFFFF')
+          .fontColor((value === '关' || value === '停用') ? this.secondaryText() : '#FFFFFF')
           .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-          .backgroundColor(this.accent())
+          .backgroundColor((value === '关' || value === '停用') ? (this.isDarkTheme() ? '#2A333D' : '#EEF1F4') : this.accent())
           .borderRadius(14)
       }.width('100%')
     }
@@ -1795,6 +1809,27 @@ struct Index {
     .backgroundColor(this.cardBg())
     .borderRadius(16)
     .margin({ bottom: 8 })
+  }
+
+  @Builder
+  private SettingSectionTitle(title: string, desc: string) {
+    Column() {
+      Text(title)
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.primaryText())
+        .width('100%')
+      if (desc.length > 0) {
+        Text(desc)
+          .fontSize(12)
+          .fontColor(this.secondaryText())
+          .lineHeight(18)
+          .width('100%')
+          .margin({ top: 4 })
+      }
+    }
+    .width('100%')
+    .padding({ left: 2, right: 2, top: 12, bottom: 8 })
   }
 
   @Builder
@@ -1808,29 +1843,20 @@ struct Index {
           .margin({ top: 12, bottom: 6 })
         Text('这里的选项都会直接影响搜索、列表、阅读器、书架/历史和源规则。')
           .fontSize(13)
-          .fontColor('#666666')
+          .fontColor(this.secondaryText())
           .lineHeight(20)
           .width('100%')
           .margin({ bottom: 12 })
         this.StatusCard()
         this.AuditCard()
 
-        Text('外观与语言')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.primaryText())
-          .width('100%')
-          .margin({ bottom: 8 })
+        this.SettingSectionTitle('基础设置', '主题、语言与阅读页悬浮控制。')
         Column() { this.SettingCard(this.t('theme'), '明亮 / 暗黑双主题，阅读页会自动跟随。', this.themeLabel()) }.onClick(() => this.toggleTheme())
         Column() { this.SettingCard(this.t('language'), '当前支持中文 / English，后续可扩展更多语言。', this.languageLabel()) }.onClick(() => this.toggleLanguage())
         Column() { this.SettingCard(this.t('fullReader'), '阅读页默认全屏，顶部和底部使用悬浮独立按钮。', this.fullscreenReader ? '开' : '关') }.onClick(() => { this.fullscreenReader = !this.fullscreenReader; })
         Column() { this.SettingCard(this.t('floatingControls'), '隐藏传统标题栏，使用胶囊悬浮控制。', this.floatingReaderControls ? '开' : '关') }.onClick(() => { this.floatingReaderControls = !this.floatingReaderControls; })
 
-        Text('搜索引擎')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .width('100%')
-          .margin({ bottom: 8 })
+        this.SettingSectionTitle('搜索设置', '控制默认搜索方式、语言倾向和搜索引擎。')
         Column() { this.SettingCard('搜索模式', '混合=搜索引擎+公开API+规则源；仅搜索引擎/仅公开API用于排错。', this.searchMode) }
           .onClick(() => this.nextSearchMode())
         Column() { this.SettingCard('当前搜索引擎', this.selectedEngine().description, this.selectedEngine().name) }
@@ -1842,7 +1868,7 @@ struct Index {
         TextInput({ placeholder: '额外搜索词，例如 comic manga 漫画 在线 阅读', text: this.extraSearchTerms })
           .height(42)
           .fontSize(13)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor(this.cardBg())
           .borderRadius(10)
           .padding({ left: 10, right: 10 })
           .margin({ bottom: 8 })
@@ -1850,26 +1876,22 @@ struct Index {
         TextInput({ placeholder: '站点提示：例如 site:example.com 或 public domain comic', text: this.siteHint })
           .height(42)
           .fontSize(13)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor(this.cardBg())
           .borderRadius(10)
           .padding({ left: 10, right: 10 })
           .margin({ bottom: 8 })
           .onChange((value: string) => { this.siteHint = value; })
         TextInput({ placeholder: 'Brave Search API Key（可选）', text: this.braveApiKey })
-          .height(42).fontSize(13).backgroundColor('#FFFFFF').borderRadius(10).padding({ left: 10, right: 10 }).margin({ bottom: 8 })
+          .height(42).fontSize(13).backgroundColor(this.cardBg()).borderRadius(10).padding({ left: 10, right: 10 }).margin({ bottom: 8 })
           .onChange((value: string) => { this.braveApiKey = value; })
         TextInput({ placeholder: 'Google Programmable Search API Key（可选）', text: this.googleApiKey })
-          .height(42).fontSize(13).backgroundColor('#FFFFFF').borderRadius(10).padding({ left: 10, right: 10 }).margin({ bottom: 8 })
+          .height(42).fontSize(13).backgroundColor(this.cardBg()).borderRadius(10).padding({ left: 10, right: 10 }).margin({ bottom: 8 })
           .onChange((value: string) => { this.googleApiKey = value; })
         TextInput({ placeholder: 'Google CX / Search Engine ID（可选）', text: this.googleCx })
-          .height(42).fontSize(13).backgroundColor('#FFFFFF').borderRadius(10).padding({ left: 10, right: 10 }).margin({ bottom: 14 })
+          .height(42).fontSize(13).backgroundColor(this.cardBg()).borderRadius(10).padding({ left: 10, right: 10 }).margin({ bottom: 14 })
           .onChange((value: string) => { this.googleCx = value; })
 
-        Text('公开源开关')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .width('100%')
-          .margin({ bottom: 8 })
+        this.SettingSectionTitle('公开源开关', '选择参与搜索的公开 API、馆藏和 HTML 规则源。')
         Column() { this.SettingCard('搜索引擎总开关', '关闭后只用公开API/规则源。', this.enableSearchEngines ? '开' : '关') }.onClick(() => { this.enableSearchEngines = !this.enableSearchEngines; })
         Column() { this.SettingCard('Internet Archive', '公开馆藏，IIIF/metadata卷轴。', this.enableInternetArchive ? '开' : '关') }.onClick(() => { this.enableInternetArchive = !this.enableInternetArchive; })
         Column() { this.SettingCard('Open Library', '公开书目，带IA馆藏时转卷轴。', this.enableOpenLibrary ? '开' : '关') }.onClick(() => { this.enableOpenLibrary = !this.enableOpenLibrary; })
@@ -1883,11 +1905,7 @@ struct Index {
         Column() { this.SettingCard('搜索引擎发现页', '开启后把搜索引擎发现的漫画页面纳入结果并按域名自动套用解析规则。', this.includeSearchEngineDiscovered ? '开' : '关') }.onClick(() => { this.includeSearchEngineDiscovered = !this.includeSearchEngineDiscovered; })
         Column() { this.SettingCard('排除登录/付费结果', '开启后自动过滤起点VIP、INKR付费、UTOON Premium、已下架/商城/百科/视频/社区等非完全公开阅读结果。', this.excludeLoginPayResults ? '开' : '关') }.onClick(() => { this.excludeLoginPayResults = !this.excludeLoginPayResults; })
 
-        Text('显示与阅读')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .width('100%')
-          .margin({ top: 10, bottom: 8 })
+        this.SettingSectionTitle('显示与阅读', '控制结果卡片、卷轴阅读器和历史保留。')
         Column() { this.SettingCard('列表样式', '搜索结果列表显示模式。', this.coverOnlyMode ? '纯封面' : '封面+名称') }.onClick(() => { this.coverOnlyMode = !this.coverOnlyMode; })
         Column() { this.SettingCard('列表列数', '结果卡片列数。', this.resultColumns === 2 ? '2列' : '3列') }.onClick(() => { this.resultColumns = this.resultColumns === 2 ? 3 : 2; })
         Column() { this.SettingCard('按名称归类', '关闭后按每个URL单独显示。', this.groupByName ? '开' : '关') }.onClick(() => { this.groupByName = !this.groupByName; })
@@ -1902,11 +1920,7 @@ struct Index {
         Column() { this.SettingCard('章节追踪页数', '控制下一页追踪上限，避免死循环。', this.maxReaderPagesSetting + '页') }.onClick(() => { this.maxReaderPagesSetting = this.maxReaderPagesSetting === 4 ? 8 : (this.maxReaderPagesSetting === 8 ? 16 : 4); })
         Column() { this.SettingCard('历史保留数', '控制阅读历史最大数量。', this.keepHistoryCount + '条') }.onClick(() => { this.keepHistoryCount = this.keepHistoryCount === 20 ? 40 : (this.keepHistoryCount === 40 ? 80 : 20); this.history = this.history.slice(0, this.keepHistoryCount); })
 
-        Text('搜索引擎清单')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .width('100%')
-          .margin({ top: 10, bottom: 8 })
+        this.SettingSectionTitle('搜索引擎清单', '点击卡片切换当前搜索引擎，按钮用于启用或停用。')
         ForEach(this.searchEngines, (engine: SearchEngineConfig, index: number) => {
           Column() {
             Row() {
@@ -1915,7 +1929,7 @@ struct Index {
                 .backgroundColor(index === this.selectedEngineIndex ? '#34C759' : (engine.enabled ? '#43A047' : '#777777')).borderRadius(12)
               Column() {
                 Text(engine.name).fontSize(15).fontWeight(FontWeight.Medium).width('100%')
-                Text(engine.description).fontSize(12).fontColor('#777777').lineHeight(17).margin({ top: 4 }).width('100%')
+                Text(engine.description).fontSize(12).fontColor(this.secondaryText()).lineHeight(17).margin({ top: 4 }).width('100%')
               }.layoutWeight(1).margin({ left: 10 })
               Button(engine.enabled ? '停用' : '启用')
                 .height(30)
@@ -1926,23 +1940,19 @@ struct Index {
           }
           .width('100%')
           .padding(12)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor(this.cardBg())
           .borderRadius(10)
           .margin({ bottom: 8 })
           .onClick(() => { this.selectedEngineIndex = index; this.statusText = '当前搜索引擎：' + engine.name; })
         }, (engine: SearchEngineConfig) => engine.id)
 
 
-        Text('GitHub 远程规则')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .width('100%')
-          .margin({ top: 10, bottom: 8 })
+        this.SettingSectionTitle('远程规则', '从可信 GitHub index.json 拉取公开源规则，失败时保留内置规则。')
         TextInput({ placeholder: '远程规则 index.json Raw 地址', text: this.remoteRuleUrl })
           .height(44)
           .fontSize(12)
           .width('100%')
-          .backgroundColor('#FFFFFF')
+          .backgroundColor(this.cardBg())
           .borderRadius(10)
           .padding({ left: 10, right: 10 })
           .onChange((value: string) => { this.remoteRuleUrl = value; })
@@ -1963,16 +1973,12 @@ struct Index {
         .margin({ top: 8 })
         Text(this.remoteRuleStatus + ' · 当前远程规则 ' + this.remoteRuleCount + ' 条')
           .fontSize(12)
-          .fontColor('#777777')
+          .fontColor(this.secondaryText())
           .lineHeight(18)
           .width('100%')
           .margin({ top: 6, bottom: 8 })
 
-        Text('公开HTML源规则')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .width('100%')
-          .margin({ top: 10, bottom: 8 })
+        this.SettingSectionTitle('高级规则', '展示当前公开 HTML 源，也可以粘贴自定义 JSON 规则。')
         ForEach(this.rules, (rule: ComicSourceRule, index: number) => {
           Column() {
             Row() {
@@ -1981,13 +1987,13 @@ struct Index {
                 .backgroundColor(rule.searchUrl.length > 0 ? '#34C759' : '#777777').borderRadius(12)
               Column() {
                 Text(rule.name).fontSize(16).fontWeight(FontWeight.Medium).width('100%')
-                Text(rule.description).fontSize(12).fontColor('#777777').lineHeight(17).margin({ top: 4 }).width('100%')
+                Text(rule.description).fontSize(12).fontColor(this.secondaryText()).lineHeight(17).margin({ top: 4 }).width('100%')
               }.layoutWeight(1).margin({ left: 10 })
             }
           }
           .width('100%')
           .padding(12)
-          .backgroundColor('#FFFFFF')
+          .backgroundColor(this.cardBg())
           .borderRadius(10)
           .margin({ bottom: 8 })
           .onClick(() => { this.selectedSourceIndex = index; this.statusText = '已选择源：' + rule.name; })
@@ -1997,7 +2003,7 @@ struct Index {
           .height(240)
           .fontSize(12)
           .width('100%')
-          .backgroundColor('#FFFFFF')
+          .backgroundColor(this.cardBg())
           .borderRadius(10)
           .onChange((value: string) => { this.customRuleText = value; })
         Row() {
@@ -2020,7 +2026,7 @@ struct Index {
       .padding(14)
     }
     .layoutWeight(1)
-    .backgroundColor('#F7F7F7')
+    .backgroundColor(this.appBg())
   }
 
   @Builder
