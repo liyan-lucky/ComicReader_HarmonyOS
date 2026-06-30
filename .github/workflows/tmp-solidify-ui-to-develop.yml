@@ -28,3 +28,4 @@ jobs:
           git add .
           git commit -m "app: solidify modern UI source on develop" || exit 0
           git push origin HEAD:develop
+# trigger: 1
