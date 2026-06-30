@@ -1234,20 +1234,6 @@ struct Index {
     .backgroundColor(this.appBg())
   }
 
-  @Builder
-  private LegacySearchHomeRemoved() {
-    Text('')
-  }
-
-  @Builder
-  private SearchHomeOldUnusedAnchor() {
-    Text('最近阅读')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .width('100%')
-          .margin({ bottom: 8 })
-      }
-  }
 
   @Builder
   private SearchChip(keyword: string) {

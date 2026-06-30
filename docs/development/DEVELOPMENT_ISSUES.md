@@ -50,7 +50,7 @@
 
 - 现象：在线工具只能整文件替换，修改 `Index.ets` 风险高。
 - 处理：固定使用一个 workflow + `scripts/polish_ui.py` 进行确定性文本修改，再固化到 `develop`。
-- 状态：已建立临时流程规范。
+- 状态：已建立临时流程规范，后续需保持脚本幂等。
 
 ### 8. Workflow 不能直接针对 `main`
 
@@ -85,3 +85,10 @@
 - 现象：需求、问题、规范、构建说明、流程说明散落在 README、对话和 workflow 中。
 - 处理：新增 `docs/` 文档中心和开发规范文档。
 - 状态：进行中。
+
+### 13. UI 自动脚本留下旧 SearchHome Builder 残留
+
+- 现象：`Index.ets` 中出现 `LegacySearchHomeRemoved`、`SearchHomeOldUnusedAnchor` 等旧 Builder 残留，代码结构不干净，可能导致后续构建或维护问题。
+- 原因：早期脚本通过锚点替换大段 `SearchHome()`，未完整删除旧块尾部。
+- 处理：固定 workflow 改为运行目标分支自己的 `scripts/polish_ui.py`；脚本改为保守幂等清理，检测到旧残留则直接失败或清理。
+- 状态：脚本已更新，待运行固定 workflow 固化到 `Index.ets`。
