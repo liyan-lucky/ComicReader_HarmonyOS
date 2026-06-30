@@ -113,3 +113,10 @@
 - 原因：HarmonyOS / OpenHarmony 应用图标资源使用 PNG 更稳；用户要求直接使用沟通预览图中的图形扣图。
 - 处理：新增 `scripts/generate_app_icon_png.py`，从已确认预览图扣出的 PNG base64 生成 `entry/src/main/resources/base/media/icon.png`，并删除 `icon.svg` 避免 `$media:icon` 资源名冲突；固定 UI workflow 已增加 PNG 图标生成步骤。
 - 状态：脚本和 workflow 已更新，待运行固定 workflow 固化到资源目录。
+
+### 17. 搜索结果卡片和标题过长
+
+- 现象：搜索结果列表/网格不够明确，列表高度偏大；部分标题重复显示导致卡片名称很长。
+- 原因：早期结果卡片混入描述和按钮，网格/列表逻辑还保留两列切换；搜索源返回标题可能包含重复名称或重复分隔片段。
+- 处理：固定 UI 脚本统一结果显示：列表为低高度左图右文横条；网格固定三列图片卡片；新增显示层标题清洗函数，去掉连续重复词、重复分隔片段和整段重复。
+- 状态：脚本和文档已更新，待运行固定 workflow 固化到 `Index.ets`。
