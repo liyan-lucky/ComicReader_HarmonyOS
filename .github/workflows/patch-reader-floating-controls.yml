@@ -1,0 +1,52 @@
+name: 应用下一轮 UI 优化到 develop
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 目标开发分支，禁止填写 main
+        required: true
+        default: develop
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  polish-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 校验目标分支
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event.inputs.target_branch }}" = "main" ]; then
+            echo "本流程禁止直接作用于 main。请使用 develop 或 feature/fix 分支。"
+            exit 1
+          fi
+
+      - name: 检出目标分支
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 拉取默认分支上的 UI 优化脚本
+        run: |
+          git fetch origin ${{ github.event.repository.default_branch }}
+          git checkout origin/${{ github.event.repository.default_branch }} -- scripts/polish_ui.py
+
+      - name: 执行 UI 优化脚本
+        run: python3 scripts/polish_ui.py
+
+      - name: 提交到目标分支
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add entry/src/main/ets/pages/Index.ets scripts/polish_ui.py
+          if git diff --cached --quiet; then
+            echo "No change needed."
+          else
+            git commit -m "style(ui): apply navigation and layout polish"
+            git push origin HEAD:${{ github.event.inputs.target_branch }}
+          fi

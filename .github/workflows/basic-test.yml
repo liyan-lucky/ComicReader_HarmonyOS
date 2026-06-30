@@ -3,9 +3,9 @@ name: 基础测试
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [develop]
   pull_request:
-    branches: [main]
+    branches: [develop]
 
 permissions:
   contents: read
@@ -42,6 +42,15 @@ jobs:
             bash -n "$file"
           done
 
+      - name: 检查 Python 脚本语法
+        shell: bash
+        run: |
+          set -euo pipefail
+          find scripts -type f -name '*.py' -print | sort | while IFS= read -r file; do
+            echo "python3 -m py_compile $file"
+            python3 -m py_compile "$file"
+          done
+
       - name: 检查版本文件
         shell: bash
         run: |
@@ -64,17 +73,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f .github/workflows/manual-build-entry.yml
+          test -f .github/workflows/manual-build-entry-advanced.yml
           test -f .github/workflows/compliance-check.yml
           test -f .github/workflows/cleanup-artifacts.yml
           test -f .github/workflows/basic-test.yml
-          grep -q '^name: 构建漫画浏览器 HAP$' .github/workflows/manual-build-entry.yml
+          test -f .github/workflows/patch-reader-floating-controls.yml
+          grep -q '^name: 高级构建漫画浏览器 HAP$' .github/workflows/manual-build-entry-advanced.yml
           grep -q '^name: 合规检查$' .github/workflows/compliance-check.yml
-          grep -q '^name: 清理旧构建产物$' .github/workflows/cleanup-artifacts.yml
+          grep -q '^name: 清理旧构建产物和流程记录$' .github/workflows/cleanup-artifacts.yml
           grep -q '^name: 基础测试$' .github/workflows/basic-test.yml
-          grep -q 'comic-reader-hap-' .github/workflows/manual-build-entry.yml
-          grep -q 'comic-reader-sdk-install-logs-' .github/workflows/manual-build-entry.yml
-          grep -q 'comic-reader-hvigor-logs-' .github/workflows/manual-build-entry.yml
+          grep -q '^name: 应用下一轮 UI 优化到 develop$' .github/workflows/patch-reader-floating-controls.yml
+          grep -q 'comic-reader-hap-' .github/workflows/manual-build-entry-advanced.yml
+          grep -q 'comic-reader-sdk-install-logs-' .github/workflows/manual-build-entry-advanced.yml
+          grep -q 'comic-reader-hvigor-logs-' .github/workflows/manual-build-entry-advanced.yml
+          ! grep -R "branches: \[main\]" .github/workflows
+          ! grep -R "- main" .github/workflows
 
       - name: 检查禁止提交的构建产物和签名文件
         shell: bash
