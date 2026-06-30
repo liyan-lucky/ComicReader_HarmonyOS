@@ -1,0 +1,133 @@
+name: 临时固化 UI 到 develop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-solidify-ui-to-develop.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  solidify:
+    name: 固化 UI 到 develop
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: 设置 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 生成源码固化结果并提交 develop
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          INDEX="entry/src/main/ets/pages/Index.ets"
+          BACKUP="entry/src/main/ets/pages/Index.original.ets"
+          test -f "$INDEX"
+          if [ ! -f "$BACKUP" ]; then
+            cp "$INDEX" "$BACKUP"
+          fi
+
+          node scripts/update_build_version.js --no-bump --target source-solidified
+          node scripts/patch_about_page_ci.js
+          node scripts/patch_modern_ui_ci.js
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/build_hap_ci.js')
+          s = p.read_text()
+          old = """function applySourcePatchesOnce() {
+  if (process.env.COMIC_READER_SOURCE_PATCHED === '1') {
+    console.log('ComicReader CI skipped source UI patches because they were already applied in this process tree.');
+    return;
+  }
+  process.env.COMIC_READER_SOURCE_PATCHED = '1';
+  require('./update_build_version.js').writeCurrentBuildInfo({
+    buildType: process.env.BUILD_PACKAGE_SUFFIX || 'ci',
+    target: process.env.BUILD_PACKAGE_SUFFIX || process.env.BUILD_PRODUCT || 'source'
+  });
+  require('./patch_about_page_ci.js');
+  require('./patch_modern_ui_ci.js');
+}
+
+installPrimitiveSdkComponentCompat();
+applySourcePatchesOnce();
+"""
+          new = """function writeCurrentBuildInfoOnly() {
+  require('./update_build_version.js').writeCurrentBuildInfo({
+    buildType: process.env.BUILD_PACKAGE_SUFFIX || 'ci',
+    target: process.env.BUILD_PACKAGE_SUFFIX || process.env.BUILD_PRODUCT || 'source'
+  });
+}
+
+installPrimitiveSdkComponentCompat();
+writeCurrentBuildInfoOnly();
+"""
+          if old not in s:
+              raise SystemExit('build_hap_ci.js UI patch marker not found')
+          p.write_text(s.replace(old, new))
+          PY
+
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ['scripts/build_full.sh', 'scripts/build_incremental.sh']:
+              p = Path(name)
+              s = p.read_text()
+              s = s.replace('\nif [ "${SKIP_HAP_BUILD:-0}" = "1" ]; then\n  node scripts/patch_about_page_ci.js\n  node scripts/patch_modern_ui_ci.js\n  echo "Version and UI source patch updated only. SKIP_HAP_BUILD=1, skip hvigor build."\n  exit 0\nfi\n', '\nif [ "${SKIP_HAP_BUILD:-0}" = "1" ]; then\n  echo "Version updated only. SKIP_HAP_BUILD=1, skip hvigor build."\n  exit 0\nfi\n')
+              s = s.replace('\nnode scripts/patch_about_page_ci.js\nnode scripts/patch_modern_ui_ci.js\n', '\n')
+              p.write_text(s)
+          PY
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('docs/UI.md')
+          s = p.read_text()
+          s = s.replace('正式构建不应依赖 UI 注入脚本动态改页面源码。`scripts/patch_about_page_ci.js` 和 `scripts/patch_modern_ui_ci.js` 只能作为历史迁移/对照工具，不应作为长期构建路径。', '正式构建不依赖 UI 注入脚本动态改页面源码。`scripts/patch_about_page_ci.js` 和 `scripts/patch_modern_ui_ci.js` 只保留为历史迁移/对照工具，不再作为正式构建路径。')
+          p.write_text(s)
+          PY
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const index = fs.readFileSync('entry/src/main/ets/pages/Index.ets', 'utf8');
+          const required = [
+            '../common/BuildInfo',
+            '@State private appTheme',
+            '@State private appLanguage',
+            'private isDarkTheme(): boolean',
+            'private t(key: string): string',
+            'private TabPill(',
+            'private AboutPage()',
+            'private ReaderFloatingButton(',
+            'lastReadUrl',
+            'progressPercent',
+            'readCount'
+          ];
+          for (const marker of required) {
+            if (!index.includes(marker)) throw new Error('Missing UI source marker: ' + marker);
+          }
+          const build = fs.readFileSync('scripts/build_hap_ci.js', 'utf8');
+          if (build.includes("require('./patch_about_page_ci.js')") || build.includes("require('./patch_modern_ui_ci.js')")) {
+            throw new Error('Formal build still invokes UI patch scripts');
+          }
+          console.log('UI source solidification verified.');
+          NODE
+
+          git add entry/src/main/ets/pages/Index.ets entry/src/main/ets/pages/Index.original.ets entry/src/main/ets/common/BuildInfo.ets AppScope/app.json5 oh-package.json5 entry/oh-package.json5 scripts/build_hap_ci.js scripts/build_full.sh scripts/build_incremental.sh docs/UI.md
+          if git diff --cached --quiet; then
+            echo "No develop changes to commit."
+          else
+            git commit -m "app: solidify modern UI source on develop"
+            git push origin HEAD:develop
+          fi
