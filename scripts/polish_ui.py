@@ -2,9 +2,8 @@
 # -*- coding: utf-8 -*-
 """Idempotent UI polish script for the target development branch.
 
-This script is intentionally conservative. It only normalizes already-agreed UI
-structure and cleans leftovers created by earlier text patches. The fixed
-workflow runs this script from the target branch, never from main.
+This script normalizes already-agreed UI structure, cleans old text-patch
+leftovers, and keeps search result presentation consistent.
 """
 from pathlib import Path
 
@@ -22,7 +21,7 @@ def replace_between(source: str, start: str, end: str, replacement: str) -> str:
     return source[:start_index] + replacement + source[end_index:]
 
 
-# Defaults: search result page uses image-first grid.
+# Defaults: search result page uses image-first 3-column grid.
 text = text.replace('@State private coverOnlyMode: boolean = false;', '@State private coverOnlyMode: boolean = true;')
 text = text.replace('@State private resultColumns: number = 2;', '@State private resultColumns: number = 3;')
 if "@State private resultViewMode: string = 'grid';" not in text:
@@ -113,12 +112,8 @@ text = text.replace(
       }"""
 )
 
-# Result header: arrange controls only when results exist.
-text = text.replace(
-    """          Button(this.groupByName ? '已归类' : '不归类')
-            .height(32)
-            .fontSize(12)
-            .onClick(() => { this.groupByName = !this.groupByName; })""",
+# Result header: only list/grid switch after results exist. Grid is always 3 columns.
+old_result_switches = [
     """          if (this.results.length > 0) {
             Button(this.resultViewMode === 'grid' ? '网格' : '列表')
               .height(32)
@@ -132,8 +127,31 @@ text = text.replace(
               .fontSize(12)
               .margin({ left: 8 })
               .onClick(() => { this.resultColumns = this.resultColumns === 3 ? 2 : 3; })
+          }""",
+    """          Button(this.groupByName ? '已归类' : '不归类')
+            .height(32)
+            .fontSize(12)
+            .onClick(() => { this.groupByName = !this.groupByName; })""",
+]
+new_result_switch = """          if (this.results.length > 0) {
+            Button('列表')
+              .height(32)
+              .fontSize(12)
+              .fontColor(this.resultViewMode === 'list' ? '#FFFFFF' : this.secondaryText())
+              .backgroundColor(this.resultViewMode === 'list' ? this.accent() : this.cardBg())
+              .borderRadius(16)
+              .onClick(() => { this.resultViewMode = 'list'; })
+            Button('网格')
+              .height(32)
+              .fontSize(12)
+              .fontColor(this.resultViewMode === 'grid' ? '#FFFFFF' : this.secondaryText())
+              .backgroundColor(this.resultViewMode === 'grid' ? this.accent() : this.cardBg())
+              .borderRadius(16)
+              .margin({ left: 8 })
+              .onClick(() => { this.resultViewMode = 'grid'; this.resultColumns = 3; })
           }"""
-)
+for old in old_result_switches:
+    text = text.replace(old, new_result_switch)
 
 # Settings section title helper, used by Settings and History pages.
 if 'private SettingSectionTitle(title: string, desc: string)' not in text:
@@ -164,6 +182,179 @@ if 'private SettingSectionTitle(title: string, desc: string)' not in text:
   @Builder
   private SettingsPage() {"""
     )
+
+# Search result cards: list = compact horizontal strip, grid = 3-column card with image + cleaned title.
+result_card_block = """  private cleanResultTitle(raw: string): string {
+    let title = raw.trim();
+    while (title.indexOf('  ') >= 0) {
+      title = title.replace('  ', ' ');
+    }
+    title = this.cleanResultTitleBySeparator(title, ' - ');
+    title = this.cleanResultTitleBySeparator(title, ' | ');
+    title = this.cleanResultTitleBySeparator(title, '｜');
+    title = this.cleanResultTitleBySeparator(title, '_');
+    title = this.cleanResultTitleBySeparator(title, '，');
+    title = this.cleanResultTitleBySeparator(title, ',');
+    if (title.length > 1 && title.length % 2 === 0) {
+      let halfLength = title.length / 2;
+      let left = title.substring(0, halfLength).trim();
+      let right = title.substring(halfLength).trim();
+      if (left.length > 0 && left === right) {
+        title = left;
+      }
+    }
+    let words = title.split(' ');
+    if (words.length > 1) {
+      let compactWords: string[] = [];
+      for (let index = 0; index < words.length; index++) {
+        let word = words[index].trim();
+        if (word.length === 0) {
+          continue;
+        }
+        if (compactWords.length === 0 || compactWords[compactWords.length - 1] !== word) {
+          compactWords.push(word);
+        }
+      }
+      title = compactWords.join(' ');
+    }
+    return title;
+  }
+
+  private cleanResultTitleBySeparator(raw: string, separator: string): string {
+    if (raw.indexOf(separator) < 0) {
+      return raw;
+    }
+    let parts = raw.split(separator);
+    let compactParts: string[] = [];
+    for (let index = 0; index < parts.length; index++) {
+      let part = parts[index].trim();
+      if (part.length === 0) {
+        continue;
+      }
+      if (compactParts.length === 0 || compactParts[compactParts.length - 1] !== part) {
+        compactParts.push(part);
+      }
+    }
+    return compactParts.join(separator);
+  }
+
+  private resultTitle(item: SearchResultItem): string {
+    return this.cleanResultTitle(item.title);
+  }
+
+  @Builder
+  private ResultCard(item: SearchResultItem) {
+    Column() {
+      this.CoverBox(item, 142)
+      Text(this.resultTitle(item))
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.primaryText())
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+        .padding({ left: 8, right: 8, top: 8, bottom: 10 })
+    }
+    .width('100%')
+    .clip(true)
+    .backgroundColor(this.cardBg())
+    .borderRadius(16)
+    .shadow({ radius: 6, color: '#10000000', offsetX: 0, offsetY: 2 })
+    .onClick(() => this.openSearchResult(item))
+  }
+
+  @Builder
+  private ResultListCard(item: SearchResultItem) {
+    Row() {
+      Column() {
+        this.CoverBox(item, 76)
+      }
+      .width(58)
+      .height(76)
+      .clip(true)
+      .borderRadius(12)
+
+      Column() {
+        Text(this.resultTitle(item))
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.primaryText())
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        Text(item.sourceName)
+          .fontSize(11)
+          .fontColor(this.secondaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ top: 6 })
+          .width('100%')
+      }
+      .layoutWeight(1)
+      .margin({ left: 12 })
+    }
+    .width('100%')
+    .height(94)
+    .padding(8)
+    .backgroundColor(this.cardBg())
+    .borderRadius(16)
+    .margin({ bottom: 8 })
+    .onClick(() => this.openSearchResult(item))
+  }
+
+  @Builder
+  private ResultGroupView(group: ResultGroup) {
+    Column() {
+      Row() {
+        Text(this.cleanResultTitle(group.name))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+        Text(group.count + ' 个')
+          .fontSize(12)
+          .fontColor('#FFFFFF')
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .backgroundColor(this.accent())
+          .borderRadius(12)
+      }
+      .width('100%')
+      .margin({ bottom: 8 })
+
+      if (this.resultViewMode === 'list') {
+        Column() {
+          ForEach(group.items, (item: SearchResultItem) => {
+            this.ResultListCard(item)
+          }, (item: SearchResultItem) => item.url)
+        }
+        .width('100%')
+      } else {
+        Grid() {
+          ForEach(group.items, (item: SearchResultItem) => {
+            GridItem() { this.ResultCard(item) }
+          }, (item: SearchResultItem) => item.url)
+        }
+        .columnsTemplate('1fr 1fr 1fr')
+        .columnsGap(10)
+        .rowsGap(12)
+        .width('100%')
+      }
+    }
+    .width('100%')
+    .margin({ bottom: 18 })
+  }
+
+"""
+text = replace_between(
+    text,
+    """  @Builder
+  private ResultCard(item: SearchResultItem) {""",
+    """  @Builder
+  private ResultsPage() {""",
+    result_card_block
+)
 
 # History owns previous shelf/history functions: clear history, clear favorites, open/remove favorites, downloads placeholder.
 history_page = """  @Builder
@@ -396,6 +587,17 @@ text = text.replace(
 for marker in ['LegacySearchHomeRemoved', 'SearchHomeOldUnusedAnchor']:
     if marker in text:
         raise SystemExit(f'Unexpected leftover marker still present: {marker}')
+
+# Validate result presentation.
+result_start = text.find('private ResultCard(')
+result_end = text.find('private ResultsPage()', result_start)
+result_body = text[result_start:result_end]
+for required in ['private cleanResultTitle(', 'private ResultListCard(', ".columnsTemplate('1fr 1fr 1fr')", 'height(94)', 'this.resultTitle(item)']:
+    if required not in result_body:
+        raise SystemExit(f'Result UI missing required content: {required}')
+for forbidden in ['this.coverOnlyMode ? 150 : 185', "this.resultColumns === 3 ? '1fr 1fr 1fr' : '1fr 1fr'", 'Button(\'书架\')']:
+    if forbidden in result_body:
+        raise SystemExit(f'Result UI still contains old content: {forbidden}')
 
 # Validate ShelfPage does not contain old favorites/history display content.
 shelf_start = text.find('private ShelfPage()')
