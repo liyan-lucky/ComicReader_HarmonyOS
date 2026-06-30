@@ -84,6 +84,7 @@ function writeCurrentBuildInfoOnly() {
 
 installPrimitiveSdkComponentCompat();
 writeCurrentBuildInfoOnly();
+require('./validate_oh_package_json5_ci.js');
 require('./patch_openharmony_device_types_ci.js');
 require('./patch_syscap_transform_ci.js');
 require('./patch_jsonfile_empty_schema.js');
