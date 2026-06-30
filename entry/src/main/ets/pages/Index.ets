@@ -1606,6 +1606,7 @@ struct Index {
         }
         .width('100%')
         .padding({ left: 12, right: 12, top: 10 })
+        .align(Alignment.Top)
       }
 
       if (this.floatingReaderControls) {
@@ -1621,6 +1622,7 @@ struct Index {
         }
         .width('100%')
         .padding({ left: 16, right: 16, bottom: 14 })
+        .align(Alignment.Bottom)
       }
     }
     .width('100%')
