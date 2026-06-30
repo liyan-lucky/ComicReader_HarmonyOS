@@ -106,3 +106,10 @@
 - 原因：产品信息架构调整为“搜索 / 书架 / 历史 / 设置”后，书架 Tab 需要承载发现入口。
 - 处理：书架页改为热门题材推荐，后续从规则仓库或目录索引自动更新；当前先提供内置题材卡片并点击搜索。
 - 状态：脚本和文档已更新，待运行固定 workflow 固化到 `Index.ets`。
+
+### 16. APP 主图标需要使用 PNG
+
+- 现象：APP 桌面显示图标和搜索首页图形需要使用 PNG，不能继续依赖同名 SVG。
+- 原因：HarmonyOS / OpenHarmony 应用图标资源使用 PNG 更稳；用户要求直接使用沟通预览图中的图形扣图。
+- 处理：新增 `scripts/generate_app_icon_png.py`，从已确认预览图扣出的 PNG base64 生成 `entry/src/main/resources/base/media/icon.png`，并删除 `icon.svg` 避免 `$media:icon` 资源名冲突；固定 UI workflow 已增加 PNG 图标生成步骤。
+- 状态：脚本和 workflow 已更新，待运行固定 workflow 固化到资源目录。
