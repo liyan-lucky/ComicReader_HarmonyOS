@@ -1061,6 +1061,7 @@ struct Index {
   private secondaryText(): string { return this.isDarkTheme() ? '#AAB4C0' : '#666666'; }
   private mutedText(): string { return this.isDarkTheme() ? '#7F8B96' : '#888888'; }
   private accent(): string { return '#34C759'; }
+  private selectedSoftBg(): string { return this.isDarkTheme() ? '#1F34C759' : '#1434C759'; }
   private warnBg(): string { return this.isDarkTheme() ? '#332610' : '#FFF7E6'; }
   private warnText(): string { return this.isDarkTheme() ? '#F8D38D' : '#6A3A00'; }
   private okBg(): string { return this.isDarkTheme() ? '#16351F' : '#F1F8E9'; }
@@ -1081,8 +1082,8 @@ struct Index {
   }
 
   private toggleLanguage(): void {
-    this.appLanguage = this.appLanguage === 'en' ? 'zh' : 'en';
-    this.statusText = this.appLanguage === 'en' ? 'Language switched to English.' : '语言已切换为中文。';
+    this.appLanguage = 'zh';
+    this.statusText = '界面语言已锁定为中文，避免误触后出现英文或中英文混排。';
   }
 
   private shelfProgressText(item: BookshelfItem): string {
@@ -1144,17 +1145,7 @@ struct Index {
           .fontWeight(FontWeight.Bold)
           .fontColor(this.primaryText())
           .layoutWeight(1)
-        Row() {
-          this.MiniPill('中', this.appLanguage === 'zh')
-          Text('|').fontSize(11).fontColor(this.mutedText()).margin({ left: 4, right: 4 })
-          this.MiniPill('EN', this.appLanguage === 'en')
-        }
-        .onClick(() => this.toggleLanguage())
-        .margin({ right: 8 })
-        Button(this.themeLabel())
-          .height(32)
-          .fontSize(11)
-          .onClick(() => this.toggleTheme())
+        // 搜索页只保留搜索功能，不放语言/主题/设置类入口。
       }
       .width('100%')
       .padding({ left: 14, right: 14, top: 12, bottom: 6 })
@@ -1181,24 +1172,6 @@ struct Index {
       }
       .width('100%')
       .padding({ left: 14, right: 14, bottom: 8 })
-
-      Row() {
-        Text(this.searchMode + ' · ' + this.sourceFilterMode + ' · ' + (this.searchAllEngines || this.searchMode === '全引擎+公开API' ? '全引擎' : this.selectedEngine().name) + ' · ' + this.totalSearchSourceCount() + '源')
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .layoutWeight(1)
-        Button(this.coverOnlyMode ? '封面+名称' : '纯封面')
-          .height(30)
-          .fontSize(12)
-          .onClick(() => { this.coverOnlyMode = !this.coverOnlyMode; })
-        Button('演示')
-          .height(30)
-          .fontSize(12)
-          .margin({ left: 8 })
-          .onClick(() => this.runDemoSearch())
-      }
-      .width('100%')
-      .padding({ left: 14, right: 14, bottom: 10 })
     }
     .backgroundColor(this.glassBg())
     .borderRadius({ bottomLeft: 22, bottomRight: 22 })
@@ -1213,7 +1186,7 @@ struct Index {
           .fontWeight(FontWeight.Bold)
           .width('100%')
           .margin({ top: 10, bottom: 6 })
-        Text('使用设置中选择的现有搜索引擎，同时聚合公开API/公开HTML源；搜索发现页会按域名自动匹配专用规则。结果按名称归类，显示封面卡片，点击进入章节或卷轴阅读。')
+        Text('输入漫画名称后开始搜索，结果会按名称归类并支持卷轴阅读。')
           .fontSize(13)
           .fontColor('#666666')
           .lineHeight(20)
@@ -1233,21 +1206,7 @@ struct Index {
         .width('100%')
         .margin({ bottom: 16 })
 
-        Row() {
-          Button('搜索 little nemo')
-            .height(40)
-            .layoutWeight(1)
-            .fontSize(14)
-            .onClick(() => this.runDemoSearch())
-          Button('去设置引擎')
-            .height(40)
-            .layoutWeight(1)
-            .fontSize(14)
-            .margin({ left: 10 })
-            .onClick(() => { this.activeTab = 'settings'; })
-        }
-        .width('100%')
-        .margin({ bottom: 16 })
+
 
         Text('最近阅读')
           .fontSize(18)
@@ -1273,7 +1232,7 @@ struct Index {
         .width(36)
         .height(36)
         .textAlign(TextAlign.Center)
-        .backgroundColor('#E53935')
+        .backgroundColor('#34C759')
         .borderRadius(18)
       Text(title)
         .fontSize(15)
@@ -1305,7 +1264,7 @@ struct Index {
         Text(item.title.substring(0, 1))
           .fontSize(32)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#E53935')
+          .fontColor('#34C759')
         Text(this.autoCoverEnabled ? '封面解析中' : '无封面')
           .fontSize(11)
           .fontColor('#999999')
@@ -1314,7 +1273,7 @@ struct Index {
       .width('100%')
       .height(heightValue)
       .justifyContent(FlexAlign.Center)
-      .backgroundColor('#FFF3F3')
+      .backgroundColor('#ECFFF1')
     }
   }
 
@@ -1387,7 +1346,7 @@ struct Index {
           .fontSize(12)
           .fontColor('#FFFFFF')
           .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-          .backgroundColor('#E53935')
+          .backgroundColor('#34C759')
           .borderRadius(12)
       }
       .width('100%')
@@ -1512,7 +1471,7 @@ struct Index {
                   .textAlign(TextAlign.Center)
                   .width(32)
                   .height(32)
-                  .backgroundColor('#E53935')
+                  .backgroundColor('#34C759')
                   .borderRadius(16)
                 Text(chapter.title)
                   .fontSize(15)
@@ -1597,7 +1556,7 @@ struct Index {
                 if (this.showImageIndex) {
                   Text('#' + item.index + (item.status === 'error' ? ' 加载失败，点图可重试' : ''))
                     .fontSize(11)
-                    .fontColor(item.status === 'error' ? '#E53935' : '#FFFFFF')
+                    .fontColor(item.status === 'error' ? '#34C759' : '#FFFFFF')
                     .width('100%')
                     .padding({ left: 8, top: 5, bottom: 5 })
                 }
@@ -1763,9 +1722,9 @@ struct Index {
                       .backgroundColor('#EEEEEE')
                   } else {
                     Column() {
-                      Text(item.title.substring(0, 1)).fontSize(30).fontWeight(FontWeight.Bold).fontColor('#E53935')
+                      Text(item.title.substring(0, 1)).fontSize(30).fontWeight(FontWeight.Bold).fontColor('#34C759')
                       Text('无封面').fontSize(11).fontColor('#999999').margin({ top: 6 })
-                    }.width('100%').height(160).justifyContent(FlexAlign.Center).backgroundColor('#FFF3F3')
+                    }.width('100%').height(160).justifyContent(FlexAlign.Center).backgroundColor('#ECFFF1')
                   }
                   Text(item.title)
                     .fontSize(14)
@@ -1951,7 +1910,7 @@ struct Index {
             Row() {
               Text(index === this.selectedEngineIndex ? '当前' : (engine.enabled ? '启用' : '停用'))
                 .fontSize(12).fontColor('#FFFFFF').textAlign(TextAlign.Center).width(42).height(24)
-                .backgroundColor(index === this.selectedEngineIndex ? '#E53935' : (engine.enabled ? '#43A047' : '#777777')).borderRadius(12)
+                .backgroundColor(index === this.selectedEngineIndex ? '#34C759' : (engine.enabled ? '#43A047' : '#777777')).borderRadius(12)
               Column() {
                 Text(engine.name).fontSize(15).fontWeight(FontWeight.Medium).width('100%')
                 Text(engine.description).fontSize(12).fontColor('#777777').lineHeight(17).margin({ top: 4 }).width('100%')
@@ -2017,7 +1976,7 @@ struct Index {
             Row() {
               Text(rule.searchUrl.length > 0 ? '搜' : 'URL')
                 .fontSize(12).fontColor('#FFFFFF').textAlign(TextAlign.Center).width(38).height(24)
-                .backgroundColor(rule.searchUrl.length > 0 ? '#E53935' : '#777777').borderRadius(12)
+                .backgroundColor(rule.searchUrl.length > 0 ? '#34C759' : '#777777').borderRadius(12)
               Column() {
                 Text(rule.name).fontSize(16).fontWeight(FontWeight.Medium).width('100%')
                 Text(rule.description).fontSize(12).fontColor('#777777').lineHeight(17).margin({ top: 4 }).width('100%')
@@ -2145,13 +2104,13 @@ struct Index {
   @Builder
   private UiIcon(name: string, selected: boolean, size: number) {
     if (name === 'search') {
-      Image($r('app.media.ic_search')).width(size).height(size).fillColor(selected ? '#FFFFFF' : this.secondaryText())
+      Image($r('app.media.ic_search')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
     } else if (name === 'shelf') {
-      Image($r('app.media.ic_shelf')).width(size).height(size).fillColor(selected ? '#FFFFFF' : this.secondaryText())
+      Image($r('app.media.ic_shelf')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
     } else if (name === 'settings') {
-      Image($r('app.media.ic_settings')).width(size).height(size).fillColor(selected ? '#FFFFFF' : this.secondaryText())
+      Image($r('app.media.ic_settings')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
     } else if (name === 'about') {
-      Image($r('app.media.ic_about')).width(size).height(size).fillColor(selected ? '#FFFFFF' : this.secondaryText())
+      Image($r('app.media.ic_about')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
     } else if (name === 'back') {
       Image($r('app.media.ic_back')).width(size).height(size).fillColor('#FFFFFF')
     } else if (name === 'add-shelf') {
@@ -2169,13 +2128,13 @@ struct Index {
       this.UiIcon(tab, this.activeTab === tab, 20)
       Text(label)
         .fontSize(10)
-        .fontColor(this.activeTab === tab ? '#FFFFFF' : this.secondaryText())
+        .fontColor(this.activeTab === tab ? this.accent() : this.secondaryText())
         .margin({ top: 2 })
     }
     .layoutWeight(1)
     .height(56)
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(this.activeTab === tab ? this.accent() : '#00000000')
+    .backgroundColor(this.activeTab === tab ? this.selectedSoftBg() : '#00000000')
     .borderRadius(28)
     .onClick(() => {
       this.activeTab = tab;
