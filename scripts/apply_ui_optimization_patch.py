@@ -4,10 +4,10 @@
 Apply UI optimization patch for entry/src/main/ets/pages/Index.ets.
 
 This script is intentionally kept as a deterministic text patch because Index.ets
-is currently a very large single ArkTS file. It removes the visible Settings tab,
-hides the home-page settings shortcut, locks the UI language to Chinese, changes
-bottom-tab selection from green filled pill to green icon/text rendering, and
-normalizes common red selected accents to the app green accent.
+is currently a very large single ArkTS file. It keeps the Settings tab/function,
+hides the awkward home-page settings shortcut, locks the UI language to Chinese,
+changes bottom-tab selection from green filled pill to green icon/text rendering,
+and normalizes common red selected accents to the app green accent.
 """
 from pathlib import Path
 
@@ -25,7 +25,6 @@ def main() -> None:
     text = INDEX.read_text(encoding="utf-8")
 
     # 1) Lock visible UI language to Chinese and stop accidental English switching.
-    text = text.replace("@State private appLanguage: string = 'zh';", "@State private appLanguage: string = 'zh';")
     text = replace_once(
         text,
         "  private toggleLanguage(): void {\n"
@@ -52,7 +51,8 @@ def main() -> None:
         "        Button(this.themeLabel())"
     )
 
-    # 3) Remove home-page settings shortcut.
+    # 3) Search page only: remove the awkward "go to settings engine" shortcut.
+    # Settings tab and SettingsPage are intentionally kept.
     text = replace_once(
         text,
         "        Row() {\n"
@@ -100,7 +100,7 @@ def main() -> None:
     text = text.replace("Image($r('app.media.ic_refresh')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())", "Image($r('app.media.ic_refresh')).width(size).height(size).fillColor('#FFFFFF')")
     text = text.replace("Image($r('app.media.ic_more')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())", "Image($r('app.media.ic_more')).width(size).height(size).fillColor('#FFFFFF')")
 
-    # 6) Bottom tabs: remove settings tab; selected text green; no green filled pill.
+    # 6) Bottom tabs: keep settings tab; selected text/icon green; no solid green fill.
     text = replace_once(
         text,
         "        .fontColor(this.activeTab === tab ? '#FFFFFF' : this.secondaryText())",
@@ -110,27 +110,6 @@ def main() -> None:
         text,
         "    .backgroundColor(this.activeTab === tab ? this.accent() : '#00000000')",
         "    .backgroundColor(this.activeTab === tab ? this.selectedSoftBg() : '#00000000')"
-    )
-    text = replace_once(
-        text,
-        "      this.TabPill('search', this.t('search'))\n"
-        "      this.TabPill('shelf', this.t('shelf'))\n"
-        "      this.TabPill('settings', this.t('settings'))\n"
-        "      this.TabPill('about', this.t('about'))",
-        "      this.TabPill('search', this.t('search'))\n"
-        "      this.TabPill('shelf', this.t('shelf'))\n"
-        "      this.TabPill('about', this.t('about'))"
-    )
-    text = replace_once(
-        text,
-        "      } else if (this.activeTab === 'settings') {\n"
-        "        this.SettingsPage()\n"
-        "      } else {\n"
-        "        this.AboutPage()\n"
-        "      }",
-        "      } else {\n"
-        "        this.AboutPage()\n"
-        "      }"
     )
 
     # 7) Normalize visible red selected/accent blocks to app green.
