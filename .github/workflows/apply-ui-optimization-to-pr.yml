@@ -1,0 +1,37 @@
+name: 应用 UI 优化到 PR 分支
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - .github/workflows/apply-ui-optimization-to-pr.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-ui-optimization:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出 PR 分支
+        uses: actions/checkout@v4
+        with:
+          ref: optimize-ui-icons-settings-audit
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 应用 UI 优化脚本
+        run: python3 scripts/apply_ui_optimization_patch.py
+
+      - name: 提交实际 Index.ets 改动
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add entry/src/main/ets/pages/Index.ets
+          if git diff --cached --quiet; then
+            echo "No Index.ets changes to commit."
+          else
+            git commit -m "fix(ui): make search page search-only"
+            git push origin HEAD:optimize-ui-icons-settings-audit
+          fi
