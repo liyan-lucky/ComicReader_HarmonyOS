@@ -75,22 +75,15 @@ function installPrimitiveSdkComponentCompat() {
   }
 }
 
-function applySourcePatchesOnce() {
-  if (process.env.COMIC_READER_SOURCE_PATCHED === '1') {
-    console.log('ComicReader CI skipped source UI patches because they were already applied in this process tree.');
-    return;
-  }
-  process.env.COMIC_READER_SOURCE_PATCHED = '1';
+function writeCurrentBuildInfoOnly() {
   require('./update_build_version.js').writeCurrentBuildInfo({
     buildType: process.env.BUILD_PACKAGE_SUFFIX || 'ci',
     target: process.env.BUILD_PACKAGE_SUFFIX || process.env.BUILD_PRODUCT || 'source'
   });
-  require('./patch_about_page_ci.js');
-  require('./patch_modern_ui_ci.js');
 }
 
 installPrimitiveSdkComponentCompat();
-applySourcePatchesOnce();
+writeCurrentBuildInfoOnly();
 require('./patch_openharmony_device_types_ci.js');
 require('./patch_syscap_transform_ci.js');
 require('./patch_jsonfile_empty_schema.js');

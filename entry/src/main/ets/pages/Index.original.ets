@@ -5,7 +5,6 @@ import { parseSearchResults, parseChapters, parseImages, parseNextPageUrl } from
 import { looksLikeUrl, normalizeUserUrl } from '../common/UrlUtil';
 import { DEFAULT_SEARCH_ENGINES, buildEngineQuery, buildSearchEngineUrl, parseSearchEngineResults, isEngineConfigured, engineHeaders, searchEngineUserAgent } from '../common/SearchEngines';
 import { RemoteRuleService, DEFAULT_REMOTE_RULE_URL } from '../common/RemoteRuleService';
-import { APP_VERSION, APP_VERSION_CODE, APP_BUILD_TYPE, APP_BUILD_TIME, APP_BUILD_TARGET } from '../common/BuildInfo';
 import webview from '@ohos.web.webview';
 
 import {
@@ -105,10 +104,6 @@ struct Index {
   @State private maxReaderPagesSetting: number = 8;
   @State private keepHistoryCount: number = 40;
   @State private auditText: string = '审计状态：v5.8 已拆分 App 仓库与规则仓库。App 可从 GitHub Raw 远程更新 generated/index.json 规则，规则仓库可用 GitHub Actions 自动搜索/审计/生成公开源规则。';
-  @State private appTheme: string = 'light';
-  @State private appLanguage: string = 'zh';
-  @State private fullscreenReader: boolean = true;
-  @State private floatingReaderControls: boolean = true;
 
   aboutToAppear(): void {
     this.queryText = '';
@@ -870,10 +865,7 @@ struct Index {
       sourceName: item.sourceName,
       lastChapterTitle: '',
       addedTimeText: this.nowText(),
-      lastReadTimeText: '',
-      lastReadUrl: '',
-      progressPercent: 0,
-      readCount: 0
+      lastReadTimeText: ''
     });
     this.bookshelf = filtered;
     this.statusText = '已加入书架：' + item.title;
@@ -913,10 +905,7 @@ struct Index {
           sourceName: item.sourceName,
           lastChapterTitle: chapterTitle,
           addedTimeText: item.addedTimeText,
-          lastReadTimeText: this.nowText(),
-          lastReadUrl: this.currentUrl,
-          progressPercent: this.chapters.length > 0 ? Math.min(99, Math.max(1, Math.floor((this.chapters.findIndex((chapter: ChapterItem) => chapter.title === chapterTitle) + 1) * 100 / this.chapters.length))) : (item.progressPercent !== undefined ? item.progressPercent : 12),
-          readCount: item.readCount !== undefined ? item.readCount + 1 : 1
+          lastReadTimeText: this.nowText()
         });
       } else {
         next.push(item);
@@ -930,10 +919,6 @@ struct Index {
     this.currentCover = item.cover;
     this.currentSourceId = item.sourceId;
     this.currentSourceName = item.sourceName;
-    if (item.lastReadUrl !== undefined && item.lastReadUrl.length > 0) {
-      await this.loadChapterByUrl(item.lastReadUrl, item.lastChapterTitle.length > 0 ? item.lastChapterTitle : item.title, this.ruleForItemUrl(item.lastReadUrl, item.sourceId));
-      return;
-    }
     await this.loadDetail(item.url, item.title, this.ruleForItemUrl(item.url, item.sourceId));
   }
 
@@ -1029,96 +1014,16 @@ struct Index {
     this.statusText = (this.searchEngines[index].enabled ? '已启用：' : '已停用：') + this.searchEngines[index].name;
   }
 
-  private isDarkTheme(): boolean {
-    return this.appTheme === 'dark';
-  }
-
-  private t(key: string): string {
-    const zh = this.appLanguage !== 'en';
-    if (key === 'search') return zh ? '搜索' : 'Search';
-    if (key === 'shelf') return zh ? '书架' : 'Shelf';
-    if (key === 'settings') return zh ? '设置' : 'Settings';
-    if (key === 'about') return zh ? '关于' : 'About';
-    if (key === 'appTitle') return zh ? '漫画浏览器' : 'Comic Reader';
-    if (key === 'searchPlaceholder') return zh ? '搜索漫画 / Search comics' : 'Search comics / 漫画';
-    if (key === 'searchPublic') return zh ? '搜索公开漫画资源' : 'Search public comic sources';
-    if (key === 'homeDesc') return zh ? '聚合公开 API、公开 HTML 源和搜索引擎结果，按名称归类并支持卷轴阅读。' : 'Aggregate public APIs, public HTML sources and search results, grouped by title with scroll reading.';
-    if (key === 'theme') return zh ? '主题' : 'Theme';
-    if (key === 'language') return zh ? '语言' : 'Language';
-    if (key === 'light') return zh ? '明亮' : 'Light';
-    if (key === 'dark') return zh ? '暗黑' : 'Dark';
-    if (key === 'fullReader') return zh ? '全屏阅读' : 'Full screen reader';
-    if (key === 'floatingControls') return zh ? '悬浮控制' : 'Floating controls';
-    if (key === 'continueRead') return zh ? '继续阅读' : 'Continue';
-    if (key === 'remove') return zh ? '移除' : 'Remove';
-    return key;
-  }
-
-  private appBg(): string { return this.isDarkTheme() ? '#101418' : '#F7F8FA'; }
-  private cardBg(): string { return this.isDarkTheme() ? '#1B222A' : '#FFFFFF'; }
-  private glassBg(): string { return this.isDarkTheme() ? '#CC141A20' : '#EFFFFFFF'; }
-  private primaryText(): string { return this.isDarkTheme() ? '#F2F5F7' : '#111111'; }
-  private secondaryText(): string { return this.isDarkTheme() ? '#AAB4C0' : '#666666'; }
-  private mutedText(): string { return this.isDarkTheme() ? '#7F8B96' : '#888888'; }
-  private accent(): string { return '#34C759'; }
-  private warnBg(): string { return this.isDarkTheme() ? '#332610' : '#FFF7E6'; }
-  private warnText(): string { return this.isDarkTheme() ? '#F8D38D' : '#6A3A00'; }
-  private okBg(): string { return this.isDarkTheme() ? '#16351F' : '#F1F8E9'; }
-  private okText(): string { return this.isDarkTheme() ? '#9EE6AE' : '#33691E'; }
-
-  private themeLabel(): string {
-    return this.isDarkTheme() ? this.t('dark') : this.t('light');
-  }
-
-  private languageLabel(): string {
-    return this.appLanguage === 'en' ? 'English' : '中文';
-  }
-
-  private toggleTheme(): void {
-    this.appTheme = this.isDarkTheme() ? 'light' : 'dark';
-    this.readerDarkMode = this.isDarkTheme();
-    this.statusText = this.appLanguage === 'en' ? 'Theme updated.' : '主题已切换。';
-  }
-
-  private toggleLanguage(): void {
-    this.appLanguage = this.appLanguage === 'en' ? 'zh' : 'en';
-    this.statusText = this.appLanguage === 'en' ? 'Language switched to English.' : '语言已切换为中文。';
-  }
-
-  private shelfProgressText(item: BookshelfItem): string {
-    if (item.progressPercent !== undefined && item.progressPercent > 0) {
-      return item.progressPercent + '%';
-    }
-    if (item.lastChapterTitle.length > 0) return this.appLanguage === 'en' ? 'In progress' : '已开始';
-    return this.appLanguage === 'en' ? 'Unread' : '未读';
-  }
-
-  private progressValue(item: BookshelfItem): number {
-    if (item.progressPercent !== undefined && item.progressPercent > 0) return item.progressPercent;
-    return item.lastChapterTitle.length > 0 ? 12 : 0;
-  }
-
-  @Builder
-  private MiniPill(text: string, selected: boolean) {
-    Text(text)
-      .fontSize(12)
-      .fontColor(selected ? '#FFFFFF' : this.secondaryText())
-      .textAlign(TextAlign.Center)
-      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-      .backgroundColor(selected ? this.accent() : (this.isDarkTheme() ? '#26313B' : '#EEF2F5'))
-      .borderRadius(16)
-  }
-
   @Builder
   private StatusCard() {
     Text(this.statusText)
       .fontSize(13)
-      .fontColor(this.warnText())
+      .fontColor('#6A3A00')
       .lineHeight(19)
       .width('100%')
       .padding(10)
-      .backgroundColor(this.warnBg())
-      .borderRadius(14)
+      .backgroundColor('#FFF7E6')
+      .borderRadius(10)
       .margin({ bottom: 12 })
   }
 
@@ -1126,12 +1031,12 @@ struct Index {
   private AuditCard() {
     Text(this.auditText)
       .fontSize(12)
-      .fontColor(this.okText())
+      .fontColor('#33691E')
       .lineHeight(18)
       .width('100%')
       .padding(10)
-      .backgroundColor(this.okBg())
-      .borderRadius(14)
+      .backgroundColor('#F1F8E9')
+      .borderRadius(10)
       .margin({ bottom: 12 })
   }
 
@@ -1139,53 +1044,42 @@ struct Index {
   private SearchHeader() {
     Column() {
       Row() {
-        Text(this.t('appTitle'))
-          .fontSize(20)
+        Text('我漫画浏览器')
+          .fontSize(19)
           .fontWeight(FontWeight.Bold)
-          .fontColor(this.primaryText())
           .layoutWeight(1)
-        Row() {
-          this.MiniPill('中', this.appLanguage === 'zh')
-          Text('|').fontSize(11).fontColor(this.mutedText()).margin({ left: 4, right: 4 })
-          this.MiniPill('EN', this.appLanguage === 'en')
-        }
-        .onClick(() => this.toggleLanguage())
-        .margin({ right: 8 })
-        Button(this.themeLabel())
+        Button(this.selectedEngine().name)
           .height(32)
           .fontSize(11)
-          .onClick(() => this.toggleTheme())
+          .onClick(() => this.cycleEngine())
       }
       .width('100%')
-      .padding({ left: 14, right: 14, top: 12, bottom: 6 })
+      .padding({ left: 12, right: 12, top: 10, bottom: 6 })
 
       Row() {
-        TextInput({ placeholder: this.t('searchPlaceholder'), text: this.queryText })
-          .height(44)
+        TextInput({ placeholder: '输入任意漫画名：中文、英文、日文、韩文均可', text: this.queryText })
+          .height(42)
           .layoutWeight(1)
           .fontSize(15)
-          .backgroundColor(this.isDarkTheme() ? '#26313B' : '#F0F3F6')
-          .borderRadius(22)
+          .backgroundColor('#F3F3F3')
+          .borderRadius(20)
           .padding({ left: 14, right: 14 })
           .onChange((value: string) => { this.queryText = value; })
           .onSubmit(() => { this.startSearch(); })
-        Button(this.isLoading ? (this.appLanguage === 'en' ? 'Searching' : '搜索中') : this.t('search'))
-          .height(44)
+        Button(this.isLoading ? '搜索中' : '搜索')
+          .height(42)
           .fontSize(15)
-          .fontColor('#FFFFFF')
-          .backgroundColor(this.accent())
-          .borderRadius(22)
           .margin({ left: 10 })
           .enabled(!this.isLoading)
           .onClick(() => { this.startSearch(); })
       }
       .width('100%')
-      .padding({ left: 14, right: 14, bottom: 8 })
+      .padding({ left: 12, right: 12, bottom: 8 })
 
       Row() {
         Text(this.searchMode + ' · ' + this.sourceFilterMode + ' · ' + (this.searchAllEngines || this.searchMode === '全引擎+公开API' ? '全引擎' : this.selectedEngine().name) + ' · ' + this.totalSearchSourceCount() + '源')
           .fontSize(12)
-          .fontColor(this.secondaryText())
+          .fontColor('#777777')
           .layoutWeight(1)
         Button(this.coverOnlyMode ? '封面+名称' : '纯封面')
           .height(30)
@@ -1198,10 +1092,9 @@ struct Index {
           .onClick(() => this.runDemoSearch())
       }
       .width('100%')
-      .padding({ left: 14, right: 14, bottom: 10 })
+      .padding({ left: 12, right: 12, bottom: 8 })
     }
-    .backgroundColor(this.glassBg())
-    .borderRadius({ bottomLeft: 22, bottomRight: 22 })
+    .backgroundColor('#FFFFFF')
   }
 
   @Builder
@@ -1541,46 +1434,73 @@ struct Index {
   }
 
   @Builder
-  private ReaderFloatingButton(text: string) {
-    Text(text)
-      .fontSize(14)
-      .fontColor('#FFFFFF')
-      .textAlign(TextAlign.Center)
-      .width(44)
-      .height(44)
-      .backgroundColor('#88000000')
-      .borderRadius(22)
-  }
-
-  @Builder
   private ReaderPage() {
-    Stack() {
+    Column() {
+      Row() {
+        Button('返回')
+          .height(34)
+          .fontSize(12)
+          .onClick(() => { this.mode = this.chapters.length > 0 ? 'chapters' : (this.results.length > 0 ? 'results' : 'home'); })
+        Column() {
+          Text(this.currentChapterTitle.length > 0 ? this.currentChapterTitle : '卷轴阅读')
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+          Text(this.mode === 'rendered_reader' ? '公开渲染卷轴 · 无地址栏阅读' : (this.images.length + ' 张图片 · ' + (this.readerDarkMode ? '深色' : '浅色')))
+            .fontSize(11)
+            .fontColor('#888888')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .margin({ top: 2 })
+            .width('100%')
+        }
+        .layoutWeight(1)
+        .margin({ left: 10, right: 10 })
+        Button('书架')
+          .height(34)
+          .fontSize(12)
+          .onClick(() => this.addCurrentToShelf())
+        Button('刷新')
+          .height(34)
+          .fontSize(12)
+          .margin({ left: 6 })
+          .onClick(() => this.loadChapterByUrl(this.currentUrl, this.currentChapterTitle, this.findRule(this.currentSourceId)))
+      }
+      .width('100%')
+      .padding({ left: 10, right: 10, top: 8, bottom: 8 })
+
       if (this.mode === 'rendered_reader') {
-        Web({ src: this.renderedReaderUrl, controller: this.renderWebController })
-          .javaScriptAccess(true)
-          .domStorageAccess(true)
-          .imageAccess(true)
-          .onlineImageAccess(true)
-          .onPageEnd(() => {
-            this.renderWebController.runJavaScript(this.readerCleanupScript());
-          })
-          .width('100%')
-          .height('100%')
+        Column() {
+          this.StatusCard()
+          Web({ src: this.renderedReaderUrl, controller: this.renderWebController })
+            .javaScriptAccess(true)
+            .domStorageAccess(true)
+            .imageAccess(true)
+            .onlineImageAccess(true)
+            .onPageEnd(() => {
+              this.renderWebController.runJavaScript(this.readerCleanupScript());
+            })
+            .width('100%')
+            .layoutWeight(1)
+        }
+        .layoutWeight(1)
+        .backgroundColor('#111111')
       } else if (this.images.length === 0) {
         Column() {
           this.StatusCard()
-          Text(this.isLoading ? (this.appLanguage === 'en' ? 'Building scroll reader...' : '正在生成卷轴...') : (this.appLanguage === 'en' ? 'No image to show.' : '没有图片可显示。'))
+          Text(this.isLoading ? '正在生成卷轴...' : '没有图片可显示。')
             .fontSize(14)
-            .fontColor(this.secondaryText())
+            .fontColor('#777777')
             .width('100%')
-            .padding(14)
-            .backgroundColor(this.cardBg())
-            .borderRadius(16)
+            .padding(12)
+            .backgroundColor('#FFFFFF')
+            .borderRadius(10)
         }
-        .width('100%')
-        .height('100%')
-        .padding(16)
-        .backgroundColor(this.appBg())
+        .layoutWeight(1)
+        .padding(14)
+        .backgroundColor('#F7F7F7')
       } else {
         Scroll() {
           Column() {
@@ -1589,76 +1509,33 @@ struct Index {
                 if (this.showImageIndex) {
                   Text('#' + item.index + (item.status === 'error' ? ' 加载失败，点图可重试' : ''))
                     .fontSize(11)
-                    .fontColor(item.status === 'error' ? '#E53935' : '#FFFFFF')
+                    .fontColor(item.status === 'error' ? '#E53935' : '#888888')
                     .width('100%')
-                    .padding({ left: 8, top: 5, bottom: 5 })
+                    .padding({ left: 6, top: 4, bottom: 4 })
                 }
                 Image(item.url)
                   .width('100%')
                   .objectFit(this.readerFitContain ? ImageFit.Contain : ImageFit.Cover)
-                  .backgroundColor('#000000')
-                  .borderRadius(8)
+                  .backgroundColor('#FFFFFF')
+                  .borderRadius(4)
                   .onComplete(() => { this.markImage(item.index, 'ok'); })
                   .onError(() => { this.markImage(item.index, 'error'); })
                   .onClick(() => { this.markImage(item.index, 'waiting'); })
               }
               .width('100%')
+              .backgroundColor('#FFFFFF')
               .margin({ bottom: 8 })
             }, (item: ReaderImageItem) => item.url + item.index)
           }
           .width('100%')
-          .padding({ left: 4, right: 4, top: 72, bottom: 76 })
+          .padding({ left: 4, right: 4, bottom: 20 })
         }
-        .width('100%')
-        .height('100%')
-        .backgroundColor('#050607')
-      }
-
-      if (this.floatingReaderControls) {
-        Row() {
-          Column() {
-            Text(this.currentChapterTitle.length > 0 ? this.currentChapterTitle : (this.mode === 'rendered_reader' ? this.renderedReaderTitle : '卷轴阅读'))
-              .fontSize(15)
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#FFFFFF')
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%')
-            Text(this.mode === 'rendered_reader' ? 'Rendered scroll' : (this.images.length + ' pages'))
-              .fontSize(11)
-              .fontColor('#DDFFFFFF')
-              .margin({ top: 2 })
-          }
-          .layoutWeight(1)
-          .padding({ left: 14, right: 14 })
-          .height(48)
-          .justifyContent(FlexAlign.Center)
-          .backgroundColor('#66000000')
-          .borderRadius(24)
-          this.ReaderFloatingButton('···')
-        }
-        .width('100%')
-        .padding({ left: 12, right: 12, top: 10 })
-      }
-
-      if (this.floatingReaderControls) {
-        Row() {
-          Column() { this.ReaderFloatingButton('‹') }
-            .onClick(() => { this.mode = this.chapters.length > 0 ? 'chapters' : (this.results.length > 0 ? 'results' : 'home'); })
-          Blank().layoutWeight(1)
-          Column() { this.ReaderFloatingButton('＋') }
-            .onClick(() => this.addCurrentToShelf())
-          Column() { this.ReaderFloatingButton('↻') }
-            .margin({ left: 10 })
-            .onClick(() => this.loadChapterByUrl(this.currentUrl, this.currentChapterTitle, this.findRule(this.currentSourceId)))
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16, bottom: 14 })
+        .layoutWeight(1)
+        .backgroundColor(this.readerDarkMode ? '#111111' : '#F7F7F7')
       }
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#050607')
+    .layoutWeight(1)
+    .backgroundColor('#FFFFFF')
   }
 
   @Builder
@@ -1810,21 +1687,21 @@ struct Index {
     Column() {
       Row() {
         Column() {
-          Text(title).fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.primaryText()).width('100%')
-          Text(desc).fontSize(12).fontColor(this.secondaryText()).lineHeight(18).margin({ top: 4 }).width('100%')
+          Text(title).fontSize(15).fontWeight(FontWeight.Medium).width('100%')
+          Text(desc).fontSize(12).fontColor('#777777').lineHeight(18).margin({ top: 4 }).width('100%')
         }.layoutWeight(1)
         Text(value)
           .fontSize(12)
           .fontColor('#FFFFFF')
-          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-          .backgroundColor(this.accent())
-          .borderRadius(14)
+          .padding({ left: 8, right: 8, top: 5, bottom: 5 })
+          .backgroundColor('#E53935')
+          .borderRadius(12)
       }.width('100%')
     }
     .width('100%')
     .padding(12)
-    .backgroundColor(this.cardBg())
-    .borderRadius(16)
+    .backgroundColor('#FFFFFF')
+    .borderRadius(10)
     .margin({ bottom: 8 })
   }
 
@@ -1845,17 +1722,6 @@ struct Index {
           .margin({ bottom: 12 })
         this.StatusCard()
         this.AuditCard()
-
-        Text('外观与语言')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.primaryText())
-          .width('100%')
-          .margin({ bottom: 8 })
-        Column() { this.SettingCard(this.t('theme'), '明亮 / 暗黑双主题，阅读页会自动跟随。', this.themeLabel()) }.onClick(() => this.toggleTheme())
-        Column() { this.SettingCard(this.t('language'), '当前支持中文 / English，后续可扩展更多语言。', this.languageLabel()) }.onClick(() => this.toggleLanguage())
-        Column() { this.SettingCard(this.t('fullReader'), '阅读页默认全屏，顶部和底部使用悬浮独立按钮。', this.fullscreenReader ? '开' : '关') }.onClick(() => { this.fullscreenReader = !this.fullscreenReader; })
-        Column() { this.SettingCard(this.t('floatingControls'), '隐藏传统标题栏，使用胶囊悬浮控制。', this.floatingReaderControls ? '开' : '关') }.onClick(() => { this.floatingReaderControls = !this.floatingReaderControls; })
 
         Text('搜索引擎')
           .fontSize(18)
@@ -2055,124 +1921,28 @@ struct Index {
   }
 
   @Builder
-  private AboutInfoRow(label: string, value: string) {
-    Row() {
-      Text(label)
-        .fontSize(13)
-        .fontColor(this.secondaryText())
-        .layoutWeight(1)
-      Text(value)
-        .fontSize(13)
-        .fontColor(this.primaryText())
-        .textAlign(TextAlign.End)
-        .maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .layoutWeight(2)
-    }
-    .width('100%')
-    .padding({ top: 8, bottom: 8 })
-  }
-
-  @Builder
-  private AboutPage() {
-    Scroll() {
-      Column() {
-        Text(this.t('about'))
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.primaryText())
-          .width('100%')
-          .margin({ top: 12, bottom: 6 })
-        Text(this.appLanguage === 'en' ? 'Public comic search and scroll reading for HarmonyOS / OpenHarmony.' : '漫画浏览器 HarmonyOS / OpenHarmony 公开漫画搜索与卷轴阅读项目。')
-          .fontSize(13)
-          .fontColor(this.secondaryText())
-          .lineHeight(20)
-          .width('100%')
-          .margin({ bottom: 12 })
-
-        Column() {
-          Text(this.appLanguage === 'en' ? 'Build Info' : '构建信息')
-            .fontSize(18)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.primaryText())
-            .width('100%')
-            .margin({ bottom: 8 })
-          this.AboutInfoRow(this.appLanguage === 'en' ? 'Version' : '版本', APP_VERSION)
-          this.AboutInfoRow(this.appLanguage === 'en' ? 'Version Rule' : '版本结构', this.appLanguage === 'en' ? 'major.full.incremental' : '主版本.全量构建号.增量构建号')
-          this.AboutInfoRow('versionCode', APP_VERSION_CODE + '')
-          this.AboutInfoRow(this.appLanguage === 'en' ? 'Build Type' : '构建类型', APP_BUILD_TYPE)
-          this.AboutInfoRow(this.appLanguage === 'en' ? 'Build Target' : '构建目标', APP_BUILD_TARGET)
-          this.AboutInfoRow(this.appLanguage === 'en' ? 'Build Time' : '构建时间', APP_BUILD_TIME)
-        }
-        .width('100%')
-        .padding(14)
-        .backgroundColor(this.cardBg())
-        .borderRadius(18)
-        .margin({ bottom: 12 })
-
-        Column() {
-          Text(this.appLanguage === 'en' ? 'UI Style' : '界面风格')
-            .fontSize(18)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.primaryText())
-            .width('100%')
-            .margin({ bottom: 8 })
-          this.AboutInfoRow(this.t('theme'), this.themeLabel())
-          this.AboutInfoRow(this.t('language'), this.languageLabel())
-          this.AboutInfoRow(this.t('fullReader'), this.fullscreenReader ? 'ON' : 'OFF')
-        }
-        .width('100%')
-        .padding(14)
-        .backgroundColor(this.cardBg())
-        .borderRadius(18)
-        .margin({ bottom: 20 })
-      }
-      .width('100%')
-      .padding(16)
-    }
-    .layoutWeight(1)
-    .backgroundColor(this.appBg())
-  }
-
-  @Builder
-  private TabPill(tab: string, icon: string, label: string) {
-    Column() {
-      Text(icon)
-        .fontSize(18)
-        .fontColor(this.activeTab === tab ? '#FFFFFF' : this.secondaryText())
-        .textAlign(TextAlign.Center)
-      Text(label)
-        .fontSize(10)
-        .fontColor(this.activeTab === tab ? '#FFFFFF' : this.secondaryText())
-        .margin({ top: 2 })
-    }
-    .layoutWeight(1)
-    .height(56)
-    .justifyContent(FlexAlign.Center)
-    .backgroundColor(this.activeTab === tab ? this.accent() : '#00000000')
-    .borderRadius(28)
-    .onClick(() => {
-      this.activeTab = tab;
-      if (tab === 'search' && (this.mode === 'chapters' || this.mode === 'reader' || this.mode === 'rendered_reader')) {
-        this.mode = this.results.length > 0 ? 'results' : 'home';
-      }
-    })
-  }
-
-  @Builder
   private BottomTabs() {
     Row() {
-      this.TabPill('search', '⌕', this.t('search'))
-      this.TabPill('shelf', '▣', this.t('shelf'))
-      this.TabPill('settings', '⚙', this.t('settings'))
-      this.TabPill('about', 'ⓘ', this.t('about'))
+      Button(this.activeTab === 'search' ? '搜索●' : '搜索')
+        .layoutWeight(1)
+        .height(48)
+        .fontSize(14)
+        .onClick(() => { this.activeTab = 'search'; if (this.mode === 'chapters' || this.mode === 'reader' || this.mode === 'rendered_reader') this.mode = this.results.length > 0 ? 'results' : 'home'; })
+      Button(this.activeTab === 'shelf' ? '书架●' : '书架')
+        .layoutWeight(1)
+        .height(48)
+        .fontSize(14)
+        .margin({ left: 6, right: 6 })
+        .onClick(() => { this.activeTab = 'shelf'; })
+      Button(this.activeTab === 'settings' ? '设置●' : '设置')
+        .layoutWeight(1)
+        .height(48)
+        .fontSize(14)
+        .onClick(() => { this.activeTab = 'settings'; })
     }
-    .width('92%')
-    .height(68)
-    .padding(6)
-    .backgroundColor(this.glassBg())
-    .borderRadius(34)
-    .margin({ left: 16, right: 16, bottom: 10 })
+    .width('100%')
+    .padding({ left: 10, right: 10, top: 6, bottom: 8 })
+    .backgroundColor('#FFFFFF')
   }
 
   build() {
@@ -2193,10 +1963,8 @@ struct Index {
         }
       } else if (this.activeTab === 'shelf') {
         this.ShelfPage()
-      } else if (this.activeTab === 'settings') {
-        this.SettingsPage()
       } else {
-        this.AboutPage()
+        this.SettingsPage()
       }
 
       if (this.mode !== 'reader' && this.mode !== 'rendered_reader' && this.mode !== 'chapters') {
@@ -2205,6 +1973,6 @@ struct Index {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.appBg())
+    .backgroundColor('#F7F7F7')
   }
 }
