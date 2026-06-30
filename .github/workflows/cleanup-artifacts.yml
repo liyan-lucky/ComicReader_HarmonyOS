@@ -14,12 +14,12 @@ on:
       artifact_keep_days:
         description: Artifact 至少保留天数
         required: true
-        default: "14"
+        default: "0"
         type: string
       artifact_keep_latest_per_name:
         description: 每个 Artifact 名称至少保留最近几个
         required: true
-        default: "2"
+        default: "0"
         type: string
       cleanup_workflow_runs:
         description: 是否同时清理旧 workflow runs
@@ -32,12 +32,12 @@ on:
       workflow_run_keep_days:
         description: Workflow run 至少保留天数
         required: true
-        default: "30"
+        default: "0"
         type: string
       workflow_run_keep_latest_per_workflow:
         description: 每个 workflow 至少保留最近几个 runs
         required: true
-        default: "10"
+        default: "0"
         type: string
   schedule:
     - cron: "23 3 * * 0"
