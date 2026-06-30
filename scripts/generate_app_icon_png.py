@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Generate the app icon PNG from the previously approved mockup icon.
+
+The app display icon and the search-home logo should use PNG instead of SVG.
+This script writes `$media:icon` as `entry/src/main/resources/base/media/icon.png`
+and removes `icon.svg` to avoid resource-name conflicts.
+"""
+from pathlib import Path
+import base64
+
+ICON_PNG_BASE64 = """
+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
+AABJRU5ErkJggg==
+"""
+
+
+def main() -> None:
+    media_dir = Path('entry/src/main/resources/base/media')
+    media_dir.mkdir(parents=True, exist_ok=True)
+    png_path = media_dir / 'icon.png'
+    svg_path = media_dir / 'icon.svg'
+    png_bytes = base64.b64decode(''.join(ICON_PNG_BASE64.split()), validate=True)
+    png_path.write_bytes(png_bytes)
+    if svg_path.exists():
+        svg_path.unlink()
+    print(f'Generated PNG app icon: {png_path} ({len(png_bytes)} bytes)')
+    if svg_path.exists():
+        raise SystemExit('icon.svg still exists; resource name conflict may occur.')
+
+
+if __name__ == '__main__':
+    main()

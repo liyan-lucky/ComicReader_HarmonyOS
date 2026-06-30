@@ -1302,97 +1302,121 @@ struct Index {
     }
   }
 
+  private cleanResultTitle(raw: string): string {
+    let title = raw.trim();
+    while (title.indexOf('  ') >= 0) {
+      title = title.replace('  ', ' ');
+    }
+    title = this.cleanResultTitleBySeparator(title, ' - ');
+    title = this.cleanResultTitleBySeparator(title, ' | ');
+    title = this.cleanResultTitleBySeparator(title, '｜');
+    title = this.cleanResultTitleBySeparator(title, '_');
+    title = this.cleanResultTitleBySeparator(title, '，');
+    title = this.cleanResultTitleBySeparator(title, ',');
+    if (title.length > 1 && title.length % 2 === 0) {
+      let halfLength = title.length / 2;
+      let left = title.substring(0, halfLength).trim();
+      let right = title.substring(halfLength).trim();
+      if (left.length > 0 && left === right) {
+        title = left;
+      }
+    }
+    let words = title.split(' ');
+    if (words.length > 1) {
+      let compactWords: string[] = [];
+      for (let index = 0; index < words.length; index++) {
+        let word = words[index].trim();
+        if (word.length === 0) {
+          continue;
+        }
+        if (compactWords.length === 0 || compactWords[compactWords.length - 1] !== word) {
+          compactWords.push(word);
+        }
+      }
+      title = compactWords.join(' ');
+    }
+    return title;
+  }
+
+  private cleanResultTitleBySeparator(raw: string, separator: string): string {
+    if (raw.indexOf(separator) < 0) {
+      return raw;
+    }
+    let parts = raw.split(separator);
+    let compactParts: string[] = [];
+    for (let index = 0; index < parts.length; index++) {
+      let part = parts[index].trim();
+      if (part.length === 0) {
+        continue;
+      }
+      if (compactParts.length === 0 || compactParts[compactParts.length - 1] !== part) {
+        compactParts.push(part);
+      }
+    }
+    return compactParts.join(separator);
+  }
+
+  private resultTitle(item: SearchResultItem): string {
+    return this.cleanResultTitle(item.title);
+  }
+
   @Builder
   private ResultCard(item: SearchResultItem) {
     Column() {
-      this.CoverBox(item, this.coverOnlyMode ? 150 : 185)
-      if (!this.coverOnlyMode) {
-        Column() {
-          Text(item.title)
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .maxLines(2)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-          Text(item.sourceName)
-            .fontSize(11)
-            .fontColor(this.secondaryText())
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .margin({ top: 4 })
-            .width('100%')
-          if (item.description !== undefined && item.description.length > 0) {
-            Text(item.description)
-              .fontSize(10)
-              .fontColor(this.secondaryText())
-              .maxLines(2)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .margin({ top: 3 })
-              .width('100%')
-          }
-          Row() {
-            Button('阅读')
-              .height(28)
-              .fontSize(11)
-              .layoutWeight(1)
-              .onClick(() => this.openSearchResult(item))
-            Button('书架')
-              .height(28)
-              .fontSize(11)
-              .layoutWeight(1)
-              .margin({ left: 6 })
-              .onClick(() => this.addResultToShelf(item))
-          }
-          .width('100%')
-          .margin({ top: 8 })
-        }
+      this.CoverBox(item, 142)
+      Text(this.resultTitle(item))
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.primaryText())
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
         .width('100%')
-        .padding(8)
-      }
+        .padding({ left: 8, right: 8, top: 8, bottom: 10 })
     }
     .width('100%')
     .clip(true)
     .backgroundColor(this.cardBg())
-    .borderRadius(18)
-    .shadow({ radius: 8, color: '#12000000', offsetX: 0, offsetY: 3 })
+    .borderRadius(16)
+    .shadow({ radius: 6, color: '#10000000', offsetX: 0, offsetY: 2 })
     .onClick(() => this.openSearchResult(item))
   }
 
   @Builder
   private ResultListCard(item: SearchResultItem) {
     Row() {
-      this.CoverBox(item, 108)
       Column() {
-        Text(item.title)
-          .fontSize(16)
+        this.CoverBox(item, 76)
+      }
+      .width(58)
+      .height(76)
+      .clip(true)
+      .borderRadius(12)
+
+      Column() {
+        Text(this.resultTitle(item))
+          .fontSize(15)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.primaryText())
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         Text(item.sourceName)
-          .fontSize(12)
+          .fontSize(11)
           .fontColor(this.secondaryText())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .margin({ top: 6 })
-        Button('阅读')
-          .height(30)
-          .fontSize(12)
-          .fontColor('#FFFFFF')
-          .backgroundColor(this.accent())
-          .borderRadius(15)
-          .margin({ top: 10 })
-          .onClick(() => this.openSearchResult(item))
+          .width('100%')
       }
       .layoutWeight(1)
       .margin({ left: 12 })
     }
     .width('100%')
-    .padding(10)
+    .height(94)
+    .padding(8)
     .backgroundColor(this.cardBg())
-    .borderRadius(18)
-    .margin({ bottom: 10 })
+    .borderRadius(16)
+    .margin({ bottom: 8 })
     .onClick(() => this.openSearchResult(item))
   }
 
@@ -1400,9 +1424,10 @@ struct Index {
   private ResultGroupView(group: ResultGroup) {
     Column() {
       Row() {
-        Text(group.name)
+        Text(this.cleanResultTitle(group.name))
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
@@ -1410,7 +1435,7 @@ struct Index {
           .fontSize(12)
           .fontColor('#FFFFFF')
           .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-          .backgroundColor('#34C759')
+          .backgroundColor(this.accent())
           .borderRadius(12)
       }
       .width('100%')
@@ -1429,8 +1454,8 @@ struct Index {
             GridItem() { this.ResultCard(item) }
           }, (item: SearchResultItem) => item.url)
         }
-        .columnsTemplate(this.resultColumns === 3 ? '1fr 1fr 1fr' : '1fr 1fr')
-        .columnsGap(12)
+        .columnsTemplate('1fr 1fr 1fr')
+        .columnsGap(10)
         .rowsGap(12)
         .width('100%')
       }
@@ -1458,18 +1483,21 @@ struct Index {
           }
           .layoutWeight(1)
           if (this.results.length > 0) {
-            Button(this.resultViewMode === 'grid' ? '网格' : '列表')
+            Button('列表')
               .height(32)
               .fontSize(12)
-              .fontColor('#FFFFFF')
-              .backgroundColor(this.accent())
+              .fontColor(this.resultViewMode === 'list' ? '#FFFFFF' : this.secondaryText())
+              .backgroundColor(this.resultViewMode === 'list' ? this.accent() : this.cardBg())
               .borderRadius(16)
-              .onClick(() => { this.resultViewMode = this.resultViewMode === 'grid' ? 'list' : 'grid'; })
-            Button(this.resultColumns === 3 ? '三列' : '两列')
+              .onClick(() => { this.resultViewMode = 'list'; })
+            Button('网格')
               .height(32)
               .fontSize(12)
+              .fontColor(this.resultViewMode === 'grid' ? '#FFFFFF' : this.secondaryText())
+              .backgroundColor(this.resultViewMode === 'grid' ? this.accent() : this.cardBg())
+              .borderRadius(16)
               .margin({ left: 8 })
-              .onClick(() => { this.resultColumns = this.resultColumns === 3 ? 2 : 3; })
+              .onClick(() => { this.resultViewMode = 'grid'; this.resultColumns = 3; })
           }
         }
         .width('100%')
@@ -1766,10 +1794,28 @@ struct Index {
           .lineHeight(20)
           .width('100%')
           .margin({ bottom: 12 })
-
+        Row() {
+          Text('历史 ' + this.history.length + ' 条 · 收藏 ' + this.bookshelf.length + ' 本')
+            .fontSize(13)
+            .fontColor(this.secondaryText())
+            .layoutWeight(1)
+          Button('清历史')
+            .height(32)
+            .fontSize(12)
+            .onClick(() => { this.history = []; this.statusText = '阅读历史已清空。'; })
+          Button('清收藏')
+            .height(32)
+            .fontSize(12)
+            .margin({ left: 6 })
+            .onClick(() => { this.bookshelf = []; this.statusText = '收藏记录已清空。'; })
+        }
+        .width('100%')
+        .padding(12)
+        .backgroundColor(this.cardBg())
+        .borderRadius(16)
+        .margin({ bottom: 12 })
         this.SettingSectionTitle('历史记录', '最近打开的章节和卷轴阅读记录。')
         this.HistoryList(true)
-
         this.SettingSectionTitle('收藏记录', '从结果、章节或阅读页加入书架的内容。')
         if (this.bookshelf.length === 0) {
           Text('暂无收藏。阅读页或结果卡片加入书架后会显示在这里。')
@@ -1797,18 +1843,32 @@ struct Index {
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width('100%')
+              Row() {
+                Button('打开')
+                  .height(30)
+                  .fontSize(12)
+                  .layoutWeight(1)
+                  .onClick(() => this.openShelf(item))
+                Button('移除')
+                  .height(30)
+                  .fontSize(12)
+                  .layoutWeight(1)
+                  .margin({ left: 8 })
+                  .onClick(() => this.removeShelf(item.url))
+              }
+              .width('100%')
+              .margin({ top: 10 })
             }
             .width('100%')
             .padding(14)
             .backgroundColor(this.cardBg())
             .borderRadius(16)
             .margin({ bottom: 8 })
-            .onClick(() => this.loadChapterByUrl(item.lastChapterUrl.length > 0 ? item.lastChapterUrl : item.url, item.lastChapterTitle, ruleForPublicUrl(item.url, this.genericRule())))
+            .onClick(() => this.openShelf(item))
           }, (item: BookshelfItem) => item.url)
         }
-
         this.SettingSectionTitle('下载', '下载能力暂时保留，后续接入离线章节。')
-        Text('暂无下载任务。')
+        Text('暂无下载任务。后续下载任务、缓存章节和离线阅读入口会集中在这里。')
           .fontSize(14)
           .fontColor(this.secondaryText())
           .width('100%')
@@ -1828,101 +1888,70 @@ struct Index {
   private ShelfPage() {
     Scroll() {
       Column() {
-        Text('书架')
+        Text('热门题材')
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
           .width('100%')
           .margin({ top: 12, bottom: 6 })
-        Text('书架能力保留，收藏内容已移动到历史页的收藏记录中管理。')
+        Text('这里将自动更新热门题材推荐，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
           .fontSize(13)
           .fontColor(this.secondaryText())
           .lineHeight(20)
           .width('100%')
           .margin({ bottom: 12 })
-        this.StatusCard()
-
-        Row() {
-          Text('收藏 ' + this.bookshelf.length + ' 本 · 历史 ' + this.history.length + ' 条')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .layoutWeight(1)
-          Button('清历史')
-            .height(32)
-            .fontSize(12)
-            .onClick(() => { this.history = []; this.statusText = '阅读历史已清空。'; })
-          Button('清书架')
-            .height(32)
-            .fontSize(12)
-            .margin({ left: 6 })
-            .onClick(() => { this.bookshelf = []; this.statusText = '书架已清空。'; })
+        Column() {
+          Text('自动推荐')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.primaryText())
+            .width('100%')
+          Text('后续会从规则仓库热门题材索引自动更新；当前先提供常用题材入口。')
+            .fontSize(13)
+            .fontColor(this.secondaryText())
+            .lineHeight(20)
+            .width('100%')
+            .margin({ top: 6 })
         }
         .width('100%')
+        .padding(16)
+        .backgroundColor(this.cardBg())
+        .borderRadius(18)
         .margin({ bottom: 12 })
-
-        if (this.bookshelf.length === 0) {
-          Text('书架为空。请在搜索结果卡片、章节页或阅读页点击“书架”。')
-            .fontSize(14)
-            .fontColor(this.secondaryText())
-            .width('100%')
-            .padding(12)
-            .backgroundColor(this.cardBg())
-            .borderRadius(10)
-            .margin({ bottom: 16 })
-        } else {
-          Grid() {
-            ForEach(this.bookshelf, (item: BookshelfItem) => {
-              GridItem() {
-                Column() {
-                  if (item.cover.length > 0) {
-                    Image(item.cover)
-                      .width('100%')
-                      .height(160)
-                      .objectFit(ImageFit.Cover)
-                      .backgroundColor('#EEEEEE')
-                  } else {
-                    Column() {
-                      Text(item.title.substring(0, 1)).fontSize(30).fontWeight(FontWeight.Bold).fontColor('#34C759')
-                      Text('无封面').fontSize(11).fontColor(this.secondaryText()).margin({ top: 6 })
-                    }.width('100%').height(160).justifyContent(FlexAlign.Center).backgroundColor('#ECFFF1')
-                  }
-                  Text(item.title)
-                    .fontSize(14)
-                    .fontWeight(FontWeight.Medium)
-                    .maxLines(2)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .width('100%')
-                    .padding({ left: 8, right: 8, top: 8 })
-                  Text((item.lastChapterTitle.length > 0 ? item.lastChapterTitle : '未阅读') + ' · ' + item.sourceName)
-                    .fontSize(10)
-                    .fontColor(this.secondaryText())
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .width('100%')
-                    .padding({ left: 8, right: 8, top: 3, bottom: 8 })
-                  Row() {
-                    Button('打开').height(28).fontSize(11).layoutWeight(1).onClick(() => this.openShelf(item))
-                    Button('移除').height(28).fontSize(11).layoutWeight(1).margin({ left: 6 }).onClick(() => this.removeShelf(item.url))
-                  }.width('100%').padding({ left: 8, right: 8, bottom: 8 })
-                }
-                .width('100%')
-                .backgroundColor(this.cardBg())
-                .borderRadius(12)
+        Grid() {
+          ForEach(['玄幻', '修真', '恋爱', '校园', '宫斗', '都市', '热血', '冒险', '悬疑', '科幻', '搞笑', '治愈'], (topic: string) => {
+            GridItem() {
+              Column() {
+                Text(topic)
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(this.accent())
+                Text('点击搜索')
+                  .fontSize(11)
+                  .fontColor(this.secondaryText())
+                  .margin({ top: 5 })
               }
-            }, (item: BookshelfItem) => item.url)
-          }
-          .columnsTemplate('1fr 1fr')
-          .columnsGap(10)
-          .rowsGap(10)
-          .width('100%')
-          .margin({ bottom: 18 })
+              .width('100%')
+              .height(82)
+              .justifyContent(FlexAlign.Center)
+              .backgroundColor(this.cardBg())
+              .borderRadius(18)
+              .onClick(() => { this.activeTab = 'search'; this.queryText = topic; this.startSearch(); })
+            }
+          }, (topic: string) => topic)
         }
-
-        Text('阅读历史')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .width('100%')
-          .margin({ bottom: 8 })
-        this.HistoryList(true)
+        .columnsTemplate('1fr 1fr 1fr')
+        .columnsGap(10)
+        .rowsGap(10)
+        .width('100%')
+        Button('刷新热门题材')
+          .height(42)
+          .fontSize(14)
+          .fontColor('#FFFFFF')
+          .backgroundColor(this.accent())
+          .borderRadius(21)
+          .margin({ top: 16, bottom: 18 })
+          .onClick(() => { this.statusText = '热门题材后续将从规则仓库自动更新。'; })
       }
       .width('100%')
       .padding(14)
