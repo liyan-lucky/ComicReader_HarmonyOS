@@ -76,6 +76,10 @@ function installPrimitiveSdkComponentCompat() {
 }
 
 function writeCurrentBuildInfoOnly() {
+  if (process.env.COMIC_READER_SKIP_BUILDINFO_WRITE === '1') {
+    console.log('ComicReader CI skipped BuildInfo rewrite by request.');
+    return;
+  }
   require('./update_build_version.js').writeCurrentBuildInfo({
     buildType: process.env.BUILD_PACKAGE_SUFFIX || 'ci',
     target: process.env.BUILD_PACKAGE_SUFFIX || process.env.BUILD_PRODUCT || 'source'
