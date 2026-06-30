@@ -1,0 +1,55 @@
+name: 修复阅读页悬浮工具位置
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/patch-reader-floating-controls.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-reader-controls:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出 develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 修复阅读页悬浮工具位置
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('entry/src/main/ets/pages/Index.ets')
+          text = path.read_text(encoding='utf-8')
+          old_top = """        .width('100%')\n        .padding({ left: 12, right: 12, top: 10 })\n      }"""
+          new_top = """        .width('100%')\n        .padding({ left: 12, right: 12, top: 10 })\n        .align(Alignment.Top)\n      }"""
+          old_bottom = """        .width('100%')\n        .padding({ left: 16, right: 16, bottom: 14 })\n      }"""
+          new_bottom = """        .width('100%')\n        .padding({ left: 16, right: 16, bottom: 14 })\n        .align(Alignment.Bottom)\n      }"""
+          if new_top not in text:
+            if old_top not in text:
+              raise SystemExit('top floating control anchor not found')
+            text = text.replace(old_top, new_top, 1)
+          if new_bottom not in text:
+            if old_bottom not in text:
+              raise SystemExit('bottom floating control anchor not found')
+            text = text.replace(old_bottom, new_bottom, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: 提交到 develop
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add entry/src/main/ets/pages/Index.ets
+          if git diff --cached --quiet; then
+            echo "No change needed."
+          else
+            git commit -m "fix(reader): pin floating controls to top and bottom"
+            git push origin HEAD:develop
+          fi
