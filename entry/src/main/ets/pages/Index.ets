@@ -1541,15 +1541,23 @@ struct Index {
   }
 
   @Builder
-  private ReaderFloatingButton(text: string) {
-    Text(text)
-      .fontSize(14)
-      .fontColor('#FFFFFF')
-      .textAlign(TextAlign.Center)
-      .width(44)
-      .height(44)
-      .backgroundColor('#88000000')
-      .borderRadius(22)
+  private ReaderFloatingButton(action: string) {
+    Column() {
+      if (action === 'back') {
+        this.UiIcon('back', true, 22)
+      } else if (action === 'add-shelf') {
+        this.UiIcon('add-shelf', true, 22)
+      } else if (action === 'refresh') {
+        this.UiIcon('refresh', true, 22)
+      } else {
+        this.UiIcon('more', true, 22)
+      }
+    }
+    .width(44)
+    .height(44)
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor('#88000000')
+    .borderRadius(22)
   }
 
   @Builder
@@ -1635,7 +1643,7 @@ struct Index {
           .justifyContent(FlexAlign.Center)
           .backgroundColor('#66000000')
           .borderRadius(24)
-          this.ReaderFloatingButton('···')
+          this.ReaderFloatingButton('more')
         }
         .width('100%')
         .padding({ left: 12, right: 12, top: 10 })
@@ -1643,12 +1651,12 @@ struct Index {
 
       if (this.floatingReaderControls) {
         Row() {
-          Column() { this.ReaderFloatingButton('‹') }
+          Column() { this.ReaderFloatingButton('back') }
             .onClick(() => { this.mode = this.chapters.length > 0 ? 'chapters' : (this.results.length > 0 ? 'results' : 'home'); })
           Blank().layoutWeight(1)
-          Column() { this.ReaderFloatingButton('＋') }
+          Column() { this.ReaderFloatingButton('add-shelf') }
             .onClick(() => this.addCurrentToShelf())
-          Column() { this.ReaderFloatingButton('↻') }
+          Column() { this.ReaderFloatingButton('refresh') }
             .margin({ left: 10 })
             .onClick(() => this.loadChapterByUrl(this.currentUrl, this.currentChapterTitle, this.findRule(this.currentSourceId)))
         }
@@ -2135,12 +2143,30 @@ struct Index {
   }
 
   @Builder
-  private TabPill(tab: string, icon: string, label: string) {
+  private UiIcon(name: string, selected: boolean, size: number) {
+    if (name === 'search') {
+      Image($r('app.media.ic_search')).width(size).height(size).fillColor(selected ? '#FFFFFF' : this.secondaryText())
+    } else if (name === 'shelf') {
+      Image($r('app.media.ic_shelf')).width(size).height(size).fillColor(selected ? '#FFFFFF' : this.secondaryText())
+    } else if (name === 'settings') {
+      Image($r('app.media.ic_settings')).width(size).height(size).fillColor(selected ? '#FFFFFF' : this.secondaryText())
+    } else if (name === 'about') {
+      Image($r('app.media.ic_about')).width(size).height(size).fillColor(selected ? '#FFFFFF' : this.secondaryText())
+    } else if (name === 'back') {
+      Image($r('app.media.ic_back')).width(size).height(size).fillColor('#FFFFFF')
+    } else if (name === 'add-shelf') {
+      Image($r('app.media.ic_add_shelf')).width(size).height(size).fillColor('#FFFFFF')
+    } else if (name === 'refresh') {
+      Image($r('app.media.ic_refresh')).width(size).height(size).fillColor('#FFFFFF')
+    } else if (name === 'more') {
+      Image($r('app.media.ic_more')).width(size).height(size).fillColor('#FFFFFF')
+    }
+  }
+
+  @Builder
+  private TabPill(tab: string, label: string) {
     Column() {
-      Text(icon)
-        .fontSize(18)
-        .fontColor(this.activeTab === tab ? '#FFFFFF' : this.secondaryText())
-        .textAlign(TextAlign.Center)
+      this.UiIcon(tab, this.activeTab === tab, 20)
       Text(label)
         .fontSize(10)
         .fontColor(this.activeTab === tab ? '#FFFFFF' : this.secondaryText())
@@ -2162,10 +2188,10 @@ struct Index {
   @Builder
   private BottomTabs() {
     Row() {
-      this.TabPill('search', '⌕', this.t('search'))
-      this.TabPill('shelf', '▣', this.t('shelf'))
-      this.TabPill('settings', '⚙', this.t('settings'))
-      this.TabPill('about', 'ⓘ', this.t('about'))
+      this.TabPill('search', this.t('search'))
+      this.TabPill('shelf', this.t('shelf'))
+      this.TabPill('settings', this.t('settings'))
+      this.TabPill('about', this.t('about'))
     }
     .width('92%')
     .height(68)

@@ -20,7 +20,16 @@ App 使用图标前必须确认 ProIcons 对应集合页面的许可证，并在
 
 | 资源名 | ProIcons 集合 | 原作者/项目 | 许可证 | 来源页面 | 是否随 App 分发 |
 | --- | --- | --- | --- | --- | --- |
-| 待添加 | 待确认 | 待确认 | 待确认 | 待确认 | 是 |
+| `ic_search.svg` | Lucide Icons | Lucide Icons and Contributors；Feather/Cole Bemis 派生图标 | ISC；部分 Feather 派生图标 MIT | `https://proicons.com/icon-collections/lucide-icons/`；`https://lucide.dev/license` | 是 |
+| `ic_shelf.svg` | Lucide Icons | Lucide Icons and Contributors | ISC | `https://proicons.com/icon-collections/lucide-icons/`；`https://lucide.dev/license` | 是 |
+| `ic_settings.svg` | Lucide Icons | Lucide Icons and Contributors | ISC | `https://proicons.com/icon-collections/lucide-icons/`；`https://lucide.dev/license` | 是 |
+| `ic_about.svg` | Lucide Icons | Lucide Icons and Contributors；Feather/Cole Bemis 派生图标 | ISC；部分 Feather 派生图标 MIT | `https://proicons.com/icon-collections/lucide-icons/`；`https://lucide.dev/license` | 是 |
+| `ic_back.svg` | Lucide Icons | Lucide Icons and Contributors；Feather/Cole Bemis 派生图标 | ISC；部分 Feather 派生图标 MIT | `https://proicons.com/icon-collections/lucide-icons/`；`https://lucide.dev/license` | 是 |
+| `ic_add_shelf.svg` | Lucide Icons | Lucide Icons and Contributors | ISC | `https://proicons.com/icon-collections/lucide-icons/`；`https://lucide.dev/license` | 是 |
+| `ic_refresh.svg` | Lucide Icons | Lucide Icons and Contributors | ISC | `https://proicons.com/icon-collections/lucide-icons/`；`https://lucide.dev/license` | 是 |
+| `ic_more.svg` | Lucide Icons | Lucide Icons and Contributors；Feather/Cole Bemis 派生图标 | ISC；部分 Feather 派生图标 MIT | `https://proicons.com/icon-collections/lucide-icons/`；`https://lucide.dev/license` | 是 |
+| `ic_theme.svg` | Lucide Icons | Lucide Icons and Contributors | ISC | `https://proicons.com/icon-collections/lucide-icons/`；`https://lucide.dev/license` | 是 |
+| `ic_language.svg` | Lucide Icons | Lucide Icons and Contributors | ISC | `https://proicons.com/icon-collections/lucide-icons/`；`https://lucide.dev/license` | 是 |
 
 要求：
 
@@ -30,6 +39,16 @@ App 使用图标前必须确认 ProIcons 对应集合页面的许可证，并在
 - CC0 图标也建议记录来源；
 - 不使用品牌 Logo 作为 App 自有品牌标识，除非符合对应品牌规则；
 - 不提交字体包、来源不明图标包、截图裁剪图标或未授权 UI 包。
+
+
+## Lucide Icons 许可证摘录
+
+Lucide Icons 使用 ISC License。部分从 Feather 项目派生的图标同时保留 Feather/Cole Bemis 的 MIT License 归属说明。
+
+ISC 归属：Copyright (c) 2026 Lucide Icons and Contributors。
+MIT 归属：Copyright (c) 2013-present Cole Bemis。
+
+仓库仅分发上述 SVG 图标资源，不分发 Lucide 字体包、完整图标包或第三方品牌 Logo。
 
 ## CI 依赖说明
 
