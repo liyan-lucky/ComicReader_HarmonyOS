@@ -31,6 +31,16 @@ jobs:
           ref: ${{ github.event.inputs.target_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 生成 PNG APP 图标
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f scripts/generate_app_icon_png.py ]; then
+            python3 scripts/generate_app_icon_png.py
+          else
+            echo "scripts/generate_app_icon_png.py not found, skip icon generation."
+          fi
+
       - name: 执行目标分支 UI 优化脚本
         run: python3 scripts/polish_ui.py
 
@@ -38,10 +48,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add entry/src/main/ets/pages/Index.ets scripts/polish_ui.py
+          git add -A entry/src/main/ets/pages/Index.ets entry/src/main/resources/base/media scripts docs
           if git diff --cached --quiet; then
             echo "No change needed."
           else
-            git commit -m "style(ui): apply navigation and layout polish"
+            git commit -m "style(ui): apply navigation layout and PNG icon polish"
             git push origin HEAD:${{ github.event.inputs.target_branch }}
           fi
