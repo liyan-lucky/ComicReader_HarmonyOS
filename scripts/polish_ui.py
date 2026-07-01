@@ -13,6 +13,7 @@ Current goals:
 - Settings page is compact: first-level category menu + second-level detail pages.
 - About content lives inside Settings -> 关于.
 - Search result model includes optional author/latestChapter/updateTime/category fields.
+- Result metadata is enriched from title/description/source text when parser fields are missing.
 """
 from pathlib import Path
 
@@ -188,12 +189,10 @@ search_home_block = r'''  @Builder
 '''
 text = replace_between(text, "  @Builder\n  private SearchHome() {", "  @Builder\n  private SearchChip(keyword: string) {", search_home_block)
 
-# Result helpers and list-only cards.
+# Richer result helpers, list-only cards, and metadata extraction.
 result_block = r'''  private cleanResultTitle(raw: string): string {
     let title = raw.trim();
-    while (title.indexOf('  ') >= 0) {
-      title = title.replace('  ', ' ');
-    }
+    while (title.indexOf('  ') >= 0) title = title.replace('  ', ' ');
     title = this.cleanResultTitleBySeparator(title, ' - ');
     title = this.cleanResultTitleBySeparator(title, ' | ');
     title = this.cleanResultTitleBySeparator(title, '｜');
@@ -209,11 +208,76 @@ result_block = r'''  private cleanResultTitle(raw: string): string {
     let compactParts: string[] = [];
     for (let index = 0; index < parts.length; index++) {
       let part = parts[index].trim();
-      if (part.length > 0 && (compactParts.length === 0 || compactParts[compactParts.length - 1] !== part)) {
-        compactParts.push(part);
-      }
+      if (part.length > 0 && (compactParts.length === 0 || compactParts[compactParts.length - 1] !== part)) compactParts.push(part);
     }
     return compactParts.join(separator);
+  }
+
+  private metadataText(item: SearchResultItem): string {
+    let text = item.title;
+    if (item.description !== undefined && item.description.length > 0) text += ' ' + item.description;
+    if (item.groupName !== undefined && item.groupName.length > 0) text += ' ' + item.groupName;
+    text += ' ' + item.sourceName + ' ' + item.url;
+    return text;
+  }
+
+  private pickAfterKeyword(text: string, keywords: string[]): string {
+    for (let i = 0; i < keywords.length; i++) {
+      let key = keywords[i];
+      let index = text.indexOf(key);
+      if (index < 0) continue;
+      let value = text.substring(index + key.length).trim();
+      if (value.indexOf('：') === 0 || value.indexOf(':') === 0) value = value.substring(1).trim();
+      let stops = [' ', '　', '，', ',', '。', '；', ';', '|', '｜', '/', '\\n', '\\t'];
+      let cut = value.length;
+      for (let j = 0; j < stops.length; j++) {
+        let stopIndex = value.indexOf(stops[j]);
+        if (stopIndex >= 0 && stopIndex < cut) cut = stopIndex;
+      }
+      value = value.substring(0, cut).trim();
+      if (value.length > 0 && value.length <= 32) return value;
+    }
+    return '';
+  }
+
+  private extractAuthor(item: SearchResultItem): string {
+    if (item.author !== undefined && item.author.length > 0) return item.author;
+    return this.pickAfterKeyword(this.metadataText(item), ['作者', '原作', 'Author', 'author', 'By ', 'by ']);
+  }
+
+  private extractLatestChapter(item: SearchResultItem): string {
+    if (item.latestChapter !== undefined && item.latestChapter.length > 0) return item.latestChapter;
+    let text = this.metadataText(item);
+    let fromKeyword = this.pickAfterKeyword(text, ['最新章节', '最新话', '更新至', '连载至', 'Last Chapter', 'Chapter']);
+    if (fromKeyword.length > 0) return fromKeyword;
+    if (item.isChapter) return this.resultTitle(item);
+    return '';
+  }
+
+  private extractUpdateTime(item: SearchResultItem): string {
+    if (item.updateTime !== undefined && item.updateTime.length > 0) return item.updateTime;
+    let text = this.metadataText(item);
+    let fromKeyword = this.pickAfterKeyword(text, ['更新时间', '更新', 'Updated', 'updated']);
+    if (fromKeyword.length > 0) return fromKeyword;
+    return '';
+  }
+
+  private enrichResultItem(item: SearchResultItem): SearchResultItem {
+    return {
+      title: item.title,
+      url: item.url,
+      cover: item.cover,
+      sourceId: item.sourceId,
+      sourceName: item.sourceName,
+      isChapter: item.isChapter,
+      resultType: item.resultType,
+      groupName: item.groupName,
+      description: item.description,
+      author: this.extractAuthor(item),
+      latestChapter: this.extractLatestChapter(item),
+      updateTime: this.extractUpdateTime(item),
+      category: item.category !== undefined ? item.category : '漫画'
+    };
   }
 
   private resultTitle(item: SearchResultItem): string { return this.cleanResultTitle(item.title); }
@@ -236,25 +300,19 @@ result_block = r'''  private cleanResultTitle(raw: string): string {
   }
 
   @Builder
-  private ResultCard(item: SearchResultItem) {
-    this.ResultListCard(item)
-  }
+  private ResultCard(item: SearchResultItem) { this.ResultListCard(item) }
 
   @Builder
   private ResultListCard(item: SearchResultItem) {
     Row() {
-      Column() { this.CoverBox(item, 104) }
-        .width(76)
-        .height(104)
-        .clip(true)
-        .borderRadius(12)
+      Column() { this.CoverBox(item, 104) }.width(76).height(104).clip(true).borderRadius(12)
       Column() {
         Text(this.resultTitle(item)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
         Text('作者：' + this.resultAuthor(item)).fontSize(12).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 5 }).width('100%')
         Text('最新章节：' + this.resultLatestChapter(item)).fontSize(12).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 4 }).width('100%')
         Text('更新时间：' + this.resultUpdateTime(item)).fontSize(12).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 4 }).width('100%')
         Row() {
-          Text('漫画').fontSize(11).fontColor('#FFFFFF').padding({ left: 8, right: 8, top: 3, bottom: 3 }).backgroundColor(this.accent()).borderRadius(10)
+          Text(item.category !== undefined && item.category.length > 0 ? item.category : '漫画').fontSize(11).fontColor('#FFFFFF').padding({ left: 8, right: 8, top: 3, bottom: 3 }).backgroundColor(this.accent()).borderRadius(10)
           Text(this.resultSourceHost(item)).fontSize(11).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 8 })
         }.width('100%').margin({ top: 7 })
       }.layoutWeight(1).margin({ left: 12 })
@@ -270,9 +328,7 @@ result_block = r'''  private cleanResultTitle(raw: string): string {
 
   @Builder
   private ResultGroupView(group: ResultGroup) {
-    Column() {
-      ForEach(group.items, (item: SearchResultItem) => { this.ResultListCard(item) }, (item: SearchResultItem) => item.url)
-    }.width('100%')
+    Column() { ForEach(group.items, (item: SearchResultItem) => { this.ResultListCard(item) }, (item: SearchResultItem) => item.url) }.width('100%')
   }
 
 '''
@@ -312,11 +368,58 @@ results_page_block = r'''  @Builder
 '''
 text = replace_between(text, "  @Builder\n  private ResultsPage() {", "  @Builder\n  private ChaptersPage() {", results_page_block)
 
+append_results_block = r'''  private appendResults(sourceItems: SearchResultItem[]): void {
+    const next: SearchResultItem[] = [];
+    for (let i = 0; i < this.results.length; i++) {
+      next.push(this.enrichResultItem(this.results[i]));
+    }
+    for (let j = 0; j < sourceItems.length; j++) {
+      if (next.length >= this.maxSearchResults) break;
+      const item = this.enrichResultItem(sourceItems[j]);
+      if (!this.resultMatchesSourceFilter(item)) continue;
+      if (!next.some((oldItem: SearchResultItem) => oldItem.url === item.url || (oldItem.sourceName === item.sourceName && oldItem.title === item.title))) {
+        next.push(item);
+      }
+    }
+    this.results = next;
+  }
+
+'''
+text = replace_between(text, "  private appendResults(sourceItems: SearchResultItem[]): void {", "  private updateResultCover(url: string, cover: string): void {", append_results_block)
+
+update_cover_block = r'''  private updateResultCover(url: string, cover: string): void {
+    const next: SearchResultItem[] = [];
+    for (let i = 0; i < this.results.length; i++) {
+      const item = this.results[i];
+      if (item.url === url) {
+        next.push(this.enrichResultItem({
+          title: item.title,
+          url: item.url,
+          cover: cover,
+          sourceId: item.sourceId,
+          sourceName: item.sourceName,
+          isChapter: item.isChapter,
+          resultType: item.resultType,
+          groupName: item.groupName,
+          description: item.description,
+          author: item.author,
+          latestChapter: item.latestChapter,
+          updateTime: item.updateTime,
+          category: item.category
+        }));
+      } else {
+        next.push(this.enrichResultItem(item));
+      }
+    }
+    this.results = next;
+  }
+
+'''
+text = replace_between(text, "  private updateResultCover(url: string, cover: string): void {", "  private async searchSelectedEngines(keyword: string): Promise<void> {", update_cover_block)
+
 # Keep shelf wording aligned with classification responsibility.
-text = text.replace('热门题材', '分类')
 text = text.replace('这里将自动更新热门题材推荐，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。', '分类和热门题材统一放在这里，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
 text = text.replace('后续会从规则仓库热门题材索引自动更新；当前先提供常用题材入口。', '后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。')
-text = text.replace('后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。', '后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。')
 
 # Settings/About minimal enforcement. If compact settings already exists, keep it.
 if "this.SettingMenuCard('关于'" not in text and "private SettingsMenuPage()" in text:
@@ -331,10 +434,11 @@ required_index = [
     "app.media.search_home_illustration_light",
     "app.media.search_home_illustration_dark",
     "输入漫画名称，搜索公开可访问漫画",
-    "private resultSourceHost(item: SearchResultItem): string",
-    "作者：' + this.resultAuthor(item)",
-    "最新章节：' + this.resultLatestChapter(item)",
-    "更新时间：' + this.resultUpdateTime(item)",
+    "private enrichResultItem(item: SearchResultItem): SearchResultItem",
+    "private appendResults(sourceItems: SearchResultItem[]): void",
+    "author: this.extractAuthor(item)",
+    "latestChapter: this.extractLatestChapter(item)",
+    "updateTime: this.extractUpdateTime(item)",
     "ForEach(this.results, (item: SearchResultItem)",
 ]
 for required in required_index:
