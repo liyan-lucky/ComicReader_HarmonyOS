@@ -69,6 +69,7 @@ export interface ChapterItem {
   url: string;
   index: number;
   sourceId: string;
+  sourceName: string;
 }
 
 export interface ReaderImageItem {
@@ -81,8 +82,12 @@ export interface ReadingHistoryItem {
   title: string;
   chapterTitle: string;
   url: string;
+  sourceId: string;
   sourceName: string;
-  timeText: string;
+  cover: string;
+  lastReadAt: string;
+  imageCount: number;
+  progressPercent: number;
 }
 
 export interface BookshelfItem {
@@ -92,12 +97,10 @@ export interface BookshelfItem {
   sourceId: string;
   sourceName: string;
   lastChapterTitle: string;
-  addedTimeText: string;
-  lastReadTimeText: string;
-  /** 最近阅读章节 URL，用于从书架继续阅读。 */
-  lastReadUrl?: string;
-  /** 估算阅读进度百分比。章节目录无法准确计算时保留最近值。 */
-  progressPercent?: number;
-  /** 累计打开阅读次数，用于书架管理排序和展示。 */
+  lastChapterUrl: string;
+  addedAt: string;
+  lastReadAt: string;
+  imageCount: number;
+  progressPercent: number;
   readCount?: number;
 }

@@ -323,7 +323,7 @@ struct Index {
     this.statusText = '正在读取章节目录...';
     try {
       const html = await HttpClient.getText(url, rule.userAgent, rule.referer.length > 0 ? rule.referer : url);
-      const parsedChapters = parseChapters(html, rule, url, this.currentTitle, rule.id, rule.name);
+      const parsedChapters = parseChapters(html, rule, url);
       this.chapters = parsedChapters;
       if (parsedChapters.length === 0) {
         await this.loadChapter({ title: this.currentTitle, url: url, index: 1, sourceId: rule.id, sourceName: rule.name }, rule);
@@ -470,7 +470,7 @@ struct Index {
   private async updateRemoteRules(): Promise<void> {
     this.remoteRuleStatus = '正在更新远程规则...';
     try {
-      const loaded = await RemoteRuleService.fetchRules(this.remoteRuleUrl);
+      const loaded = await RemoteRuleService.fetchRemoteRules(this.remoteRuleUrl);
       if (loaded.length > 0) {
         this.rules = loaded.concat(DEFAULT_SOURCES);
         this.remoteRuleCount = loaded.length;
@@ -537,7 +537,7 @@ struct Index {
           .padding({ left: 14, right: 14 })
           .onChange((value: string) => { this.queryText = value; })
           .onSubmit(() => { this.startSearch(); })
-        this.SearchActionButton(44)
+        Column() { this.SearchActionButton(44) }
           .margin({ left: 10 })
       }
       .width('100%')
@@ -569,7 +569,7 @@ struct Index {
           .padding({ left: 18, right: 18 })
           .onChange((value: string) => { this.queryText = value; })
           .onSubmit(() => { this.startSearch(); })
-        this.SearchActionButton(52)
+        Column() { this.SearchActionButton(52) }
           .margin({ left: 10 })
       }
       .width('100%')

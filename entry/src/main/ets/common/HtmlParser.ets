@@ -194,7 +194,8 @@ export function parseChapters(html: string, rule: ComicSourceRule, pageUrl: stri
             title: title,
             url: url,
             index: chapters.length + 1,
-            sourceId: rule.id
+            sourceId: rule.id,
+            sourceName: rule.name
           });
         }
       }

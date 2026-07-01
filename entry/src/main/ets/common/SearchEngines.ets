@@ -146,7 +146,8 @@ function hostOf(url: string): string {
   const slashIndex = value.indexOf('/');
   if (slashIndex >= 0) value = value.substring(0, slashIndex);
   return value.startsWith('www.') ? value.substring(4) : value;
-}\n
+}
+
 function containsAny(text: string, values: string[]): boolean {
   const lower = text.toLowerCase();
   for (let i = 0; i < values.length; i++) {
