@@ -2045,7 +2045,7 @@ struct Index {
     this.SettingMenuCard('基础设置', '主题、语言、阅读页全屏与悬浮控制。', this.themeLabel(), 'basic')
     this.SettingMenuCard('搜索设置', '搜索模式、搜索引擎、语言倾向和额外关键词。', this.searchMode + ' · ' + this.selectedEngine().name, 'search')
     this.SettingMenuCard('公开源开关', '公开馆藏、HTML规则源、官方试读和搜索发现过滤。', this.enableSearchEngines ? '已启用' : '已关闭', 'sources')
-    this.SettingMenuCard('显示与阅读', '结果展示、封面补全、卷轴阅读和历史保留。', this.resultViewMode === 'grid' ? '网格' : '列表', 'reader')
+    this.SettingMenuCard('显示与阅读', '封面补全、卷轴阅读、页码和历史保留。', '阅读设置', 'reader')
     this.SettingMenuCard('搜索引擎清单', '查看搜索引擎，选择当前引擎或启用/停用。', this.selectedEngine().name, 'engines')
     this.SettingMenuCard('远程规则', '从 GitHub Raw 拉取规则仓库生成的公开源规则。', this.remoteRuleCount + ' 条', 'remote')
     this.SettingMenuCard('高级规则', '查看内置规则源，粘贴自定义 JSON 规则。', this.rules.length + ' 个源', 'advanced')
@@ -2120,8 +2120,6 @@ struct Index {
   @Builder
   private SettingsReaderPage() {
     this.SettingBackHeader('显示与阅读', '结果列表、卷轴阅读器、封面补全和历史数量集中在这里。')
-    Column() { this.SettingCard('列表样式', '搜索结果固定为列表显示。', '列表') }.onClick(() => { this.resultViewMode = 'list'; })
-    Column() { this.SettingCard('按名称归类', '搜索页不再分类，分类统一放到书架。', '已移至书架') }.onClick(() => { this.groupByName = false; })
     Column() { this.SettingCard('自动补封面', '结果没封面时访问详情页提取第一张图。', this.autoCoverEnabled ? '开' : '关') }.onClick(() => { this.autoCoverEnabled = !this.autoCoverEnabled; })
     Column() { this.SettingCard('阅读器背景', '深色适合漫画阅读，浅色适合图书影像。', this.readerDarkMode ? '深色' : '浅色') }.onClick(() => { this.readerDarkMode = !this.readerDarkMode; })
     Column() { this.SettingCard('图片适配', 'Contain完整显示，Cover填满宽度。', this.readerFitContain ? 'Contain' : 'Cover') }.onClick(() => { this.readerFitContain = !this.readerFitContain; })
