@@ -413,6 +413,14 @@ text = replace_between(text, "  private updateResultCover(url: string, cover: st
 text = text.replace('这里将自动更新热门题材推荐，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。', '分类和热门题材统一放在这里，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
 text = text.replace('后续会从规则仓库热门题材索引自动更新；当前先提供常用题材入口。', '后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。')
 
+# Fixed list mode should not be exposed as a selectable setting.
+text = text.replace(
+    "this.SettingMenuCard('显示与阅读', '结果展示、封面补全、卷轴阅读和历史保留。', this.resultViewMode === 'grid' ? '网格' : '列表', 'reader')",
+    "this.SettingMenuCard('显示与阅读', '封面补全、卷轴阅读、页码和历史保留。', '阅读设置', 'reader')"
+)
+text = text.replace("    Column() { this.SettingCard('列表样式', '搜索结果固定为列表显示。', '列表') }.onClick(() => { this.resultViewMode = 'list'; })\n", '')
+text = text.replace("    Column() { this.SettingCard('按名称归类', '搜索页不再分类，分类统一放到书架。', '已移至书架') }.onClick(() => { this.groupByName = false; })\n", '')
+
 # Settings/About minimal enforcement. If compact settings already exists, keep it.
 if "this.SettingMenuCard('关于'" not in text and "private SettingsMenuPage()" in text:
     text = text.replace(
@@ -448,7 +456,7 @@ for marker in exact_once:
     if count != 1:
         raise SystemExit(f'Expected exactly one {marker}, found {count}')
 
-for forbidden in ["this.TabPill('about'", "Button('列表')", "Button('网格')", "ForEach(this.groupedResults()", "this.SearchChip('斗罗大陆')"]:
+for forbidden in ["this.TabPill('about'", "Button('列表')", "Button('网格')", "ForEach(this.groupedResults()", "this.SearchChip('斗罗大陆')", "SettingCard('列表样式'", "SettingCard('按名称归类'", "this.resultViewMode === 'grid' ? '网格' : '列表'"]:
     if forbidden in text:
         raise SystemExit(f'UI polish still contains forbidden content: {forbidden}')
 
