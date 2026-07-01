@@ -94,6 +94,7 @@ struct Index {
 
   @State private coverOnlyMode: boolean = true;
   @State private resultColumns: number = 3;
+  @State private resultViewMode: string = 'grid';
   @State private resultViewMode: string = 'list';
   @State private autoCoverEnabled: boolean = true;
   @State private groupByName: boolean = true;
@@ -1650,89 +1651,166 @@ struct Index {
     return host;
   }
 
+  private cleanResultTitle(raw: string): string {
+    let title = raw.trim();
+    while (title.indexOf('  ') >= 0) {
+      title = title.replace('  ', ' ');
+    }
+    title = this.cleanResultTitleBySeparator(title, ' - ');
+    title = this.cleanResultTitleBySeparator(title, ' | ');
+    title = this.cleanResultTitleBySeparator(title, '｜');
+    title = this.cleanResultTitleBySeparator(title, '_');
+    title = this.cleanResultTitleBySeparator(title, '，');
+    title = this.cleanResultTitleBySeparator(title, ',');
+    if (title.length > 1 && title.length % 2 === 0) {
+      let halfLength = title.length / 2;
+      let left = title.substring(0, halfLength).trim();
+      let right = title.substring(halfLength).trim();
+      if (left.length > 0 && left === right) {
+        title = left;
+      }
+    }
+    let words = title.split(' ');
+    if (words.length > 1) {
+      let compactWords: string[] = [];
+      for (let index = 0; index < words.length; index++) {
+        let word = words[index].trim();
+        if (word.length === 0) {
+          continue;
+        }
+        if (compactWords.length === 0 || compactWords[compactWords.length - 1] !== word) {
+          compactWords.push(word);
+        }
+      }
+      title = compactWords.join(' ');
+    }
+    return title;
+  }
+
+  private cleanResultTitleBySeparator(raw: string, separator: string): string {
+    if (raw.indexOf(separator) < 0) {
+      return raw;
+    }
+    let parts = raw.split(separator);
+    let compactParts: string[] = [];
+    for (let index = 0; index < parts.length; index++) {
+      let part = parts[index].trim();
+      if (part.length === 0) {
+        continue;
+      }
+      if (compactParts.length === 0 || compactParts[compactParts.length - 1] !== part) {
+        compactParts.push(part);
+      }
+    }
+    return compactParts.join(separator);
+  }
+
+  private resultTitle(item: SearchResultItem): string {
+    return this.cleanResultTitle(item.title);
+  }
+
   @Builder
   private ResultCard(item: SearchResultItem) {
-    this.ResultListCard(item)
+    Column() {
+      this.CoverBox(item, 142)
+      Text(this.resultTitle(item))
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.primaryText())
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+        .padding({ left: 8, right: 8, top: 8, bottom: 10 })
+    }
+    .width('100%')
+    .clip(true)
+    .backgroundColor(this.cardBg())
+    .borderRadius(16)
+    .shadow({ radius: 6, color: '#10000000', offsetX: 0, offsetY: 2 })
+    .onClick(() => this.openSearchResult(item))
   }
 
   @Builder
   private ResultListCard(item: SearchResultItem) {
     Row() {
       Column() {
-        this.CoverBox(item, 104)
+        this.CoverBox(item, 76)
       }
-      .width(76)
-      .height(104)
+      .width(58)
+      .height(76)
       .clip(true)
       .borderRadius(12)
 
       Column() {
         Text(this.resultTitle(item))
-          .fontSize(16)
-          .fontWeight(FontWeight.Bold)
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
           .fontColor(this.primaryText())
-          .maxLines(1)
+          .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
-        Text('作者：' + this.resultAuthor(item))
-          .fontSize(12)
+        Text(item.sourceName)
+          .fontSize(11)
           .fontColor(this.secondaryText())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 5 })
+          .margin({ top: 6 })
           .width('100%')
-        Text('最新章节：' + this.resultLatestChapter(item))
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 4 })
-          .width('100%')
-        Text('更新时间：' + this.resultUpdateTime(item))
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 4 })
-          .width('100%')
-        Row() {
-          Text('漫画')
-            .fontSize(11)
-            .fontColor('#FFFFFF')
-            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-            .backgroundColor(this.accent())
-            .borderRadius(10)
-          Text(this.resultSourceHost(item))
-            .fontSize(11)
-            .fontColor(this.secondaryText())
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
-            .margin({ left: 8 })
-        }
-        .width('100%')
-        .margin({ top: 7 })
       }
       .layoutWeight(1)
       .margin({ left: 12 })
     }
     .width('100%')
-    .height(124)
-    .padding(10)
+    .height(94)
+    .padding(8)
     .backgroundColor(this.cardBg())
     .borderRadius(16)
-    .margin({ bottom: 10 })
+    .margin({ bottom: 8 })
     .onClick(() => this.openSearchResult(item))
   }
 
   @Builder
   private ResultGroupView(group: ResultGroup) {
     Column() {
-      ForEach(group.items, (item: SearchResultItem) => {
-        this.ResultListCard(item)
-      }, (item: SearchResultItem) => item.url)
+      Row() {
+        Text(this.cleanResultTitle(group.name))
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+        Text(group.count + ' 个')
+          .fontSize(12)
+          .fontColor('#FFFFFF')
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .backgroundColor(this.accent())
+          .borderRadius(12)
+      }
+      .width('100%')
+      .margin({ bottom: 8 })
+
+      if (this.resultViewMode === 'list') {
+        Column() {
+          ForEach(group.items, (item: SearchResultItem) => {
+            this.ResultListCard(item)
+          }, (item: SearchResultItem) => item.url)
+        }
+        .width('100%')
+      } else {
+        Grid() {
+          ForEach(group.items, (item: SearchResultItem) => {
+            GridItem() { this.ResultCard(item) }
+          }, (item: SearchResultItem) => item.url)
+        }
+        .columnsTemplate('1fr 1fr 1fr')
+        .columnsGap(10)
+        .rowsGap(12)
+        .width('100%')
+      }
     }
     .width('100%')
+    .margin({ bottom: 18 })
   }
 
   @Builder
@@ -2150,7 +2228,7 @@ struct Index {
           .fontColor(this.primaryText())
           .width('100%')
           .margin({ top: 12, bottom: 6 })
-        Text('分类和热门题材统一放在这里，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
+        Text('这里将自动更新热门题材推荐，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
           .fontSize(13)
           .fontColor(this.secondaryText())
           .lineHeight(20)
@@ -2162,7 +2240,7 @@ struct Index {
             .fontWeight(FontWeight.Bold)
             .fontColor(this.primaryText())
             .width('100%')
-          Text('后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。')
+          Text('后续会从规则仓库热门题材索引自动更新；当前先提供常用题材入口。')
             .fontSize(13)
             .fontColor(this.secondaryText())
             .lineHeight(20)
