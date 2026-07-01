@@ -66,7 +66,7 @@ struct Index {
   private renderWebController: webview.WebviewController = new webview.WebviewController();
   @State private renderedReaderUrl: string = '';
   @State private renderedReaderTitle: string = '';
-  @State private enableRenderedWebFallback: boolean = true;
+  @State private enableRenderedWebFallback: boolean = false;
 
   @State private searchEngines: SearchEngineConfig[] = DEFAULT_SEARCH_ENGINES;
   @State private selectedEngineIndex: number = 0;
@@ -95,15 +95,15 @@ struct Index {
   @State private coverOnlyMode: boolean = true;
   @State private resultColumns: number = 3;
   @State private resultViewMode: string = 'list';
-  @State private autoCoverEnabled: boolean = true;
+  @State private autoCoverEnabled: boolean = false;
   @State private groupByName: boolean = true;
-  @State private maxSearchResults: number = 80;
-  @State private maxCoverEnrich: number = 30;
+  @State private maxSearchResults: number = 40;
+  @State private maxCoverEnrich: number = 8;
   @State private readerDarkMode: boolean = true;
   @State private showImageIndex: boolean = true;
   @State private readerFitContain: boolean = true;
   @State private dedupeImages: boolean = true;
-  @State private maxReaderPagesSetting: number = 8;
+  @State private maxReaderPagesSetting: number = 4;
   @State private keepHistoryCount: number = 40;
   @State private auditText: string = '审计状态：v5.8 已拆分 App 仓库与规则仓库。App 可从 GitHub Raw 远程更新 generated/index.json 规则，规则仓库可用 GitHub Actions 自动搜索/审计/生成公开源规则。';
   @State private appTheme: string = 'light';
@@ -548,17 +548,20 @@ struct Index {
     }
 
     if (this.autoCoverEnabled) {
-      this.statusText = `已找到 ${this.results.length} 个条目，正在补全封面并按名称归类...`;
+      this.statusText = `已找到 ${this.results.length} 个条目，正在补全封面...`;
       await this.enrichResultCovers(this.maxCoverEnrich);
     }
     this.isLoading = false;
-    this.statusText = `搜索完成：${this.results.length} 个条目，归类为 ${this.groupedResults().length} 组。点击封面进入章节或卷轴阅读。`;
+    this.statusText = `搜索完成：${this.results.length} 个条目。点击条目进入章节或卷轴阅读。`;
   }
 
   private async enrichResultCovers(maxCount: number): Promise<void> {
-    const count = Math.min(maxCount, this.results.length);
+    const count = Math.min(Math.min(maxCount, this.results.length), 8);
     let done = 0;
     for (let i = 0; i < count; i++) {
+      if (!this.isLoading) {
+        break;
+      }
       const item = this.results[i];
       if (item.cover.length > 0 || item.sourceId === internetArchiveSourceId() || item.sourceId === openLibrarySourceId() || item.sourceId === wikimediaSourceId() || item.sourceId === libraryOfCongressSourceId() || item.sourceId === pepperSourceId()) {
         continue;
@@ -579,10 +582,10 @@ struct Index {
 
   private mergeReaderImages(base: ReaderImageItem[], incoming: ReaderImageItem[]): ReaderImageItem[] {
     const next: ReaderImageItem[] = [];
-    for (let i = 0; i < base.length; i++) {
+    for (let i = 0; i < base.length && next.length < 120; i++) {
       next.push({ url: base[i].url, index: next.length + 1, status: base[i].status });
     }
-    for (let j = 0; j < incoming.length; j++) {
+    for (let j = 0; j < incoming.length && next.length < 120; j++) {
       const image = incoming[j];
       if (!this.dedupeImages || !next.some((oldItem: ReaderImageItem) => oldItem.url === image.url)) {
         next.push({ url: image.url, index: next.length + 1, status: 'waiting' });
@@ -596,7 +599,7 @@ struct Index {
     let allImages: ReaderImageItem[] = [];
     const visited: string[] = [];
     const ruleMax = rule.maxReaderPages !== undefined && rule.maxReaderPages > 0 ? rule.maxReaderPages : 1;
-    const maxPages = Math.min(Math.max(ruleMax, this.maxReaderPagesSetting), 30);
+    const maxPages = Math.min(Math.max(ruleMax, this.maxReaderPagesSetting), 8);
     for (let page = 0; page < maxPages; page++) {
       if (pageUrl.length === 0 || visited.indexOf(pageUrl) >= 0) {
         break;
@@ -990,12 +993,24 @@ struct Index {
   }
 
   private markImage(index: number, status: string): void {
+    let changed = false;
     const next: ReaderImageItem[] = [];
     for (let i = 0; i < this.images.length; i++) {
       const item = this.images[i];
-      next.push(item.index === index ? { url: item.url, index: item.index, status: status } : item);
+      if (item.index === index) {
+        if (item.status !== status) {
+          changed = true;
+          next.push({ url: item.url, index: item.index, status: status });
+        } else {
+          next.push(item);
+        }
+      } else {
+        next.push(item);
+      }
     }
-    this.images = next;
+    if (changed) {
+      this.images = next;
+    }
   }
 
   private nextSearchMode(): void {
