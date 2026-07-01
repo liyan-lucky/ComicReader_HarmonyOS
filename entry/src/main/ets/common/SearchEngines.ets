@@ -25,6 +25,12 @@ const BLOCKED_SEARCH_DOMAINS: string[] = [
   'wikipedia.org',
   'wikiwand.com',
   'fandom.com',
+  'hanyuguoxue.com',
+  'zdic.net',
+  'cidianwang.com',
+  'chazidian.com',
+  'hanziyuan.net',
+  'moedict.tw',
   'facebook.com',
   'instagram.com',
   'twitter.com',
@@ -51,6 +57,14 @@ const BLOCKED_SEARCH_WORDS: string[] = [
   '知乎',
   '小红书',
   '微博',
+  '汉语',
+  '国学',
+  '字典',
+  '词典',
+  '拼音',
+  '解释',
+  '意思',
+  '成语',
   'bilibili',
   'youtube',
   'tiktok',
@@ -82,7 +96,7 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngineConfig[] = [
   {
     id: 'bing_web_html',
     name: 'Bing 网页结果',
-    description: '无 API Key 模式，读取 Bing 普通网页搜索结果页；会过滤短视频、百科、社区和购物等非漫画结果。',
+    description: '无 API Key 模式，读取 Bing 普通网页搜索结果页；会过滤短视频、百科、词典、社区和购物等非漫画结果。',
     engineType: 'bing-html',
     searchUrl: 'https://www.bing.com/search?q={query}',
     requiresKey: false,
@@ -91,7 +105,7 @@ export const DEFAULT_SEARCH_ENGINES: SearchEngineConfig[] = [
   {
     id: 'duckduckgo_html',
     name: 'DuckDuckGo 网页结果',
-    description: '无 API Key 模式，读取 DuckDuckGo HTML/Lite 公开搜索结果；会过滤短视频、百科、社区和购物等非漫画结果。',
+    description: '无 API Key 模式，读取 DuckDuckGo HTML/Lite 公开搜索结果；会过滤短视频、百科、词典、社区和购物等非漫画结果。',
     engineType: 'duckduckgo-html',
     searchUrl: 'https://duckduckgo.com/html/?q={query}',
     requiresKey: false,
@@ -433,7 +447,7 @@ export function buildEngineQuery(keyword: string, extraTerms: string, languageMo
   } else if (languageMode === '韩文') {
     query += ' manhwa webtoon episode';
   }
-  query += ' -抖音 -短视频 -视频 -动画 -电视剧 -百科 -贴吧 -知乎 -小红书 -微博 -douyin -tiktok -bilibili -youtube -wiki';
+  query += ' -抖音 -短视频 -视频 -动画 -电视剧 -百科 -词典 -字典 -汉语 -国学 -拼音 -解释 -贴吧 -知乎 -小红书 -微博 -douyin -tiktok -bilibili -youtube -wiki';
   if (siteHint.trim().length > 0) {
     query += ' ' + siteHint.trim();
   }
@@ -495,7 +509,7 @@ function parseByPatterns(html: string, engine: SearchEngineConfig, keyword: stri
     let guard = 0;
     while (match !== null && guard < 180) {
       guard++;
-      const desc = match.length > 3 ? match[3] : engine.description;
+      const desc = match.length > 3 ? match[3] : '';
       addParsedItem(items, match[2], resolveUrl(match[1], baseUrl), engine, keyword, desc, strict);
       if (regex.lastIndex === match.index) {
         regex.lastIndex++;
