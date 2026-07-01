@@ -1418,6 +1418,64 @@ struct Index {
     return this.cleanResultTitle(item.title);
   }
 
+  private cleanResultTitle(raw: string): string {
+    let title = raw.trim();
+    while (title.indexOf('  ') >= 0) {
+      title = title.replace('  ', ' ');
+    }
+    title = this.cleanResultTitleBySeparator(title, ' - ');
+    title = this.cleanResultTitleBySeparator(title, ' | ');
+    title = this.cleanResultTitleBySeparator(title, '｜');
+    title = this.cleanResultTitleBySeparator(title, '_');
+    title = this.cleanResultTitleBySeparator(title, '，');
+    title = this.cleanResultTitleBySeparator(title, ',');
+    if (title.length > 1 && title.length % 2 === 0) {
+      let halfLength = title.length / 2;
+      let left = title.substring(0, halfLength).trim();
+      let right = title.substring(halfLength).trim();
+      if (left.length > 0 && left === right) {
+        title = left;
+      }
+    }
+    let words = title.split(' ');
+    if (words.length > 1) {
+      let compactWords: string[] = [];
+      for (let index = 0; index < words.length; index++) {
+        let word = words[index].trim();
+        if (word.length === 0) {
+          continue;
+        }
+        if (compactWords.length === 0 || compactWords[compactWords.length - 1] !== word) {
+          compactWords.push(word);
+        }
+      }
+      title = compactWords.join(' ');
+    }
+    return title;
+  }
+
+  private cleanResultTitleBySeparator(raw: string, separator: string): string {
+    if (raw.indexOf(separator) < 0) {
+      return raw;
+    }
+    let parts = raw.split(separator);
+    let compactParts: string[] = [];
+    for (let index = 0; index < parts.length; index++) {
+      let part = parts[index].trim();
+      if (part.length === 0) {
+        continue;
+      }
+      if (compactParts.length === 0 || compactParts[compactParts.length - 1] !== part) {
+        compactParts.push(part);
+      }
+    }
+    return compactParts.join(separator);
+  }
+
+  private resultTitle(item: SearchResultItem): string {
+    return this.cleanResultTitle(item.title);
+  }
+
   @Builder
   private ResultCard(item: SearchResultItem) {
     Column() {
