@@ -5,13 +5,13 @@
 ## 当前定位
 
 - 搜索公开漫画资源。
-- 整理结果为封面网格或列表。
+- 整理结果为列表。
 - 打开章节并进行卷轴阅读。
 - 保存阅读历史、收藏记录和后续下载任务。
 
 项目只处理公开可访问资源。不实现登录绕过、付费绕过、验证码绕过、DRM 绕过、加密接口破解、App 专属协议绕过或反爬规避。
 
-## 当前规划中的 Tab
+## 当前 Tab
 
 - 搜索
 - 书架
@@ -30,7 +30,6 @@
 - [开发问题记录](docs/development/DEVELOPMENT_ISSUES.md)
 - [仓库规范](docs/development/REPOSITORY_STANDARDS.md)
 - [分支规则](docs/development/BRANCH_RULES.md)
-- [GitHub Actions 规范](docs/development/GITHUB_WORKFLOW.md)
 - [UI 规范](docs/development/UI_RULES.md)
 - [架构说明](docs/architecture/ARCHITECTURE.md)
 - [搜索架构](docs/search/SEARCH_ARCHITECTURE.md)
@@ -55,19 +54,15 @@ https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/i
 - `feature/*`：功能开发。
 - `fix/*`：问题修复。
 
-所有自动流程禁止直接针对 `main` 分支运行。详细规则见 [分支规则](docs/development/BRANCH_RULES.md)。
+后续源码修改以直接替换完整文件为准，不再使用自动注入脚本或 UI 补丁 workflow。
 
 ## GitHub Actions
 
 | 流程名 | 文件 | 用途 |
 | --- | --- | --- |
 | `高级构建漫画浏览器 HAP` | `.github/workflows/manual-build-entry-advanced.yml` | 手动构建 unsigned HAP。 |
-| `基础测试` | `.github/workflows/basic-test.yml` | 检查脚本语法、版本文件和 workflow 关键结构。 |
 | `合规检查` | `.github/workflows/compliance-check.yml` | 检查文档、许可证、合规和规则加固标记。 |
 | `清理旧构建产物和流程记录` | `.github/workflows/cleanup-artifacts.yml` | 手动预览或清理 artifacts / workflow runs。 |
-| `应用下一轮 UI 优化到 develop` | `.github/workflows/patch-reader-floating-controls.yml` | 固定 UI 自动应用入口，默认目标 develop，禁止 main。 |
-
-清理流程默认预览，不会直接删除。详细说明见 [GitHub Actions 规范](docs/development/GITHUB_WORKFLOW.md)。
 
 ## 构建状态
 
