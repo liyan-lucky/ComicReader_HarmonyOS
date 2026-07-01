@@ -2,6 +2,10 @@
 
 本目录是漫画浏览器仓库的统一文档入口。后续所有需求、问题、规范、架构、构建、测试、发布、合规、安全和维护说明都应归类到这里，避免散落在 README、脚本注释或临时对话中。
 
+## 当前状态入口
+
+- [`CURRENT_STATUS.md`](CURRENT_STATUS.md)：仓库当前事实、分支/备份策略、Actions 和文档维护规则。
+
 ## 文档分类
 
 ### 构建与发布
@@ -46,16 +50,17 @@
 
 - `main` 是当前唯一长期主分支。
 - `develop` 已删除。
-- `backup` 是主分支快照分支，可通过手动 workflow 强制覆盖。
+- `backup` 是主分支快照分支，可通过 `.github/workflows/force-backup-main.yml` 手动输入 `YES` 强制覆盖。
 - 根目录只保留项目入口、许可证、构建系统文件和工具必须识别的配置。
 - 长期说明全部归入 `docs/`。
 - 禁止重新引入自动 UI 注入脚本、自动 patch 脚本或临时 workflow。
 
 ## 维护要求
 
-1. 新需求先写入 `DEVELOPMENT_REQUIREMENTS.md`，再开发。
-2. 新问题必须写入 `DEVELOPMENT_ISSUES.md`，包含原因和状态。
-3. 新文件必须先查 `FILE_PLACEMENT_RULES.md`，再决定放置位置。
-4. README 只保留项目入口和链接，详细说明放入 `docs/`。
-5. 构建、发布、合规、隐私、安全、维护说明不得再放在根目录。
-6. 当前 `develop` 分支已删除；如需开发分支，必须从 `main` 新建 `feature/*` 或 `fix/*`。
+1. 当前事实变化先同步 `CURRENT_STATUS.md`、根 README 和本文档。
+2. 新需求先写入 `DEVELOPMENT_REQUIREMENTS.md`，再开发。
+3. 新问题必须写入 `DEVELOPMENT_ISSUES.md`，包含原因和状态。
+4. 新文件必须先查 `FILE_PLACEMENT_RULES.md`，再决定放置位置。
+5. README 只保留项目入口和链接，详细说明放入 `docs/`。
+6. 构建、发布、合规、隐私、安全、维护说明不得再放在根目录。
+7. 当前 `develop` 分支已删除；如需开发分支，必须从 `main` 新建 `feature/*` 或 `fix/*`。
