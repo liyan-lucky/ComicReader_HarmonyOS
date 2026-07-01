@@ -20,6 +20,10 @@
 
 关于信息整合到设置页，不再作为独立 Tab。
 
+## 当前状态
+
+当前事实以 [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) 为准。该文件记录工程类型、分支/备份策略、当前 GitHub Actions 和文档维护规则。
+
 ## 文档入口
 
 所有长期文档统一放入：
@@ -30,6 +34,7 @@ docs/
 
 文档中心：
 
+- [当前仓库状态](docs/CURRENT_STATUS.md)
 - [文档中心](docs/README.md)
 - [构建说明](docs/build/BUILDING.md)
 - [发布前检查](docs/release/RELEASE_CHECKLIST.md)
@@ -75,7 +80,7 @@ https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/i
 | `高级构建漫画浏览器 HAP` | `.github/workflows/manual-build-entry-advanced.yml` | 手动构建 unsigned HAP。 |
 | `合规检查` | `.github/workflows/compliance-check.yml` | 检查文档、许可证、合规和规则加固标记。 |
 | `清理旧构建产物和流程记录` | `.github/workflows/cleanup-artifacts.yml` | 手动预览或清理 artifacts / workflow runs。 |
-| `强制覆盖 backup 分支` | `.github/workflows/force-backup-main.yml` | 手动把 main 当前提交强制覆盖到 backup。 |
+| `强制覆盖 backup 分支` | `.github/workflows/force-backup-main.yml` | 手动输入 `YES` 后，把 main 当前提交强制覆盖到 backup。 |
 
 ## 常用命令
 
