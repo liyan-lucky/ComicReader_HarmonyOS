@@ -5,7 +5,7 @@ import { parseSearchResults, parseChapters, parseImages, parseNextPageUrl } from
 import { looksLikeUrl, normalizeUserUrl } from '../common/UrlUtil';
 import { DEFAULT_SEARCH_ENGINES, buildEngineQuery, buildSearchEngineUrl, parseSearchEngineResults, isEngineConfigured, engineHeaders, searchEngineUserAgent } from '../common/SearchEngines';
 import { RemoteRuleService, DEFAULT_REMOTE_RULE_URL } from '../common/RemoteRuleService';
-import { APP_VERSION } from '../common/BuildInfo';
+import { APP_VERSION, APP_BUILD_TIME } from '../common/BuildInfo';
 
 @Entry
 @Component
@@ -46,6 +46,10 @@ struct Index {
   @State private maxReaderPages: number = 6;
   @State private showImageIndex: boolean = true;
   @State private readerDarkMode: boolean = true;
+  @State private fullscreenReader: boolean = true;
+  @State private floatingReaderControls: boolean = true;
+  @State private appTheme: string = 'light';
+  @State private appLanguage: string = 'zh';
   @State private remoteRuleUrl: string = DEFAULT_REMOTE_RULE_URL;
   @State private remoteRuleStatus: string = '远程规则未更新';
   @State private remoteRuleCount: number = 0;
@@ -90,8 +94,8 @@ struct Index {
   private secondaryText(): string { return '#7A828C'; }
   private warnBg(): string { return '#FFF7E8'; }
   private warnText(): string { return '#8A5A12'; }
-  private okBg(): string { return '#ECFFF1'; }
-  private okText(): string { return '#168B3A'; }
+  private selectedSoftBg(): string { return '#E9FFF0'; }
+  private glassBg(): string { return '#FFFFFFEE'; }
 
   private selectedEngine(): SearchEngineConfig {
     if (this.selectedEngineIndex < 0 || this.selectedEngineIndex >= this.searchEngines.length) return this.searchEngines[0];
@@ -114,7 +118,8 @@ struct Index {
 
   private nowText(): string {
     const date = new Date();
-    return `${date.getMonth() + 1}-${date.getDate()} ${date.getHours()}:${date.getMinutes() < 10 ? '0' + date.getMinutes() : date.getMinutes()}`;
+    const minute = date.getMinutes();
+    return `${date.getMonth() + 1}-${date.getDate()} ${date.getHours()}:${minute < 10 ? '0' + minute : minute}`;
   }
 
   private hostOf(url: string): string {
@@ -127,9 +132,7 @@ struct Index {
   }
 
   private cleanTitle(raw: string): string {
-    let title = raw.trim();
-    title = title.replace(/<[^>]+>/g, ' ');
-    title = title.replace(/\s+/g, ' ').trim();
+    let title = raw.trim().replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     return title.length > 0 ? title : '未命名漫画';
   }
 
@@ -337,9 +340,7 @@ struct Index {
     for (let i = 0; i < base.length && next.length < 120; i++) next.push({ url: base[i].url, index: next.length + 1, status: base[i].status });
     for (let j = 0; j < incoming.length && next.length < 120; j++) {
       const image = incoming[j];
-      if (!next.some((oldItem: ReaderImageItem) => oldItem.url === image.url)) {
-        next.push({ url: image.url, index: next.length + 1, status: 'waiting' });
-      }
+      if (!next.some((oldItem: ReaderImageItem) => oldItem.url === image.url)) next.push({ url: image.url, index: next.length + 1, status: 'waiting' });
     }
     return next;
   }
@@ -399,11 +400,8 @@ struct Index {
 
   private openSearchResult(item: SearchResultItem): void {
     const rule = this.ruleForItemUrl(item.url, item.sourceId);
-    if (item.isChapter) {
-      this.loadChapter({ title: item.title, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, rule);
-    } else {
-      this.loadDetail(item.url, item.title, rule);
-    }
+    if (item.isChapter) this.loadChapter({ title: item.title, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, rule);
+    else this.loadDetail(item.url, item.title, rule);
   }
 
   private addHistory(chapter: ChapterItem, imageCount: number): void {
@@ -464,6 +462,11 @@ struct Index {
     else this.languageMode = '中文';
   }
 
+  private toggleTheme(): void {
+    this.appTheme = this.appTheme === 'light' ? 'dark' : 'light';
+    this.statusText = '主题已切换。';
+  }
+
   private async updateRemoteRules(): Promise<void> {
     this.remoteRuleStatus = '正在更新远程规则...';
     try {
@@ -495,28 +498,24 @@ struct Index {
 
   @Builder
   private SearchActionButton(heightValue: number) {
-    Button() {
-      Row() {
-        if (this.isLoading) {
-          LoadingProgress()
-            .width(18)
-            .height(18)
-            .margin({ right: 6 })
-            .color('#FFFFFF')
-        }
-        Text(this.isLoading ? '搜索中' : '搜索')
-          .fontSize(15)
-          .fontColor('#FFFFFF')
+    Stack() {
+      if (this.isLoading) {
+        LoadingProgress()
+          .width(heightValue + 8)
+          .height(heightValue + 8)
       }
-      .justifyContent(FlexAlign.Center)
+      Button(this.isLoading ? '搜索中' : '搜索')
+        .height(heightValue)
+        .fontSize(15)
+        .fontColor('#FFFFFF')
+        .backgroundColor(this.accent())
+        .borderRadius(heightValue / 2)
+        .padding({ left: 20, right: 20 })
+        .border({ width: this.isLoading ? 2 : 0, color: this.isLoading ? '#0EA84A' : this.accent() })
+        .enabled(!this.isLoading)
+        .onClick(() => { this.startSearch(); })
     }
-    .height(heightValue)
-    .padding({ left: 18, right: 18 })
-    .backgroundColor(this.accent())
-    .borderRadius(heightValue / 2)
-    .border({ width: this.isLoading ? 3 : 1, color: this.isLoading ? '#0EA84A' : this.accent() })
-    .enabled(!this.isLoading)
-    .onClick(() => { this.startSearch(); })
+    .height(heightValue + 8)
   }
 
   @Builder
@@ -544,7 +543,7 @@ struct Index {
       .width('100%')
       .padding({ left: 14, right: 14, bottom: 8 })
     }
-    .backgroundColor('#FFFFFFEE')
+    .backgroundColor(this.glassBg())
     .borderRadius({ bottomLeft: 22, bottomRight: 22 })
   }
 
@@ -749,22 +748,49 @@ struct Index {
   }
 
   @Builder
+  private InfoRow(title: string, value: string) {
+    Row() {
+      Text(title).fontSize(15).fontColor(this.primaryText()).layoutWeight(1)
+      Text(value).fontSize(13).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+    }.width('100%').padding({ top: 8, bottom: 8 })
+  }
+
+  @Builder
   private SettingsPage() {
     Stack() {
       Scroll() {
         Column() {
           Text('设置').fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').margin({ top: 12, bottom: 6 })
-          Text('点击分类后直接在当前设置页弹出配置对话框，不跳转二级页面。').fontSize(13).fontColor(this.secondaryText()).lineHeight(20).width('100%').margin({ bottom: 12 })
+          Text('基础设置和 APP 设置直接展开；搜索、源、阅读、引擎和规则使用弹出对话框。').fontSize(13).fontColor(this.secondaryText()).lineHeight(20).width('100%').margin({ bottom: 12 })
           this.StatusCard()
-          Column() { this.SettingCard('搜索设置', '搜索模式、搜索引擎、语言倾向和额外关键词。', this.searchMode + ' · ' + this.selectedEngine().name) }.onClick(() => { this.settingsDialog = 'search'; })
-          Column() { this.SettingCard('公开源开关', '搜索引擎、HTML规则源和远程规则。', this.enableSearchEngines ? '已启用' : '已关闭') }.onClick(() => { this.settingsDialog = 'sources'; })
+
+          Text('基础设置').fontSize(18).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').margin({ top: 8, bottom: 8 })
+          Column() { this.SettingCard('主题', '明亮 / 暗黑双主题。', this.appTheme === 'light' ? '明亮' : '暗黑') }.onClick(() => this.toggleTheme())
+          Column() { this.SettingCard('语言', '界面语言固定中文。', '中文') }
+          Column() { this.SettingCard('阅读页全屏', '阅读时隐藏多余控件。', this.fullscreenReader ? '开' : '关') }.onClick(() => { this.fullscreenReader = !this.fullscreenReader; })
+          Column() { this.SettingCard('悬浮控制', '阅读页使用悬浮控制按钮。', this.floatingReaderControls ? '开' : '关') }.onClick(() => { this.floatingReaderControls = !this.floatingReaderControls; })
+
+          Text('APP设置').fontSize(18).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').margin({ top: 14, bottom: 8 })
+          Column() { this.SettingCard('搜索菜单', '搜索模式、搜索引擎、语言倾向和额外关键词。', this.searchMode + ' · ' + this.selectedEngine().name) }.onClick(() => { this.settingsDialog = 'search'; })
+          Column() { this.SettingCard('源开关', '搜索引擎、HTML规则源和远程规则。', this.enableSearchEngines ? '已启用' : '已关闭') }.onClick(() => { this.settingsDialog = 'sources'; })
           Column() { this.SettingCard('显示与阅读', '封面补全、卷轴阅读、页码和图片上限。', '阅读设置') }.onClick(() => { this.settingsDialog = 'reader'; })
-          Column() { this.SettingCard('关于', '只显示版本号。', APP_VERSION) }.onClick(() => { this.settingsDialog = 'about'; })
+          Column() { this.SettingCard('搜索引擎', '查看和切换当前搜索引擎。', this.selectedEngine().name) }.onClick(() => { this.settingsDialog = 'engines'; })
+          Column() { this.SettingCard('规则设置', '远程规则仓库和规则更新。', this.remoteRuleCount + ' 条') }.onClick(() => { this.settingsDialog = 'rules'; })
+          Column() { this.SettingCard('高级规则', '自定义 JSON 规则文本。', this.rules.length + ' 个源') }.onClick(() => { this.settingsDialog = 'advanced'; })
+
+          Text('关于').fontSize(18).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').margin({ top: 14, bottom: 8 })
+          Column() {
+            this.InfoRow('版本号', APP_VERSION)
+            this.InfoRow('构建时间', APP_BUILD_TIME)
+          }
+          .width('100%')
+          .padding(14)
+          .backgroundColor(this.cardBg())
+          .borderRadius(18)
+          .margin({ bottom: 14 })
         }.width('100%').padding(14)
       }.layoutWeight(1)
-      if (this.settingsDialog.length > 0) {
-        this.SettingsDialog()
-      }
+      if (this.settingsDialog.length > 0) this.SettingsDialog()
     }.layoutWeight(1).backgroundColor(this.appBg())
   }
 
@@ -782,7 +808,7 @@ struct Index {
       Blank().layoutWeight(1)
       Column() {
         Row() {
-          Text(this.settingsDialog === 'search' ? '搜索设置' : (this.settingsDialog === 'sources' ? '公开源开关' : (this.settingsDialog === 'reader' ? '显示与阅读' : '关于')))
+          Text(this.settingsDialog === 'search' ? '搜索菜单' : (this.settingsDialog === 'sources' ? '源开关' : (this.settingsDialog === 'reader' ? '显示与阅读' : (this.settingsDialog === 'engines' ? '搜索引擎' : (this.settingsDialog === 'rules' ? '规则设置' : '高级规则')))))
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
             .layoutWeight(1)
@@ -806,8 +832,17 @@ struct Index {
           Column() { this.DialogRow('阅读背景', this.readerDarkMode ? '深色' : '浅色') }.onClick(() => { this.readerDarkMode = !this.readerDarkMode; })
           Column() { this.DialogRow('最大结果数', this.maxSearchResults + ' 个') }.onClick(() => { this.maxSearchResults = this.maxSearchResults === 40 ? 80 : 40; })
           Column() { this.DialogRow('章节追踪页数', this.maxReaderPages + ' 页') }.onClick(() => { this.maxReaderPages = this.maxReaderPages === 6 ? 8 : 6; })
+        } else if (this.settingsDialog === 'engines') {
+          Column() { this.DialogRow('当前搜索引擎', this.selectedEngine().name) }.onClick(() => this.cycleEngine())
+          ForEach(this.searchEngines, (engine: SearchEngineConfig) => {
+            this.DialogRow(engine.name, engine.enabled ? '开' : '关')
+          }, (engine: SearchEngineConfig) => engine.id)
+        } else if (this.settingsDialog === 'rules') {
+          Column() { this.DialogRow('远程规则数量', this.remoteRuleCount + ' 条') }.onClick(() => this.updateRemoteRules())
+          TextInput({ placeholder: '远程规则地址', text: this.remoteRuleUrl }).height(42).backgroundColor('#F2F4F7').borderRadius(12).padding({ left: 10, right: 10 }).margin({ top: 8 }).onChange((value: string) => { this.remoteRuleUrl = value; })
+          Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%').margin({ top: 8 })
         } else {
-          Text('版本号：' + APP_VERSION).fontSize(16).fontColor(this.primaryText()).width('100%').padding({ top: 10, bottom: 18 })
+          TextInput({ placeholder: '自定义 JSON 规则', text: this.customRuleText }).height(120).backgroundColor('#F2F4F7').borderRadius(12).padding(10).onChange((value: string) => { this.customRuleText = value; })
         }
       }
       .width('92%')
@@ -819,7 +854,6 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor('#66000000')
-    .onClick(() => { this.settingsDialog = ''; })
   }
 
   @Builder
@@ -857,31 +891,52 @@ struct Index {
   }
 
   @Builder
-  private TabItem(name: string, title: string) {
+  private UiIcon(name: string, selected: boolean, size: number) {
+    if (name === 'search') Image($r('app.media.ic_search')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
+    else if (name === 'shelf') Image($r('app.media.ic_shelf')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
+    else if (name === 'history') Image($r('app.media.ic_history')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
+    else Image($r('app.media.ic_settings')).width(size).height(size).fillColor(selected ? this.accent() : this.secondaryText())
+  }
+
+  @Builder
+  private TabPill(tab: string, label: string) {
     Column() {
-      Text(name === 'search' ? '⌕' : (name === 'shelf' ? '▯' : (name === 'history' ? '↺' : '⚙')))
-        .fontSize(24)
-        .fontColor(this.activeTab === name ? this.accent() : '#111111')
-      Text(title)
-        .fontSize(12)
-        .fontColor(this.activeTab === name ? this.accent() : '#555555')
+      this.UiIcon(tab, this.activeTab === tab, 20)
+      Text(label)
+        .fontSize(10)
+        .fontColor(this.activeTab === tab ? this.accent() : this.secondaryText())
+        .margin({ top: 2 })
     }
     .layoutWeight(1)
-    .height(62)
+    .height(56)
     .justifyContent(FlexAlign.Center)
-    .backgroundColor(this.activeTab === name ? '#E9FFF0' : '#FFFFFF')
+    .backgroundColor(this.activeTab === tab ? this.selectedSoftBg() : '#00000000')
     .borderRadius(28)
     .onClick(() => {
-      this.activeTab = name;
-      if (name === 'search') this.mode = this.results.length > 0 ? 'results' : 'home';
+      this.activeTab = tab;
+      if (tab === 'search' && this.mode === 'reader') this.mode = this.results.length > 0 ? 'results' : 'home';
     })
+  }
+
+  @Builder
+  private BottomTabs() {
+    Row() {
+      this.TabPill('search', '搜索')
+      this.TabPill('shelf', '书架')
+      this.TabPill('history', '历史')
+      this.TabPill('settings', '设置')
+    }
+    .width('92%')
+    .height(68)
+    .padding(6)
+    .backgroundColor(this.glassBg())
+    .borderRadius(34)
+    .margin({ left: 16, right: 16, bottom: 10 })
   }
 
   build() {
     Column() {
-      if (this.activeTab === 'search' && this.mode === 'results') {
-        this.SearchHeader()
-      }
+      if (this.activeTab === 'search' && this.mode === 'results') this.SearchHeader()
       if (this.activeTab === 'search') {
         if (this.mode === 'home') this.SearchHome()
         else if (this.mode === 'results') this.ResultsPage()
@@ -894,15 +949,7 @@ struct Index {
       } else {
         this.SettingsPage()
       }
-      Row() {
-        this.TabItem('search', '搜索')
-        this.TabItem('shelf', '书架')
-        this.TabItem('history', '历史')
-        this.TabItem('settings', '设置')
-      }
-      .height(76)
-      .padding({ left: 12, right: 12, top: 6, bottom: 8 })
-      .backgroundColor('#FFFFFFDD')
+      if (this.mode !== 'reader' && this.mode !== 'chapters') this.BottomTabs()
     }
     .width('100%')
     .height('100%')
