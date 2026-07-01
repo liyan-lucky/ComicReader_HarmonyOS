@@ -1,4 +1,4 @@
-name: 应用下一轮 UI 优化到 develop
+name: 手动应用 UI 优化到 develop
 
 on:
   workflow_dispatch:
@@ -8,26 +8,15 @@ on:
         required: true
         default: develop
         type: string
-  push:
-    branches:
-      - develop
-    paths:
-      - scripts/polish_ui.py
-      - scripts/generate_app_icon_png.py
-      - entry/src/main/ets/pages/Index.ets
-      - entry/src/main/ets/model/ComicModels.ets
-      - entry/src/main/resources/base/media/**
-      - .github/workflows/patch-reader-floating-controls.yml
 
 permissions:
   contents: write
 
 jobs:
   polish-ui:
-    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     env:
-      TARGET_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_branch || github.ref_name }}
+      TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
     steps:
       - name: 校验目标分支
         shell: bash
@@ -65,6 +54,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No change needed."
           else
-            git commit -m "style(ui): apply unified UI polish"
+            git commit -m "style(ui): apply manual UI polish"
             git push origin HEAD:$TARGET_BRANCH
           fi
