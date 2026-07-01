@@ -8,19 +8,32 @@ on:
         required: true
         default: develop
         type: string
+  push:
+    branches:
+      - develop
+    paths:
+      - scripts/polish_ui.py
+      - scripts/generate_app_icon_png.py
+      - entry/src/main/ets/pages/Index.ets
+      - entry/src/main/ets/model/ComicModels.ets
+      - entry/src/main/resources/base/media/**
+      - .github/workflows/patch-reader-floating-controls.yml
 
 permissions:
   contents: write
 
 jobs:
   polish-ui:
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    env:
+      TARGET_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_branch || github.ref_name }}
     steps:
       - name: 校验目标分支
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.event.inputs.target_branch }}" = "main" ]; then
+          if [ "$TARGET_BRANCH" = "main" ]; then
             echo "本流程禁止直接作用于 main。请使用 develop 或 feature/fix 分支。"
             exit 1
           fi
@@ -28,17 +41,17 @@ jobs:
       - name: 检出目标分支
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.target_branch }}
+          ref: ${{ env.TARGET_BRANCH }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 生成 PNG APP 图标
+      - name: 保留已上传 PNG 图标
         shell: bash
         run: |
           set -euo pipefail
           if [ -f scripts/generate_app_icon_png.py ]; then
             python3 scripts/generate_app_icon_png.py
           else
-            echo "scripts/generate_app_icon_png.py not found, skip icon generation."
+            echo "scripts/generate_app_icon_png.py not found, skip icon check."
           fi
 
       - name: 执行目标分支 UI 优化脚本
@@ -48,10 +61,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A entry/src/main/ets/pages/Index.ets entry/src/main/resources/base/media scripts docs
+          git add -A entry/src/main/ets/pages/Index.ets entry/src/main/ets/model/ComicModels.ets entry/src/main/resources/base/media scripts docs
           if git diff --cached --quiet; then
             echo "No change needed."
           else
-            git commit -m "style(ui): apply navigation layout and PNG icon polish"
-            git push origin HEAD:${{ github.event.inputs.target_branch }}
+            git commit -m "style(ui): apply unified UI polish"
+            git push origin HEAD:$TARGET_BRANCH
           fi
