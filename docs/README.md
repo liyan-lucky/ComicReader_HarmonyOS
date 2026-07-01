@@ -8,9 +8,9 @@
 
 - [`development/DEVELOPMENT_REQUIREMENTS.md`](development/DEVELOPMENT_REQUIREMENTS.md)：持续更新的产品与开发需求。
 - [`development/DEVELOPMENT_ISSUES.md`](development/DEVELOPMENT_ISSUES.md)：开发过程中遇到的问题、原因和处理状态。
-- [`development/REPOSITORY_STANDARDS.md`](development/REPOSITORY_STANDARDS.md)：仓库目录、文档、脚本、workflow 管理规范。
+- [`development/REPOSITORY_STANDARDS.md`](development/REPOSITORY_STANDARDS.md)：仓库目录、文档、脚本、workflow、资源和分支管理规范。
+- [`development/FILE_PLACEMENT_RULES.md`](development/FILE_PLACEMENT_RULES.md)：新增文件应该放在哪里，避免文件到处都是。
 - [`development/BRANCH_RULES.md`](development/BRANCH_RULES.md)：分支和合并规则。
-- [`development/GITHUB_WORKFLOW.md`](development/GITHUB_WORKFLOW.md)：GitHub Actions 使用规范。
 - [`development/UI_RULES.md`](development/UI_RULES.md)：UI 风格、颜色、图标和页面结构规范。
 
 ### 架构
@@ -26,6 +26,7 @@
 
 1. 新需求先写入 `DEVELOPMENT_REQUIREMENTS.md`，再开发。
 2. 新问题必须写入 `DEVELOPMENT_ISSUES.md`，包含原因和状态。
-3. 新 workflow 必须先检查是否可复用现有固定 workflow；默认不新增临时 workflow。
-4. 所有自动流程禁止直接针对 `main` 分支运行。
-5. README 只保留项目入口和链接，详细说明放入 `docs/`。
+3. 新文件必须先查 `FILE_PLACEMENT_RULES.md`，再决定放置位置。
+4. README 只保留项目入口和链接，详细说明放入 `docs/`。
+5. 禁止重新引入自动 UI 注入脚本、自动 patch 脚本或临时 workflow。
+6. 当前 `develop` 分支已删除；如需开发分支，必须从 `main` 新建 `feature/*` 或 `fix/*`。
