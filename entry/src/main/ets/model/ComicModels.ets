@@ -47,6 +47,14 @@ export interface SearchResultItem {
   resultType?: string;
   groupName?: string;
   description?: string;
+  /** 作者，搜索源未提供时留空，UI 会显示未知作者。 */
+  author?: string;
+  /** 最新章节，搜索源未提供时留空，UI 会显示待获取。 */
+  latestChapter?: string;
+  /** 更新时间，搜索源未提供时留空，UI 会显示待获取。 */
+  updateTime?: string;
+  /** 题材分类，搜索页不再按此分组，后续用于书架题材推荐。 */
+  category?: string;
 }
 
 export interface ResultGroup {
