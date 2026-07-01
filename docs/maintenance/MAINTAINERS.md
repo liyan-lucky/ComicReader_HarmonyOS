@@ -8,6 +8,28 @@
 
 `develop` 已删除。风险较大的功能应从 `main` 新建 `feature/*` 或 `fix/*`。
 
+## 当前仓库状态
+
+根目录只保留：
+
+- `README.md`
+- `LICENSE`
+- 构建系统文件
+- App 工程目录
+- 脚本目录
+- 文档目录
+- GitHub 配置目录
+
+长期文档全部归入 `docs/`：
+
+- 构建说明：`docs/build/`
+- 发布检查：`docs/release/`
+- 维护说明：`docs/maintenance/`
+- 合规、安全、隐私、第三方来源：`docs/compliance/`
+- 开发规范和问题记录：`docs/development/`
+- 架构说明：`docs/architecture/`
+- 搜索和规则说明：`docs/search/`
+
 ## 当前 CI 状态
 
 当前构建 workflow 输出 4 平台 unsigned HAP：
