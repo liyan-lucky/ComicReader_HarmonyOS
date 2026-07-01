@@ -95,7 +95,6 @@ struct Index {
   @State private coverOnlyMode: boolean = true;
   @State private resultColumns: number = 3;
   @State private resultViewMode: string = 'list';
-  @State private resultViewMode: string = 'list';
   @State private autoCoverEnabled: boolean = true;
   @State private groupByName: boolean = true;
   @State private maxSearchResults: number = 80;
@@ -2312,7 +2311,6 @@ struct Index {
     } else if (this.settingsSection === 'about') {
       this.SettingsAboutPage()
     } else {
-      this.settingsSection = 'menu';
       this.SettingsMenuPage()
     }
   }
