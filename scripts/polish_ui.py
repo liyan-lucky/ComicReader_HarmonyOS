@@ -4,16 +4,8 @@
 
 Do not add one-off UI patch scripts. Keep all UI polish here.
 
-Current goals:
-- Bottom tabs: 搜索 / 书架 / 历史 / 设置.
-- Search home follows the original clean composition: illustration + title + search box only.
-- Search results are list-only; no list/grid switch on the search page.
-- Search classification/grouping is removed from search results and kept on Shelf topics.
-- Result list item layout: cover + title / author / latest chapter / update time / type + source host.
-- Settings page is compact: first-level category menu + second-level detail pages.
-- About content lives inside Settings -> 关于.
-- Search result model includes optional author/latestChapter/updateTime/category fields.
-- Result metadata is enriched from title/description/source text when parser fields are missing.
+This script is intentionally idempotent. It rewrites the known UI regions instead
+of appending duplicate builders/helpers.
 """
 from pathlib import Path
 
@@ -189,8 +181,8 @@ search_home_block = r'''  @Builder
 '''
 text = replace_between(text, "  @Builder\n  private SearchHome() {", "  @Builder\n  private SearchChip(keyword: string) {", search_home_block)
 
-# Richer result helpers, list-only cards, and metadata extraction.
-result_block = r'''  private cleanResultTitle(raw: string): string {
+# Result helpers/list cards. Replace from the first helper, not ResultCard, to remove old duplicates.
+result_region = r'''  private cleanResultTitle(raw: string): string {
     let title = raw.trim();
     while (title.indexOf('  ') >= 0) title = title.replace('  ', ' ');
     title = this.cleanResultTitleBySeparator(title, ' - ');
@@ -228,7 +220,7 @@ result_block = r'''  private cleanResultTitle(raw: string): string {
       if (index < 0) continue;
       let value = text.substring(index + key.length).trim();
       if (value.indexOf('：') === 0 || value.indexOf(':') === 0) value = value.substring(1).trim();
-      let stops = [' ', '　', '，', ',', '。', '；', ';', '|', '｜', '/', '\\n', '\\t'];
+      let stops = [' ', '　', '，', ',', '。', '；', ';', '|', '｜', '/', '\n', '\t'];
       let cut = value.length;
       for (let j = 0; j < stops.length; j++) {
         let stopIndex = value.indexOf(stops[j]);
@@ -332,7 +324,7 @@ result_block = r'''  private cleanResultTitle(raw: string): string {
   }
 
 '''
-text = replace_between(text, "  @Builder\n  private ResultCard(item: SearchResultItem) {", "  @Builder\n  private ResultsPage() {", result_block)
+text = replace_between(text, "  private cleanResultTitle(raw: string): string {", "  @Builder\n  private ResultsPage() {", result_region)
 
 results_page_block = r'''  @Builder
   private ResultsPage() {
@@ -428,7 +420,7 @@ if "this.SettingMenuCard('关于'" not in text and "private SettingsMenuPage()" 
         "    this.SettingMenuCard('高级规则', '查看内置规则源，粘贴自定义 JSON 规则。', this.rules.length + ' 个源', 'advanced')\n    this.SettingMenuCard('关于', '版本、构建信息、界面风格和项目说明。', APP_VERSION, 'about')"
     )
 
-# Validations.
+# Validations: count helpers exactly once in the final text.
 required_index = [
     "@State private resultViewMode: string = 'list';",
     "app.media.search_home_illustration_light",
@@ -444,6 +436,17 @@ required_index = [
 for required in required_index:
     if required not in text:
         raise SystemExit(f'UI polish missing required content: {required}')
+
+exact_once = [
+    "private cleanResultTitle(raw: string): string",
+    "private cleanResultTitleBySeparator(raw: string, separator: string): string",
+    "private resultTitle(item: SearchResultItem): string",
+    "private enrichResultItem(item: SearchResultItem): SearchResultItem",
+]
+for marker in exact_once:
+    count = text.count(marker)
+    if count != 1:
+        raise SystemExit(f'Expected exactly one {marker}, found {count}')
 
 for forbidden in ["this.TabPill('about'", "Button('列表')", "Button('网格')", "ForEach(this.groupedResults()", "this.SearchChip('斗罗大陆')"]:
     if forbidden in text:
