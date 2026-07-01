@@ -1191,55 +1191,47 @@ struct Index {
       Column() {
         if (this.isDarkTheme()) {
           Image($r('app.media.search_home_illustration_dark'))
-            .width(220)
-            .height(96)
+            .width(280)
+            .height(122)
             .objectFit(ImageFit.Contain)
             .margin({ bottom: 18 })
         } else {
           Image($r('app.media.search_home_illustration_light'))
-            .width(220)
-            .height(96)
+            .width(280)
+            .height(122)
             .objectFit(ImageFit.Contain)
             .margin({ bottom: 18 })
         }
         Text('漫画浏览器')
-          .fontSize(26)
+          .fontSize(28)
           .fontWeight(FontWeight.Bold)
           .fontColor(this.primaryText())
-        Text('输入漫画名称，开始搜索公开资源')
+        Text('输入漫画名称，搜索公开可访问漫画')
           .fontSize(13)
           .fontColor(this.secondaryText())
-          .margin({ top: 6, bottom: 20 })
+          .margin({ top: 6, bottom: 22 })
         Row() {
           TextInput({ placeholder: this.t('searchPlaceholder'), text: this.queryText })
-            .height(50)
+            .height(52)
             .layoutWeight(1)
             .fontSize(15)
             .backgroundColor(this.cardBg())
-            .borderRadius(25)
-            .padding({ left: 16, right: 16 })
+            .borderRadius(26)
+            .padding({ left: 18, right: 18 })
             .onChange((value: string) => { this.queryText = value; })
             .onSubmit(() => { this.startSearch(); })
           Button(this.t('search'))
-            .height(50)
+            .height(52)
             .fontSize(15)
             .fontColor('#FFFFFF')
             .backgroundColor(this.accent())
-            .borderRadius(25)
+            .borderRadius(26)
             .margin({ left: 10 })
             .enabled(!this.isLoading)
             .onClick(() => { this.startSearch(); })
         }
         .width('100%')
-        .padding({ left: 20, right: 20 })
-        Row() {
-          this.SearchChip('斗罗大陆')
-          this.SearchChip('火影忍者')
-          this.SearchChip('one piece')
-        }
-        .justifyContent(FlexAlign.Center)
-        .width('100%')
-        .margin({ top: 16 })
+        .padding({ left: 22, right: 22 })
       }
       .width('100%')
       .alignItems(HorizontalAlign.Center)
@@ -1248,7 +1240,6 @@ struct Index {
     .layoutWeight(1)
     .backgroundColor(this.appBg())
   }
-
 
   @Builder
   private SearchChip(keyword: string) {
@@ -2015,6 +2006,52 @@ struct Index {
     return host;
   }
 
+  private cleanResultTitle(raw: string): string {
+    let title = raw.trim();
+    while (title.indexOf('  ') >= 0) {
+      title = title.replace('  ', ' ');
+    }
+    title = this.cleanResultTitleBySeparator(title, ' - ');
+    title = this.cleanResultTitleBySeparator(title, ' | ');
+    title = this.cleanResultTitleBySeparator(title, '｜');
+    title = this.cleanResultTitleBySeparator(title, '_');
+    title = this.cleanResultTitleBySeparator(title, '，');
+    title = this.cleanResultTitleBySeparator(title, ',');
+    return title;
+  }
+
+  private cleanResultTitleBySeparator(raw: string, separator: string): string {
+    if (raw.indexOf(separator) < 0) return raw;
+    let parts = raw.split(separator);
+    let compactParts: string[] = [];
+    for (let index = 0; index < parts.length; index++) {
+      let part = parts[index].trim();
+      if (part.length > 0 && (compactParts.length === 0 || compactParts[compactParts.length - 1] !== part)) {
+        compactParts.push(part);
+      }
+    }
+    return compactParts.join(separator);
+  }
+
+  private resultTitle(item: SearchResultItem): string { return this.cleanResultTitle(item.title); }
+  private resultAuthor(item: SearchResultItem): string { return item.author !== undefined && item.author.length > 0 ? item.author : '未知作者'; }
+  private resultLatestChapter(item: SearchResultItem): string {
+    if (item.latestChapter !== undefined && item.latestChapter.length > 0) return item.latestChapter;
+    if (item.isChapter) return this.resultTitle(item);
+    return '最新章节待获取';
+  }
+  private resultUpdateTime(item: SearchResultItem): string { return item.updateTime !== undefined && item.updateTime.length > 0 ? item.updateTime : '更新时间待获取'; }
+  private resultSourceHost(item: SearchResultItem): string {
+    let host = item.url;
+    let protocolIndex = host.indexOf('://');
+    if (protocolIndex >= 0) host = host.substring(protocolIndex + 3);
+    let slashIndex = host.indexOf('/');
+    if (slashIndex >= 0) host = host.substring(0, slashIndex);
+    let questionIndex = host.indexOf('?');
+    if (questionIndex >= 0) host = host.substring(0, questionIndex);
+    return host.length > 0 ? host : item.sourceName;
+  }
+
   @Builder
   private ResultCard(item: SearchResultItem) {
     this.ResultListCard(item)
@@ -2023,63 +2060,21 @@ struct Index {
   @Builder
   private ResultListCard(item: SearchResultItem) {
     Row() {
+      Column() { this.CoverBox(item, 104) }
+        .width(76)
+        .height(104)
+        .clip(true)
+        .borderRadius(12)
       Column() {
-        this.CoverBox(item, 104)
-      }
-      .width(76)
-      .height(104)
-      .clip(true)
-      .borderRadius(12)
-
-      Column() {
-        Text(this.resultTitle(item))
-          .fontSize(16)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.primaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-        Text('作者：' + this.resultAuthor(item))
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 5 })
-          .width('100%')
-        Text('最新章节：' + this.resultLatestChapter(item))
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 4 })
-          .width('100%')
-        Text('更新时间：' + this.resultUpdateTime(item))
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 4 })
-          .width('100%')
+        Text(this.resultTitle(item)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+        Text('作者：' + this.resultAuthor(item)).fontSize(12).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 5 }).width('100%')
+        Text('最新章节：' + this.resultLatestChapter(item)).fontSize(12).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 4 }).width('100%')
+        Text('更新时间：' + this.resultUpdateTime(item)).fontSize(12).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 4 }).width('100%')
         Row() {
-          Text('漫画')
-            .fontSize(11)
-            .fontColor('#FFFFFF')
-            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-            .backgroundColor(this.accent())
-            .borderRadius(10)
-          Text(this.resultSourceHost(item))
-            .fontSize(11)
-            .fontColor(this.secondaryText())
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
-            .margin({ left: 8 })
-        }
-        .width('100%')
-        .margin({ top: 7 })
-      }
-      .layoutWeight(1)
-      .margin({ left: 12 })
+          Text('漫画').fontSize(11).fontColor('#FFFFFF').padding({ left: 8, right: 8, top: 3, bottom: 3 }).backgroundColor(this.accent()).borderRadius(10)
+          Text(this.resultSourceHost(item)).fontSize(11).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 8 })
+        }.width('100%').margin({ top: 7 })
+      }.layoutWeight(1).margin({ left: 12 })
     }
     .width('100%')
     .height(124)
@@ -2093,11 +2088,8 @@ struct Index {
   @Builder
   private ResultGroupView(group: ResultGroup) {
     Column() {
-      ForEach(group.items, (item: SearchResultItem) => {
-        this.ResultListCard(item)
-      }, (item: SearchResultItem) => item.url)
-    }
-    .width('100%')
+      ForEach(group.items, (item: SearchResultItem) => { this.ResultListCard(item) }, (item: SearchResultItem) => item.url)
+    }.width('100%')
   }
 
   @Builder
@@ -2116,30 +2108,16 @@ struct Index {
               .fontSize(12)
               .fontColor(this.secondaryText())
               .margin({ top: 3 })
-          }
-          .layoutWeight(1)
-        }
-        .width('100%')
-        .margin({ bottom: 8 })
-
+          }.layoutWeight(1)
+        }.width('100%').margin({ bottom: 8 })
         this.StatusCard()
-
         if (this.results.length === 0) {
           Text(this.isLoading ? '正在搜索公开来源...' : '没有找到结果，换个关键词试试。')
-            .fontSize(14)
-            .fontColor(this.secondaryText())
-            .width('100%')
-            .padding(12)
-            .backgroundColor(this.cardBg())
-            .borderRadius(10)
+            .fontSize(14).fontColor(this.secondaryText()).width('100%').padding(12).backgroundColor(this.cardBg()).borderRadius(10)
         } else {
-          ForEach(this.results, (item: SearchResultItem) => {
-            this.ResultListCard(item)
-          }, (item: SearchResultItem) => item.url)
+          ForEach(this.results, (item: SearchResultItem) => { this.ResultListCard(item) }, (item: SearchResultItem) => item.url)
         }
-      }
-      .width('100%')
-      .padding(14)
+      }.width('100%').padding(14)
     }
     .layoutWeight(1)
     .backgroundColor(this.appBg())
@@ -2515,19 +2493,19 @@ struct Index {
           .fontColor(this.primaryText())
           .width('100%')
           .margin({ top: 12, bottom: 6 })
-        Text('分类和热门题材统一放在这里，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
+        Text('分类和分类统一放在这里，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
           .fontSize(13)
           .fontColor(this.secondaryText())
           .lineHeight(20)
           .width('100%')
           .margin({ bottom: 12 })
         Column() {
-          Text('热门题材')
+          Text('分类')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.primaryText())
             .width('100%')
-          Text('后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。')
+          Text('后续会从规则仓库分类索引自动更新；当前先提供常用分类入口。')
             .fontSize(13)
             .fontColor(this.secondaryText())
             .lineHeight(20)
@@ -2565,14 +2543,14 @@ struct Index {
         .columnsGap(10)
         .rowsGap(10)
         .width('100%')
-        Button('刷新热门题材')
+        Button('刷新分类')
           .height(42)
           .fontSize(14)
           .fontColor('#FFFFFF')
           .backgroundColor(this.accent())
           .borderRadius(21)
           .margin({ top: 16, bottom: 18 })
-          .onClick(() => { this.statusText = '热门题材后续将从规则仓库自动更新。'; })
+          .onClick(() => { this.statusText = '分类后续将从规则仓库自动更新。'; })
       }
       .width('100%')
       .padding(14)
