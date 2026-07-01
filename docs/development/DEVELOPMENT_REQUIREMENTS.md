@@ -4,13 +4,15 @@
 
 ## 一、开发原则
 
-- 所有功能开发、UI 调整、脚本修改优先基于 `develop` 分支。
-- `main` 只作为稳定分支；用户测试确认后再从 `develop` 合并到 `main`。
-- 所有 GitHub Actions 自动流程禁止直接针对 `main` 分支运行。
-- 固定复用 `.github/workflows/patch-reader-floating-controls.yml` 作为临时 UI 自动应用流程；默认不新增临时 workflow。
+- 当前唯一长期主分支是 `main`。
+- `develop` 已删除，不再作为默认开发、测试、合并或备份分支。
+- 小范围文档、配置和低风险修复可直接进入 `main`。
+- 风险较大的功能、结构调整或批量重构，应先从 `main` 新建 `feature/*` 或 `fix/*` 分支。
+- 所有 GitHub Actions 自动流程不得无提示大规模修改源码。
+- 禁止重新引入自动 UI 注入脚本、自动 patch 脚本或临时 UI 自动应用 workflow。
 - 如果必须新增 workflow，先说明用途，并优先删除或替换旧临时 workflow。
 - 修改必须尽量固化到实际源码文件，不长期依赖补丁说明。
-- 文档、问题和规范必须同步更新。
+- 分支、备份、构建、发布、能力边界变化时，必须同步更新 `docs/CURRENT_STATUS.md`、`README.md` 和相关专项文档。
 
 ## 二、APP 定位
 
