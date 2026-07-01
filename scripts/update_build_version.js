@@ -54,6 +54,11 @@ function versionName(state) {
   return `${state.major}.${state.full}.${state.incremental}`;
 }
 
+function formatBuildTime(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 function versionCode(state) {
   const code = state.major * 1000000 + state.full * 1000 + state.incremental;
   return code > 0 ? code : 1;
@@ -156,14 +161,14 @@ function applyArgs(state, args) {
   }
 
   state.buildType = buildType;
-  state.buildTime = new Date().toISOString();
+  state.buildTime = formatBuildTime(new Date());
   return { state, mode, target };
 }
 
 function writeCurrentBuildInfo(options) {
   const state = readVersionState();
   state.buildType = (options && options.buildType) || process.env.BUILD_PACKAGE_SUFFIX || state.buildType || 'ci';
-  state.buildTime = new Date().toISOString();
+  state.buildTime = formatBuildTime(new Date());
   const target = (options && options.target) || process.env.BUILD_PACKAGE_SUFFIX || process.env.BUILD_PRODUCT || 'source';
   writeVersionState(state);
   writeBuildInfo(state, target);
