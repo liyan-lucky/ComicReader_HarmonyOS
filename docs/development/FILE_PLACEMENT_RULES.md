@@ -4,7 +4,7 @@
 
 ## 总原则
 
-- 根目录只放项目入口、构建入口和必须被工具识别的文件。
+- 根目录只放项目入口、许可证、构建系统必需文件和工具必须识别的配置。
 - 长期说明写入 `docs/`。
 - 可执行维护逻辑写入 `scripts/`。
 - App 源码写入 `entry/src/main/ets/`。
@@ -23,10 +23,35 @@
 | 配置资源 | `entry/src/main/resources/base/profile/` | Stage 配置、路由或系统资源配置。 |
 | 构建脚本 | `scripts/` | build、install、version、check。 |
 | GitHub Actions | `.github/workflows/` | 构建、清理、备份、检查。 |
-| 开发规范 | `docs/development/` | 需求、问题、规范、流程。 |
+| 构建文档 | `docs/build/` | 构建说明、SDK、CI 构建说明。 |
+| 发布文档 | `docs/release/` | 发布前检查、版本发布说明。 |
+| 维护文档 | `docs/maintenance/` | 维护者说明、长期维护规则。 |
+| 合规文档 | `docs/compliance/` | 合规、安全、隐私、免责声明、第三方来源、版权说明。 |
+| 开发规范 | `docs/development/` | 需求、问题、规范、流程、贡献指南。 |
 | 架构说明 | `docs/architecture/` | 系统结构、模块关系。 |
 | 搜索说明 | `docs/search/` | 搜索链路、规则系统、过滤策略。 |
 | 临时测试文件 | 不提交 | 本地验证后删除。 |
+
+## 根目录允许项
+
+根目录长期只允许：
+
+- `README.md`
+- `LICENSE`
+- `version.json`
+- `oh-package.json5`
+- `build-profile.json5`
+- `hvigorfile.ts`
+- `hvigor/`
+- `entry/`
+- `scripts/`
+- `docs/`
+- `.github/`
+- `.gitignore`
+- `.editorconfig`
+- `.gitattributes`
+
+构建、发布、维护、合规、隐私、安全、第三方说明等 Markdown 文档不要再放根目录。
 
 ## ArkTS 源码拆分规则
 
