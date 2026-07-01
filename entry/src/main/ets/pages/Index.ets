@@ -94,7 +94,7 @@ struct Index {
 
   @State private coverOnlyMode: boolean = true;
   @State private resultColumns: number = 3;
-  @State private resultViewMode: string = 'grid';
+  @State private resultViewMode: string = 'list';
   @State private resultViewMode: string = 'list';
   @State private autoCoverEnabled: boolean = true;
   @State private groupByName: boolean = true;
@@ -1709,108 +1709,191 @@ struct Index {
     return this.cleanResultTitle(item.title);
   }
 
+  private cleanResultTitle(raw: string): string {
+    let title = raw.trim();
+    while (title.indexOf('  ') >= 0) {
+      title = title.replace('  ', ' ');
+    }
+    title = this.cleanResultTitleBySeparator(title, ' - ');
+    title = this.cleanResultTitleBySeparator(title, ' | ');
+    title = this.cleanResultTitleBySeparator(title, '｜');
+    title = this.cleanResultTitleBySeparator(title, '_');
+    title = this.cleanResultTitleBySeparator(title, '，');
+    title = this.cleanResultTitleBySeparator(title, ',');
+    if (title.length > 1 && title.length % 2 === 0) {
+      let halfLength = title.length / 2;
+      let left = title.substring(0, halfLength).trim();
+      let right = title.substring(halfLength).trim();
+      if (left.length > 0 && left === right) {
+        title = left;
+      }
+    }
+    let words = title.split(' ');
+    if (words.length > 1) {
+      let compactWords: string[] = [];
+      for (let index = 0; index < words.length; index++) {
+        let word = words[index].trim();
+        if (word.length === 0) {
+          continue;
+        }
+        if (compactWords.length === 0 || compactWords[compactWords.length - 1] !== word) {
+          compactWords.push(word);
+        }
+      }
+      title = compactWords.join(' ');
+    }
+    return title;
+  }
+
+  private cleanResultTitleBySeparator(raw: string, separator: string): string {
+    if (raw.indexOf(separator) < 0) {
+      return raw;
+    }
+    let parts = raw.split(separator);
+    let compactParts: string[] = [];
+    for (let index = 0; index < parts.length; index++) {
+      let part = parts[index].trim();
+      if (part.length === 0) {
+        continue;
+      }
+      if (compactParts.length === 0 || compactParts[compactParts.length - 1] !== part) {
+        compactParts.push(part);
+      }
+    }
+    return compactParts.join(separator);
+  }
+
+  private resultTitle(item: SearchResultItem): string {
+    return this.cleanResultTitle(item.title);
+  }
+
+  private resultAuthor(item: SearchResultItem): string {
+    if (item.author !== undefined && item.author.length > 0) {
+      return item.author;
+    }
+    return '未知作者';
+  }
+
+  private resultLatestChapter(item: SearchResultItem): string {
+    if (item.latestChapter !== undefined && item.latestChapter.length > 0) {
+      return item.latestChapter;
+    }
+    if (item.isChapter) {
+      return this.resultTitle(item);
+    }
+    return '最新章节待获取';
+  }
+
+  private resultUpdateTime(item: SearchResultItem): string {
+    if (item.updateTime !== undefined && item.updateTime.length > 0) {
+      return item.updateTime;
+    }
+    return '更新时间待获取';
+  }
+
+  private resultSourceHost(item: SearchResultItem): string {
+    let host = item.url;
+    let protocolIndex = host.indexOf('://');
+    if (protocolIndex >= 0) {
+      host = host.substring(protocolIndex + 3);
+    }
+    let slashIndex = host.indexOf('/');
+    if (slashIndex >= 0) {
+      host = host.substring(0, slashIndex);
+    }
+    let questionIndex = host.indexOf('?');
+    if (questionIndex >= 0) {
+      host = host.substring(0, questionIndex);
+    }
+    if (host.length === 0) {
+      return item.sourceName;
+    }
+    return host;
+  }
+
   @Builder
   private ResultCard(item: SearchResultItem) {
-    Column() {
-      this.CoverBox(item, 142)
-      Text(this.resultTitle(item))
-        .fontSize(13)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.primaryText())
-        .maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .width('100%')
-        .padding({ left: 8, right: 8, top: 8, bottom: 10 })
-    }
-    .width('100%')
-    .clip(true)
-    .backgroundColor(this.cardBg())
-    .borderRadius(16)
-    .shadow({ radius: 6, color: '#10000000', offsetX: 0, offsetY: 2 })
-    .onClick(() => this.openSearchResult(item))
+    this.ResultListCard(item)
   }
 
   @Builder
   private ResultListCard(item: SearchResultItem) {
     Row() {
       Column() {
-        this.CoverBox(item, 76)
+        this.CoverBox(item, 104)
       }
-      .width(58)
-      .height(76)
+      .width(76)
+      .height(104)
       .clip(true)
       .borderRadius(12)
 
       Column() {
         Text(this.resultTitle(item))
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
           .fontColor(this.primaryText())
-          .maxLines(2)
+          .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
-        Text(item.sourceName)
-          .fontSize(11)
+        Text('作者：' + this.resultAuthor(item))
+          .fontSize(12)
           .fontColor(this.secondaryText())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 6 })
+          .margin({ top: 5 })
           .width('100%')
+        Text('最新章节：' + this.resultLatestChapter(item))
+          .fontSize(12)
+          .fontColor(this.secondaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ top: 4 })
+          .width('100%')
+        Text('更新时间：' + this.resultUpdateTime(item))
+          .fontSize(12)
+          .fontColor(this.secondaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ top: 4 })
+          .width('100%')
+        Row() {
+          Text('漫画')
+            .fontSize(11)
+            .fontColor('#FFFFFF')
+            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+            .backgroundColor(this.accent())
+            .borderRadius(10)
+          Text(this.resultSourceHost(item))
+            .fontSize(11)
+            .fontColor(this.secondaryText())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+            .margin({ left: 8 })
+        }
+        .width('100%')
+        .margin({ top: 7 })
       }
       .layoutWeight(1)
       .margin({ left: 12 })
     }
     .width('100%')
-    .height(94)
-    .padding(8)
+    .height(124)
+    .padding(10)
     .backgroundColor(this.cardBg())
     .borderRadius(16)
-    .margin({ bottom: 8 })
+    .margin({ bottom: 10 })
     .onClick(() => this.openSearchResult(item))
   }
 
   @Builder
   private ResultGroupView(group: ResultGroup) {
     Column() {
-      Row() {
-        Text(this.cleanResultTitle(group.name))
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.primaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .layoutWeight(1)
-        Text(group.count + ' 个')
-          .fontSize(12)
-          .fontColor('#FFFFFF')
-          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-          .backgroundColor(this.accent())
-          .borderRadius(12)
-      }
-      .width('100%')
-      .margin({ bottom: 8 })
-
-      if (this.resultViewMode === 'list') {
-        Column() {
-          ForEach(group.items, (item: SearchResultItem) => {
-            this.ResultListCard(item)
-          }, (item: SearchResultItem) => item.url)
-        }
-        .width('100%')
-      } else {
-        Grid() {
-          ForEach(group.items, (item: SearchResultItem) => {
-            GridItem() { this.ResultCard(item) }
-          }, (item: SearchResultItem) => item.url)
-        }
-        .columnsTemplate('1fr 1fr 1fr')
-        .columnsGap(10)
-        .rowsGap(12)
-        .width('100%')
-      }
+      ForEach(group.items, (item: SearchResultItem) => {
+        this.ResultListCard(item)
+      }, (item: SearchResultItem) => item.url)
     }
     .width('100%')
-    .margin({ bottom: 18 })
   }
 
   @Builder
@@ -2222,25 +2305,25 @@ struct Index {
   private ShelfPage() {
     Scroll() {
       Column() {
-        Text('热门题材')
+        Text('分类')
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
           .fontColor(this.primaryText())
           .width('100%')
           .margin({ top: 12, bottom: 6 })
-        Text('这里将自动更新热门题材推荐，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
+        Text('分类和热门题材统一放在这里，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
           .fontSize(13)
           .fontColor(this.secondaryText())
           .lineHeight(20)
           .width('100%')
           .margin({ bottom: 12 })
         Column() {
-          Text('自动推荐')
+          Text('热门题材')
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.primaryText())
             .width('100%')
-          Text('后续会从规则仓库热门题材索引自动更新；当前先提供常用题材入口。')
+          Text('后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。')
             .fontSize(13)
             .fontColor(this.secondaryText())
             .lineHeight(20)
@@ -2498,9 +2581,8 @@ struct Index {
   @Builder
   private SettingsReaderPage() {
     this.SettingBackHeader('显示与阅读', '结果列表、卷轴阅读器、封面补全和历史数量集中在这里。')
-    Column() { this.SettingCard('列表样式', '搜索结果列表显示模式。', this.coverOnlyMode ? '纯封面' : '封面+名称') }.onClick(() => { this.coverOnlyMode = !this.coverOnlyMode; })
-    Column() { this.SettingCard('列表列数', '结果卡片列数。', this.resultColumns === 2 ? '2列' : '3列') }.onClick(() => { this.resultColumns = this.resultColumns === 2 ? 3 : 2; })
-    Column() { this.SettingCard('按名称归类', '关闭后按每个URL单独显示。', this.groupByName ? '开' : '关') }.onClick(() => { this.groupByName = !this.groupByName; })
+    Column() { this.SettingCard('列表样式', '搜索结果固定为列表显示。', '列表') }.onClick(() => { this.resultViewMode = 'list'; })
+    Column() { this.SettingCard('按名称归类', '搜索页不再分类，分类统一放到书架。', '已移至书架') }.onClick(() => { this.groupByName = false; })
     Column() { this.SettingCard('自动补封面', '结果没封面时访问详情页提取第一张图。', this.autoCoverEnabled ? '开' : '关') }.onClick(() => { this.autoCoverEnabled = !this.autoCoverEnabled; })
     Column() { this.SettingCard('阅读器背景', '深色适合漫画阅读，浅色适合图书影像。', this.readerDarkMode ? '深色' : '浅色') }.onClick(() => { this.readerDarkMode = !this.readerDarkMode; })
     Column() { this.SettingCard('图片适配', 'Contain完整显示，Cover填满宽度。', this.readerFitContain ? 'Contain' : 'Cover') }.onClick(() => { this.readerFitContain = !this.readerFitContain; })
