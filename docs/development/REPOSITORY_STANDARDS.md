@@ -5,21 +5,21 @@
 ## 当前分支策略
 
 - `main`：当前唯一长期主分支，保存已经测试确认的稳定代码。
+- `backup`：主分支快照分支，可通过手动 workflow 强制覆盖。
+- `backup/*`：历史回滚点，不在上面继续开发。
 - `develop`：已删除。后续如需开发分支，必须重新创建并说明用途。
 - `feature/*`：较大功能开发分支。
 - `fix/*`：问题修复分支。
-- `backup/*`：备份分支，只作为回滚点，不在上面继续开发。
 
 在没有重新建立 `develop` 前，所有修改默认落到 `main`。风险较大的修改应先从 `main` 新建 `feature/*` 或 `fix/*` 分支。
 
 ## 根目录规范
 
-根目录只允许放项目入口和构建系统必需文件，禁止随手新建临时说明、临时脚本或测试文件。
+根目录只允许放项目入口、许可证、构建系统必需文件和工具必须识别的配置，禁止随手新建临时说明、临时脚本或测试文件。
 
-允许长期存在的根目录文件：
+允许长期存在的根目录文件和目录：
 
 - `README.md`
-- `BUILDING.md`
 - `LICENSE`
 - `version.json`
 - `oh-package.json5`
@@ -31,6 +31,24 @@
 - `docs/`
 - `.github/`
 - `.gitignore`
+- `.editorconfig`
+- `.gitattributes`
+
+不再允许长期放在根目录的文档：
+
+- `BUILDING.md`
+- `CONTRIBUTING.md`
+- `COMPLIANCE.md`
+- `RELEASE_CHECKLIST.md`
+- `MAINTAINERS.md`
+- `NOTICE.md`
+- `DISCLAIMER.md`
+- `PRIVACY.md`
+- `SECURITY.md`
+- `THIRD_PARTY_NOTICES.md`
+- `COPYRIGHT`
+
+这些文档已经统一迁入 `docs/`。
 
 新增根目录文件必须先确认不能归入 `docs/`、`scripts/`、`.github/` 或 `entry/`。
 
@@ -43,11 +61,21 @@
 - `entry/src/main/resources/`：应用资源，包括图标、媒体、配置资源。
 - `scripts/`：本地构建、安装、版本号、仓库维护脚本。
 - `.github/workflows/`：GitHub Actions workflow。
-- `docs/`：所有长期文档。
+- `docs/build/`：构建说明。
+- `docs/release/`：发布检查和版本发布说明。
+- `docs/maintenance/`：维护者说明和长期维护规则。
+- `docs/compliance/`：合规、隐私、安全、免责声明、第三方来源和版权说明。
+- `docs/development/`：开发需求、问题、规范和文件放置规则。
+- `docs/architecture/`：架构说明。
+- `docs/search/`：搜索链路和规则系统说明。
 
 ## 文档规范
 
 - README 只作为项目入口，不能堆积所有细节。
+- 构建说明写入 `docs/build/BUILDING.md`。
+- 发布检查写入 `docs/release/RELEASE_CHECKLIST.md`。
+- 维护者说明写入 `docs/maintenance/MAINTAINERS.md`。
+- 合规、安全、隐私、免责声明、第三方来源和版权说明写入 `docs/compliance/`。
 - 长期需求写入 `docs/development/DEVELOPMENT_REQUIREMENTS.md`。
 - 开发问题和处理记录写入 `docs/development/DEVELOPMENT_ISSUES.md`。
 - 仓库目录和文件放置规则写入 `docs/development/REPOSITORY_STANDARDS.md` 和 `docs/development/FILE_PLACEMENT_RULES.md`。
