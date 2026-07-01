@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Idempotent UI polish script for the target development branch.
+"""Unified idempotent UI polish script.
 
-Single entry for UI fixes. Do not add one-off UI patch scripts.
+Do not add one-off UI patch scripts. Keep all UI polish here.
 
 Current goals:
 - Bottom tabs: 搜索 / 书架 / 历史 / 设置.
-- Search home uses PNG illustration light/dark assets, not the app icon.
+- Search home follows the original clean composition: illustration + title + search box only.
 - Search results are list-only; no list/grid switch on the search page.
 - Search classification/grouping is removed from search results and kept on Shelf topics.
 - Result list item layout: cover + title / author / latest chapter / update time / type + source host.
@@ -32,11 +32,10 @@ def replace_between(source: str, start: str, end: str, replacement: str) -> str:
     return source[:start_index] + replacement + source[end_index:]
 
 
-# -----------------------------------------------------------------------------
-# Model compatibility fields for richer search result list UI.
-# -----------------------------------------------------------------------------
-if 'author?: string;' not in model_text:
-    model_text = model_text.replace(
+def ensure_model_fields(source: str) -> str:
+    if 'author?: string;' in source:
+        return source
+    return source.replace(
         """  groupName?: string;
   description?: string;""",
         """  groupName?: string;
@@ -52,9 +51,9 @@ if 'author?: string;' not in model_text:
     )
 
 
-# -----------------------------------------------------------------------------
-# State defaults and settings secondary page state.
-# -----------------------------------------------------------------------------
+model_text = ensure_model_fields(model_text)
+
+# State defaults.
 text = text.replace('@State private coverOnlyMode: boolean = false;', '@State private coverOnlyMode: boolean = true;')
 text = text.replace('@State private resultColumns: number = 2;', '@State private resultColumns: number = 3;')
 text = text.replace("@State private resultViewMode: string = 'grid';", "@State private resultViewMode: string = 'list';")
@@ -63,10 +62,7 @@ if "@State private resultViewMode: string = 'list';" not in text:
 if "@State private settingsSection: string = 'menu';" not in text:
     text = text.replace("  @State private floatingReaderControls: boolean = true;\n", "  @State private floatingReaderControls: boolean = true;\n  @State private settingsSection: string = 'menu';\n")
 
-
-# -----------------------------------------------------------------------------
-# Back button behavior: settings detail -> settings menu first.
-# -----------------------------------------------------------------------------
+# Back key: settings second-level page returns to settings menu first.
 if "this.activeTab === 'settings' && this.settingsSection !== 'menu'" not in text:
     text = text.replace(
         "  onBackPress(): boolean {\n",
@@ -78,19 +74,13 @@ if "this.activeTab === 'settings' && this.settingsSection !== 'menu'" not in tex
 """
     )
 
-
-# -----------------------------------------------------------------------------
 # Search header appears only on result page.
-# -----------------------------------------------------------------------------
 text = text.replace(
     "if (this.activeTab === 'search' && this.mode !== 'reader' && this.mode !== 'rendered_reader' && this.mode !== 'chapters') {\n        this.SearchHeader()\n      }",
     "if (this.activeTab === 'search' && this.mode === 'results') {\n        this.SearchHeader()\n      }"
 )
 
-
-# -----------------------------------------------------------------------------
-# Bottom tab final structure: no standalone About tab.
-# -----------------------------------------------------------------------------
+# Bottom tab structure.
 for old_tabs in [
     """      this.TabPill('search', this.t('search'))
       this.TabPill('shelf', this.t('shelf'))
@@ -137,33 +127,68 @@ text = text.replace(
       }"""
 )
 
-
-# -----------------------------------------------------------------------------
-# Search home: use PNG illustration assets, not app icon.
-# -----------------------------------------------------------------------------
-old_icon_block = """        Image($r('app.media.icon'))
-          .width(92)
-          .height(92)
-          .margin({ bottom: 18 })"""
-new_illustration_block = """        if (this.isDarkTheme()) {
+# Original clean SearchHome composition: no shortcuts, no settings entry, no mode chips.
+search_home_block = r'''  @Builder
+  private SearchHome() {
+    Column() {
+      Blank().layoutWeight(1)
+      Column() {
+        if (this.isDarkTheme()) {
           Image($r('app.media.search_home_illustration_dark'))
-            .width(220)
-            .height(96)
+            .width(280)
+            .height(122)
             .objectFit(ImageFit.Contain)
             .margin({ bottom: 18 })
         } else {
           Image($r('app.media.search_home_illustration_light'))
-            .width(220)
-            .height(96)
+            .width(280)
+            .height(122)
             .objectFit(ImageFit.Contain)
             .margin({ bottom: 18 })
-        }"""
-text = text.replace(old_icon_block, new_illustration_block)
+        }
+        Text('漫画浏览器')
+          .fontSize(28)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
+        Text('输入漫画名称，搜索公开可访问漫画')
+          .fontSize(13)
+          .fontColor(this.secondaryText())
+          .margin({ top: 6, bottom: 22 })
+        Row() {
+          TextInput({ placeholder: this.t('searchPlaceholder'), text: this.queryText })
+            .height(52)
+            .layoutWeight(1)
+            .fontSize(15)
+            .backgroundColor(this.cardBg())
+            .borderRadius(26)
+            .padding({ left: 18, right: 18 })
+            .onChange((value: string) => { this.queryText = value; })
+            .onSubmit(() => { this.startSearch(); })
+          Button(this.t('search'))
+            .height(52)
+            .fontSize(15)
+            .fontColor('#FFFFFF')
+            .backgroundColor(this.accent())
+            .borderRadius(26)
+            .margin({ left: 10 })
+            .enabled(!this.isLoading)
+            .onClick(() => { this.startSearch(); })
+        }
+        .width('100%')
+        .padding({ left: 22, right: 22 })
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Center)
+      Blank().layoutWeight(1)
+    }
+    .layoutWeight(1)
+    .backgroundColor(this.appBg())
+  }
 
+'''
+text = replace_between(text, "  @Builder\n  private SearchHome() {", "  @Builder\n  private SearchChip(keyword: string) {", search_home_block)
 
-# -----------------------------------------------------------------------------
-# Search results: list-only, no group/category in search page.
-# -----------------------------------------------------------------------------
+# Result helpers and list-only cards.
 result_block = r'''  private cleanResultTitle(raw: string): string {
     let title = raw.trim();
     while (title.indexOf('  ') >= 0) {
@@ -175,95 +200,39 @@ result_block = r'''  private cleanResultTitle(raw: string): string {
     title = this.cleanResultTitleBySeparator(title, '_');
     title = this.cleanResultTitleBySeparator(title, '，');
     title = this.cleanResultTitleBySeparator(title, ',');
-    if (title.length > 1 && title.length % 2 === 0) {
-      let halfLength = title.length / 2;
-      let left = title.substring(0, halfLength).trim();
-      let right = title.substring(halfLength).trim();
-      if (left.length > 0 && left === right) {
-        title = left;
-      }
-    }
-    let words = title.split(' ');
-    if (words.length > 1) {
-      let compactWords: string[] = [];
-      for (let index = 0; index < words.length; index++) {
-        let word = words[index].trim();
-        if (word.length === 0) {
-          continue;
-        }
-        if (compactWords.length === 0 || compactWords[compactWords.length - 1] !== word) {
-          compactWords.push(word);
-        }
-      }
-      title = compactWords.join(' ');
-    }
     return title;
   }
 
   private cleanResultTitleBySeparator(raw: string, separator: string): string {
-    if (raw.indexOf(separator) < 0) {
-      return raw;
-    }
+    if (raw.indexOf(separator) < 0) return raw;
     let parts = raw.split(separator);
     let compactParts: string[] = [];
     for (let index = 0; index < parts.length; index++) {
       let part = parts[index].trim();
-      if (part.length === 0) {
-        continue;
-      }
-      if (compactParts.length === 0 || compactParts[compactParts.length - 1] !== part) {
+      if (part.length > 0 && (compactParts.length === 0 || compactParts[compactParts.length - 1] !== part)) {
         compactParts.push(part);
       }
     }
     return compactParts.join(separator);
   }
 
-  private resultTitle(item: SearchResultItem): string {
-    return this.cleanResultTitle(item.title);
-  }
-
-  private resultAuthor(item: SearchResultItem): string {
-    if (item.author !== undefined && item.author.length > 0) {
-      return item.author;
-    }
-    return '未知作者';
-  }
-
+  private resultTitle(item: SearchResultItem): string { return this.cleanResultTitle(item.title); }
+  private resultAuthor(item: SearchResultItem): string { return item.author !== undefined && item.author.length > 0 ? item.author : '未知作者'; }
   private resultLatestChapter(item: SearchResultItem): string {
-    if (item.latestChapter !== undefined && item.latestChapter.length > 0) {
-      return item.latestChapter;
-    }
-    if (item.isChapter) {
-      return this.resultTitle(item);
-    }
+    if (item.latestChapter !== undefined && item.latestChapter.length > 0) return item.latestChapter;
+    if (item.isChapter) return this.resultTitle(item);
     return '最新章节待获取';
   }
-
-  private resultUpdateTime(item: SearchResultItem): string {
-    if (item.updateTime !== undefined && item.updateTime.length > 0) {
-      return item.updateTime;
-    }
-    return '更新时间待获取';
-  }
-
+  private resultUpdateTime(item: SearchResultItem): string { return item.updateTime !== undefined && item.updateTime.length > 0 ? item.updateTime : '更新时间待获取'; }
   private resultSourceHost(item: SearchResultItem): string {
     let host = item.url;
     let protocolIndex = host.indexOf('://');
-    if (protocolIndex >= 0) {
-      host = host.substring(protocolIndex + 3);
-    }
+    if (protocolIndex >= 0) host = host.substring(protocolIndex + 3);
     let slashIndex = host.indexOf('/');
-    if (slashIndex >= 0) {
-      host = host.substring(0, slashIndex);
-    }
+    if (slashIndex >= 0) host = host.substring(0, slashIndex);
     let questionIndex = host.indexOf('?');
-    if (questionIndex >= 0) {
-      host = host.substring(0, questionIndex);
-    }
-    if (host.length === 0) {
-      return item.sourceName;
-    }
-    return host;
+    if (questionIndex >= 0) host = host.substring(0, questionIndex);
+    return host.length > 0 ? host : item.sourceName;
   }
 
   @Builder
@@ -274,63 +243,21 @@ result_block = r'''  private cleanResultTitle(raw: string): string {
   @Builder
   private ResultListCard(item: SearchResultItem) {
     Row() {
+      Column() { this.CoverBox(item, 104) }
+        .width(76)
+        .height(104)
+        .clip(true)
+        .borderRadius(12)
       Column() {
-        this.CoverBox(item, 104)
-      }
-      .width(76)
-      .height(104)
-      .clip(true)
-      .borderRadius(12)
-
-      Column() {
-        Text(this.resultTitle(item))
-          .fontSize(16)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.primaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-        Text('作者：' + this.resultAuthor(item))
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 5 })
-          .width('100%')
-        Text('最新章节：' + this.resultLatestChapter(item))
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 4 })
-          .width('100%')
-        Text('更新时间：' + this.resultUpdateTime(item))
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: 4 })
-          .width('100%')
+        Text(this.resultTitle(item)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+        Text('作者：' + this.resultAuthor(item)).fontSize(12).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 5 }).width('100%')
+        Text('最新章节：' + this.resultLatestChapter(item)).fontSize(12).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 4 }).width('100%')
+        Text('更新时间：' + this.resultUpdateTime(item)).fontSize(12).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 4 }).width('100%')
         Row() {
-          Text('漫画')
-            .fontSize(11)
-            .fontColor('#FFFFFF')
-            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-            .backgroundColor(this.accent())
-            .borderRadius(10)
-          Text(this.resultSourceHost(item))
-            .fontSize(11)
-            .fontColor(this.secondaryText())
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
-            .margin({ left: 8 })
-        }
-        .width('100%')
-        .margin({ top: 7 })
-      }
-      .layoutWeight(1)
-      .margin({ left: 12 })
+          Text('漫画').fontSize(11).fontColor('#FFFFFF').padding({ left: 8, right: 8, top: 3, bottom: 3 }).backgroundColor(this.accent()).borderRadius(10)
+          Text(this.resultSourceHost(item)).fontSize(11).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 8 })
+        }.width('100%').margin({ top: 7 })
+      }.layoutWeight(1).margin({ left: 12 })
     }
     .width('100%')
     .height(124)
@@ -344,11 +271,8 @@ result_block = r'''  private cleanResultTitle(raw: string): string {
   @Builder
   private ResultGroupView(group: ResultGroup) {
     Column() {
-      ForEach(group.items, (item: SearchResultItem) => {
-        this.ResultListCard(item)
-      }, (item: SearchResultItem) => item.url)
-    }
-    .width('100%')
+      ForEach(group.items, (item: SearchResultItem) => { this.ResultListCard(item) }, (item: SearchResultItem) => item.url)
+    }.width('100%')
   }
 
 '''
@@ -370,30 +294,16 @@ results_page_block = r'''  @Builder
               .fontSize(12)
               .fontColor(this.secondaryText())
               .margin({ top: 3 })
-          }
-          .layoutWeight(1)
-        }
-        .width('100%')
-        .margin({ bottom: 8 })
-
+          }.layoutWeight(1)
+        }.width('100%').margin({ bottom: 8 })
         this.StatusCard()
-
         if (this.results.length === 0) {
           Text(this.isLoading ? '正在搜索公开来源...' : '没有找到结果，换个关键词试试。')
-            .fontSize(14)
-            .fontColor(this.secondaryText())
-            .width('100%')
-            .padding(12)
-            .backgroundColor(this.cardBg())
-            .borderRadius(10)
+            .fontSize(14).fontColor(this.secondaryText()).width('100%').padding(12).backgroundColor(this.cardBg()).borderRadius(10)
         } else {
-          ForEach(this.results, (item: SearchResultItem) => {
-            this.ResultListCard(item)
-          }, (item: SearchResultItem) => item.url)
+          ForEach(this.results, (item: SearchResultItem) => { this.ResultListCard(item) }, (item: SearchResultItem) => item.url)
         }
-      }
-      .width('100%')
-      .padding(14)
+      }.width('100%').padding(14)
     }
     .layoutWeight(1)
     .backgroundColor(this.appBg())
@@ -402,663 +312,40 @@ results_page_block = r'''  @Builder
 '''
 text = replace_between(text, "  @Builder\n  private ResultsPage() {", "  @Builder\n  private ChaptersPage() {", results_page_block)
 
+# Keep shelf wording aligned with classification responsibility.
+text = text.replace('热门题材', '分类')
+text = text.replace('这里将自动更新热门题材推荐，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。', '分类和热门题材统一放在这里，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
+text = text.replace('后续会从规则仓库热门题材索引自动更新；当前先提供常用题材入口。', '后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。')
+text = text.replace('后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。', '后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。')
 
-# -----------------------------------------------------------------------------
-# History and Shelf pages. Shelf owns classification/hot topics.
-# -----------------------------------------------------------------------------
-history_page = r'''  @Builder
-  private HistoryPage() {
-    Scroll() {
-      Column() {
-        Text('历史')
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.primaryText())
-          .width('100%')
-          .margin({ top: 12, bottom: 6 })
-        Text('观看历史、收藏记录和下载任务统一放在这里。')
-          .fontSize(13)
-          .fontColor(this.secondaryText())
-          .lineHeight(20)
-          .width('100%')
-          .margin({ bottom: 12 })
-        Row() {
-          Text('历史 ' + this.history.length + ' 条 · 收藏 ' + this.bookshelf.length + ' 本')
-            .fontSize(13)
-            .fontColor(this.secondaryText())
-            .layoutWeight(1)
-          Button('清历史')
-            .height(32)
-            .fontSize(12)
-            .onClick(() => { this.history = []; this.statusText = '阅读历史已清空。'; })
-          Button('清收藏')
-            .height(32)
-            .fontSize(12)
-            .margin({ left: 6 })
-            .onClick(() => { this.bookshelf = []; this.statusText = '收藏记录已清空。'; })
-        }
-        .width('100%')
-        .padding(12)
-        .backgroundColor(this.cardBg())
-        .borderRadius(16)
-        .margin({ bottom: 12 })
-        this.SettingSectionTitle('历史记录', '最近打开的章节和卷轴阅读记录。')
-        this.HistoryList(true)
-        this.SettingSectionTitle('收藏记录', '从结果、章节或阅读页加入书架的内容。')
-        if (this.bookshelf.length === 0) {
-          Text('暂无收藏。阅读页或结果卡片加入书架后会显示在这里。')
-            .fontSize(14)
-            .fontColor(this.secondaryText())
-            .width('100%')
-            .padding(14)
-            .backgroundColor(this.cardBg())
-            .borderRadius(16)
-            .margin({ bottom: 12 })
-        } else {
-          ForEach(this.bookshelf, (item: BookshelfItem) => {
-            Column() {
-              Text(item.title)
-                .fontSize(15)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(this.primaryText())
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .width('100%')
-              Text((item.lastChapterTitle.length > 0 ? item.lastChapterTitle : '未阅读') + ' · ' + item.sourceName)
-                .fontSize(12)
-                .fontColor(this.secondaryText())
-                .margin({ top: 5 })
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .width('100%')
-              Row() {
-                Button('打开')
-                  .height(30)
-                  .fontSize(12)
-                  .layoutWeight(1)
-                  .onClick(() => this.openShelf(item))
-                Button('移除')
-                  .height(30)
-                  .fontSize(12)
-                  .layoutWeight(1)
-                  .margin({ left: 8 })
-                  .onClick(() => this.removeShelf(item.url))
-              }
-              .width('100%')
-              .margin({ top: 10 })
-            }
-            .width('100%')
-            .padding(14)
-            .backgroundColor(this.cardBg())
-            .borderRadius(16)
-            .margin({ bottom: 8 })
-            .onClick(() => this.openShelf(item))
-          }, (item: BookshelfItem) => item.url)
-        }
-        this.SettingSectionTitle('下载', '下载能力暂时保留，后续接入离线章节。')
-        Text('暂无下载任务。后续下载任务、缓存章节和离线阅读入口会集中在这里。')
-          .fontSize(14)
-          .fontColor(this.secondaryText())
-          .width('100%')
-          .padding(14)
-          .backgroundColor(this.cardBg())
-          .borderRadius(16)
-          .margin({ bottom: 18 })
-      }
-      .width('100%')
-      .padding(14)
-    }
-    .layoutWeight(1)
-    .backgroundColor(this.appBg())
-  }
+# Settings/About minimal enforcement. If compact settings already exists, keep it.
+if "this.SettingMenuCard('关于'" not in text and "private SettingsMenuPage()" in text:
+    text = text.replace(
+        "    this.SettingMenuCard('高级规则', '查看内置规则源，粘贴自定义 JSON 规则。', this.rules.length + ' 个源', 'advanced')",
+        "    this.SettingMenuCard('高级规则', '查看内置规则源，粘贴自定义 JSON 规则。', this.rules.length + ' 个源', 'advanced')\n    this.SettingMenuCard('关于', '版本、构建信息、界面风格和项目说明。', APP_VERSION, 'about')"
+    )
 
-'''
-if "  @Builder\n  private HistoryPage() {" in text:
-    text = replace_between(text, "  @Builder\n  private HistoryPage() {", "  @Builder\n  private ShelfPage() {", history_page)
-
-shelf_page = r'''  @Builder
-  private ShelfPage() {
-    Scroll() {
-      Column() {
-        Text('分类')
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.primaryText())
-          .width('100%')
-          .margin({ top: 12, bottom: 6 })
-        Text('分类和热门题材统一放在这里，点击题材后进入搜索。收藏、历史和下载已统一放到历史页。')
-          .fontSize(13)
-          .fontColor(this.secondaryText())
-          .lineHeight(20)
-          .width('100%')
-          .margin({ bottom: 12 })
-        Column() {
-          Text('热门题材')
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.primaryText())
-            .width('100%')
-          Text('后续会从规则仓库热门题材索引自动更新；当前先提供常用分类入口。')
-            .fontSize(13)
-            .fontColor(this.secondaryText())
-            .lineHeight(20)
-            .width('100%')
-            .margin({ top: 6 })
-        }
-        .width('100%')
-        .padding(16)
-        .backgroundColor(this.cardBg())
-        .borderRadius(18)
-        .margin({ bottom: 12 })
-        Grid() {
-          ForEach(['玄幻', '修真', '恋爱', '校园', '宫斗', '都市', '热血', '冒险', '悬疑', '科幻', '搞笑', '治愈'], (topic: string) => {
-            GridItem() {
-              Column() {
-                Text(topic)
-                  .fontSize(16)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(this.accent())
-                Text('点击搜索')
-                  .fontSize(11)
-                  .fontColor(this.secondaryText())
-                  .margin({ top: 5 })
-              }
-              .width('100%')
-              .height(82)
-              .justifyContent(FlexAlign.Center)
-              .backgroundColor(this.cardBg())
-              .borderRadius(18)
-              .onClick(() => { this.activeTab = 'search'; this.queryText = topic; this.startSearch(); })
-            }
-          }, (topic: string) => topic)
-        }
-        .columnsTemplate('1fr 1fr 1fr')
-        .columnsGap(10)
-        .rowsGap(10)
-        .width('100%')
-        Button('刷新热门题材')
-          .height(42)
-          .fontSize(14)
-          .fontColor('#FFFFFF')
-          .backgroundColor(this.accent())
-          .borderRadius(21)
-          .margin({ top: 16, bottom: 18 })
-          .onClick(() => { this.statusText = '热门题材后续将从规则仓库自动更新。'; })
-      }
-      .width('100%')
-      .padding(14)
-    }
-    .layoutWeight(1)
-    .backgroundColor(this.appBg())
-  }
-
-'''
-text = replace_between(text, "  @Builder\n  private ShelfPage() {", "  @Builder\n  private SettingCard(title: string, desc: string, value: string) {", shelf_page)
-
-
-# -----------------------------------------------------------------------------
-# Compact settings menu + About in settings.
-# -----------------------------------------------------------------------------
-settings_block = r'''  @Builder
-  private SettingCard(title: string, desc: string, value: string) {
-    Column() {
-      Row() {
-        Column() {
-          Text(title).fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.primaryText()).width('100%')
-          Text(desc).fontSize(12).fontColor(this.secondaryText()).lineHeight(18).margin({ top: 4 }).width('100%')
-        }.layoutWeight(1)
-        Text(value)
-          .fontSize(12)
-          .fontColor((value === '关' || value === '停用') ? this.secondaryText() : '#FFFFFF')
-          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-          .backgroundColor((value === '关' || value === '停用') ? (this.isDarkTheme() ? '#2A333D' : '#EEF1F4') : this.accent())
-          .borderRadius(14)
-      }.width('100%')
-    }
-    .width('100%')
-    .padding(12)
-    .backgroundColor(this.cardBg())
-    .borderRadius(16)
-    .margin({ bottom: 8 })
-  }
-
-  @Builder
-  private SettingMenuCard(title: string, desc: string, value: string, section: string) {
-    Column() {
-      Row() {
-        Column() {
-          Text(title)
-            .fontSize(16)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.primaryText())
-            .width('100%')
-          Text(desc)
-            .fontSize(12)
-            .fontColor(this.secondaryText())
-            .lineHeight(18)
-            .margin({ top: 5 })
-            .width('100%')
-        }
-        .layoutWeight(1)
-        Text(value)
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ left: 10, right: 8 })
-        Text('›')
-          .fontSize(24)
-          .fontColor(this.secondaryText())
-      }
-      .width('100%')
-    }
-    .width('100%')
-    .padding(14)
-    .backgroundColor(this.cardBg())
-    .borderRadius(18)
-    .margin({ bottom: 10 })
-    .onClick(() => { this.settingsSection = section; })
-  }
-
-  @Builder
-  private SettingBackHeader(title: string, desc: string) {
-    Column() {
-      Row() {
-        Button('设置')
-          .height(34)
-          .fontSize(12)
-          .onClick(() => { this.settingsSection = 'menu'; })
-        Column() {
-          Text(title)
-            .fontSize(21)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.primaryText())
-            .width('100%')
-          Text(desc)
-            .fontSize(12)
-            .fontColor(this.secondaryText())
-            .lineHeight(18)
-            .margin({ top: 3 })
-            .width('100%')
-        }
-        .layoutWeight(1)
-        .margin({ left: 10 })
-      }
-      .width('100%')
-      .margin({ top: 12, bottom: 12 })
-    }
-    .width('100%')
-  }
-
-  @Builder
-  private SettingSectionTitle(title: string, desc: string) {
-    Column() {
-      Text(title)
-        .fontSize(18)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(this.primaryText())
-        .width('100%')
-      if (desc.length > 0) {
-        Text(desc)
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .lineHeight(18)
-          .width('100%')
-          .margin({ top: 4 })
-      }
-    }
-    .width('100%')
-    .padding({ left: 2, right: 2, top: 12, bottom: 8 })
-  }
-
-  @Builder
-  private SettingsMenuPage() {
-    Text('设置')
-      .fontSize(22)
-      .fontWeight(FontWeight.Bold)
-      .width('100%')
-      .margin({ top: 12, bottom: 6 })
-    Text('设置已改为一级分类入口，点击分类后进入二级菜单，避免主设置页过长。')
-      .fontSize(13)
-      .fontColor(this.secondaryText())
-      .lineHeight(20)
-      .width('100%')
-      .margin({ bottom: 12 })
-    this.StatusCard()
-    this.SettingMenuCard('基础设置', '主题、语言、阅读页全屏与悬浮控制。', this.themeLabel(), 'basic')
-    this.SettingMenuCard('搜索设置', '搜索模式、搜索引擎、语言倾向和额外关键词。', this.searchMode + ' · ' + this.selectedEngine().name, 'search')
-    this.SettingMenuCard('公开源开关', '公开馆藏、HTML规则源、官方试读和搜索发现过滤。', this.enableSearchEngines ? '已启用' : '已关闭', 'sources')
-    this.SettingMenuCard('显示与阅读', '结果展示、封面补全、卷轴阅读和历史保留。', this.resultViewMode === 'grid' ? '网格' : '列表', 'reader')
-    this.SettingMenuCard('搜索引擎清单', '查看搜索引擎，选择当前引擎或启用/停用。', this.selectedEngine().name, 'engines')
-    this.SettingMenuCard('远程规则', '从 GitHub Raw 拉取规则仓库生成的公开源规则。', this.remoteRuleCount + ' 条', 'remote')
-    this.SettingMenuCard('高级规则', '查看内置规则源，粘贴自定义 JSON 规则。', this.rules.length + ' 个源', 'advanced')
-    this.SettingMenuCard('关于', '版本、构建信息、界面风格和项目说明。', APP_VERSION, 'about')
-  }
-
-  @Builder
-  private SettingsBasicPage() {
-    this.SettingBackHeader('基础设置', '只保留常用基础项，语言入口暂时保留在二级菜单。')
-    Column() { this.SettingCard(this.t('theme'), '明亮 / 暗黑双主题，阅读页会自动跟随。', this.themeLabel()) }.onClick(() => this.toggleTheme())
-    Column() { this.SettingCard(this.t('language'), '当前支持中文 / English，后续可扩展更多语言。', this.languageLabel()) }.onClick(() => this.toggleLanguage())
-    Column() { this.SettingCard(this.t('fullReader'), '阅读页默认全屏，顶部和底部使用悬浮独立按钮。', this.fullscreenReader ? '开' : '关') }.onClick(() => { this.fullscreenReader = !this.fullscreenReader; })
-    Column() { this.SettingCard(this.t('floatingControls'), '隐藏传统标题栏，使用胶囊悬浮控制。', this.floatingReaderControls ? '开' : '关') }.onClick(() => { this.floatingReaderControls = !this.floatingReaderControls; })
-  }
-
-  @Builder
-  private SettingsSearchPage() {
-    this.SettingBackHeader('搜索设置', '搜索相关选项集中在这里，主设置页只显示一个入口。')
-    Column() { this.SettingCard('搜索模式', '混合=搜索引擎+公开API+规则源；仅搜索引擎/仅公开API用于排错。', this.searchMode) }
-      .onClick(() => this.nextSearchMode())
-    Column() { this.SettingCard('当前搜索引擎', this.selectedEngine().description, this.selectedEngine().name) }
-      .onClick(() => this.cycleEngine())
-    Column() { this.SettingCard('全引擎搜索', '开启后同时调用已启用且已配置的主流搜索引擎。', this.searchAllEngines ? '开' : '关') }
-      .onClick(() => { this.searchAllEngines = !this.searchAllEngines; })
-    Column() { this.SettingCard('搜索语言倾向', '影响追加关键词：自动/中文/英文/日文/韩文。', this.languageMode) }
-      .onClick(() => this.nextLanguageMode())
-    TextInput({ placeholder: '额外搜索词，例如 comic manga 漫画 在线 阅读', text: this.extraSearchTerms })
-      .height(42)
-      .fontSize(13)
-      .backgroundColor(this.cardBg())
-      .borderRadius(10)
-      .padding({ left: 10, right: 10 })
-      .margin({ bottom: 8 })
-      .onChange((value: string) => { this.extraSearchTerms = value; })
-    TextInput({ placeholder: '站点提示：例如 site:example.com 或 public domain comic', text: this.siteHint })
-      .height(42)
-      .fontSize(13)
-      .backgroundColor(this.cardBg())
-      .borderRadius(10)
-      .padding({ left: 10, right: 10 })
-      .margin({ bottom: 8 })
-      .onChange((value: string) => { this.siteHint = value; })
-    this.SettingSectionTitle('API Key', '普通用户可以不填；需要 Brave / Google 可在这里配置。')
-    TextInput({ placeholder: 'Brave Search API Key（可选）', text: this.braveApiKey })
-      .height(42).fontSize(13).backgroundColor(this.cardBg()).borderRadius(10).padding({ left: 10, right: 10 }).margin({ bottom: 8 })
-      .onChange((value: string) => { this.braveApiKey = value; })
-    TextInput({ placeholder: 'Google Programmable Search API Key（可选）', text: this.googleApiKey })
-      .height(42).fontSize(13).backgroundColor(this.cardBg()).borderRadius(10).padding({ left: 10, right: 10 }).margin({ bottom: 8 })
-      .onChange((value: string) => { this.googleApiKey = value; })
-    TextInput({ placeholder: 'Google CX / Search Engine ID（可选）', text: this.googleCx })
-      .height(42).fontSize(13).backgroundColor(this.cardBg()).borderRadius(10).padding({ left: 10, right: 10 }).margin({ bottom: 14 })
-      .onChange((value: string) => { this.googleCx = value; })
-  }
-
-  @Builder
-  private SettingsSourcesPage() {
-    this.SettingBackHeader('公开源开关', '公开来源、官方试读、搜索发现和过滤模式集中在这里。')
-    Column() { this.SettingCard('搜索引擎总开关', '关闭后只用公开API/规则源。', this.enableSearchEngines ? '开' : '关') }.onClick(() => { this.enableSearchEngines = !this.enableSearchEngines; })
-    Column() { this.SettingCard('Internet Archive', '公开馆藏，IIIF/metadata卷轴。', this.enableInternetArchive ? '开' : '关') }.onClick(() => { this.enableInternetArchive = !this.enableInternetArchive; })
-    Column() { this.SettingCard('Open Library', '公开书目，带IA馆藏时转卷轴。', this.enableOpenLibrary ? '开' : '关') }.onClick(() => { this.enableOpenLibrary = !this.enableOpenLibrary; })
-    Column() { this.SettingCard('Library of Congress', '公开影像/图书结果。', this.enableLibraryOfCongress ? '开' : '关') }.onClick(() => { this.enableLibraryOfCongress = !this.enableLibraryOfCongress; })
-    Column() { this.SettingCard('Wikimedia Commons', '公开图片资源。', this.enableWikimedia ? '开' : '关') }.onClick(() => { this.enableWikimedia = !this.enableWikimedia; })
-    Column() { this.SettingCard('Pepper&Carrot', '公开网页漫画演示目录。', this.enablePepper ? '开' : '关') }.onClick(() => { this.enablePepper = !this.enablePepper; })
-    Column() { this.SettingCard('HTML规则源', '开启后使用下方自定义公开源规则。', this.enableHtmlRules ? '开' : '关') }.onClick(() => { this.enableHtmlRules = !this.enableHtmlRules; })
-    Column() { this.SettingCard('来源过滤模式', '控制显示官方/公共馆藏、公开可访问或搜索发现全部。', this.sourceFilterMode) }.onClick(() => this.nextSourceFilterMode())
-    Column() { this.SettingCard('未核验公开源', '开启后包含搜索发现的公开可访问页。', this.includeUnverifiedPublicSources ? '开' : '关') }.onClick(() => { this.includeUnverifiedPublicSources = !this.includeUnverifiedPublicSources; })
-    Column() { this.SettingCard('官方公开/试读源', '开启后包含腾讯动漫、WEBTOON、起点漫画等官方公开目录或试读页面。', this.includeOfficialPreviewSources ? '开' : '关') }.onClick(() => { this.includeOfficialPreviewSources = !this.includeOfficialPreviewSources; })
-    Column() { this.SettingCard('搜索引擎发现页', '把搜索引擎发现的漫画页面纳入结果并按域名自动套用解析规则。', this.includeSearchEngineDiscovered ? '开' : '关') }.onClick(() => { this.includeSearchEngineDiscovered = !this.includeSearchEngineDiscovered; })
-    Column() { this.SettingCard('排除登录/付费结果', '自动过滤 VIP、Premium、商城、百科、视频、社区等非完全公开阅读结果。', this.excludeLoginPayResults ? '开' : '关') }.onClick(() => { this.excludeLoginPayResults = !this.excludeLoginPayResults; })
-  }
-
-  @Builder
-  private SettingsReaderPage() {
-    this.SettingBackHeader('显示与阅读', '结果列表、卷轴阅读器、封面补全和历史数量集中在这里。')
-    Column() { this.SettingCard('列表样式', '搜索结果固定为列表显示。', '列表') }.onClick(() => { this.resultViewMode = 'list'; })
-    Column() { this.SettingCard('按名称归类', '搜索页不再分类，分类统一放到书架。', '已移至书架') }.onClick(() => { this.groupByName = false; })
-    Column() { this.SettingCard('自动补封面', '结果没封面时访问详情页提取第一张图。', this.autoCoverEnabled ? '开' : '关') }.onClick(() => { this.autoCoverEnabled = !this.autoCoverEnabled; })
-    Column() { this.SettingCard('阅读器背景', '深色适合漫画阅读，浅色适合图书影像。', this.readerDarkMode ? '深色' : '浅色') }.onClick(() => { this.readerDarkMode = !this.readerDarkMode; })
-    Column() { this.SettingCard('图片适配', 'Contain完整显示，Cover填满宽度。', this.readerFitContain ? 'Contain' : 'Cover') }.onClick(() => { this.readerFitContain = !this.readerFitContain; })
-    Column() { this.SettingCard('显示页码', '控制卷轴中每张图上方编号。', this.showImageIndex ? '开' : '关') }.onClick(() => { this.showImageIndex = !this.showImageIndex; })
-    Column() { this.SettingCard('图片去重', '章节多页追踪时去掉重复图片URL。', this.dedupeImages ? '开' : '关') }.onClick(() => { this.dedupeImages = !this.dedupeImages; })
-    Column() { this.SettingCard('渲染卷轴兜底', '公开站点若静态HTML拿不到图片，使用无地址栏Web渲染并隐藏导航。', this.enableRenderedWebFallback ? '开' : '关') }.onClick(() => { this.enableRenderedWebFallback = !this.enableRenderedWebFallback; })
-    Column() { this.SettingCard('封面补全数量', '控制搜索后自动补封面数量，越大越慢。', this.maxCoverEnrich + '个') }.onClick(() => { this.maxCoverEnrich = this.maxCoverEnrich === 12 ? 30 : (this.maxCoverEnrich === 30 ? 60 : 12); })
-    Column() { this.SettingCard('最大结果数', '控制每次搜索合并后的最大条目数。', this.maxSearchResults + '个') }.onClick(() => { this.maxSearchResults = this.maxSearchResults === 40 ? 80 : (this.maxSearchResults === 80 ? 150 : 40); })
-    Column() { this.SettingCard('章节追踪页数', '控制下一页追踪上限，避免死循环。', this.maxReaderPagesSetting + '页') }.onClick(() => { this.maxReaderPagesSetting = this.maxReaderPagesSetting === 4 ? 8 : (this.maxReaderPagesSetting === 8 ? 16 : 4); })
-    Column() { this.SettingCard('历史保留数', '控制阅读历史最大数量。', this.keepHistoryCount + '条') }.onClick(() => { this.keepHistoryCount = this.keepHistoryCount === 20 ? 40 : (this.keepHistoryCount === 40 ? 80 : 20); this.history = this.history.slice(0, this.keepHistoryCount); })
-  }
-
-  @Builder
-  private SettingsEnginesPage() {
-    this.SettingBackHeader('搜索引擎清单', '点击卡片切换当前搜索引擎，按钮用于启用或停用。')
-    ForEach(this.searchEngines, (engine: SearchEngineConfig, index: number) => {
-      Column() {
-        Row() {
-          Text(index === this.selectedEngineIndex ? '当前' : (engine.enabled ? '启用' : '停用'))
-            .fontSize(12).fontColor('#FFFFFF').textAlign(TextAlign.Center).width(42).height(24)
-            .backgroundColor(index === this.selectedEngineIndex ? '#34C759' : (engine.enabled ? '#43A047' : '#777777')).borderRadius(12)
-          Column() {
-            Text(engine.name).fontSize(15).fontWeight(FontWeight.Medium).width('100%')
-            Text(engine.description).fontSize(12).fontColor(this.secondaryText()).lineHeight(17).margin({ top: 4 }).width('100%')
-          }.layoutWeight(1).margin({ left: 10 })
-          Button(engine.enabled ? '停用' : '启用')
-            .height(30)
-            .fontSize(11)
-            .margin({ left: 8 })
-            .onClick(() => this.toggleEngineEnabled(index))
-        }.width('100%')
-      }
-      .width('100%')
-      .padding(12)
-      .backgroundColor(this.cardBg())
-      .borderRadius(10)
-      .margin({ bottom: 8 })
-      .onClick(() => { this.selectedEngineIndex = index; this.statusText = '当前搜索引擎：' + engine.name; })
-    }, (engine: SearchEngineConfig) => engine.id)
-  }
-
-  @Builder
-  private SettingsRemotePage() {
-    this.SettingBackHeader('远程规则', '从可信 GitHub index.json 拉取公开源规则，失败时保留内置规则。')
-    TextInput({ placeholder: '远程规则 index.json Raw 地址', text: this.remoteRuleUrl })
-      .height(44)
-      .fontSize(12)
-      .width('100%')
-      .backgroundColor(this.cardBg())
-      .borderRadius(10)
-      .padding({ left: 10, right: 10 })
-      .onChange((value: string) => { this.remoteRuleUrl = value; })
-    Row() {
-      Button('恢复默认地址')
-        .height(40)
-        .layoutWeight(1)
-        .fontSize(14)
-        .onClick(() => { this.remoteRuleUrl = DEFAULT_REMOTE_RULE_URL; this.remoteRuleStatus = '已恢复默认 GitHub 规则仓库地址'; })
-      Button('从GitHub更新规则')
-        .height(40)
-        .layoutWeight(1)
-        .fontSize(14)
-        .margin({ left: 10 })
-        .onClick(() => this.updateRemoteRules())
-    }
-    .width('100%')
-    .margin({ top: 8 })
-    Text(this.remoteRuleStatus + ' · 当前远程规则 ' + this.remoteRuleCount + ' 条')
-      .fontSize(12)
-      .fontColor(this.secondaryText())
-      .lineHeight(18)
-      .width('100%')
-      .margin({ top: 6, bottom: 8 })
-  }
-
-  @Builder
-  private SettingsAdvancedPage() {
-    this.SettingBackHeader('高级规则', '展示当前公开 HTML 源，也可以粘贴自定义 JSON 规则。')
-    ForEach(this.rules, (rule: ComicSourceRule, index: number) => {
-      Column() {
-        Row() {
-          Text(rule.searchUrl.length > 0 ? '搜' : 'URL')
-            .fontSize(12).fontColor('#FFFFFF').textAlign(TextAlign.Center).width(38).height(24)
-            .backgroundColor(rule.searchUrl.length > 0 ? '#34C759' : '#777777').borderRadius(12)
-          Column() {
-            Text(rule.name).fontSize(16).fontWeight(FontWeight.Medium).width('100%')
-            Text(rule.description).fontSize(12).fontColor(this.secondaryText()).lineHeight(17).margin({ top: 4 }).width('100%')
-          }.layoutWeight(1).margin({ left: 10 })
-        }
-      }
-      .width('100%')
-      .padding(12)
-      .backgroundColor(this.cardBg())
-      .borderRadius(10)
-      .margin({ bottom: 8 })
-      .onClick(() => { this.selectedSourceIndex = index; this.statusText = '已选择源：' + rule.name; })
-    }, (rule: ComicSourceRule) => rule.id)
-
-    TextArea({ placeholder: '粘贴源规则JSON', text: this.customRuleText })
-      .height(240)
-      .fontSize(12)
-      .width('100%')
-      .backgroundColor(this.cardBg())
-      .borderRadius(10)
-      .onChange((value: string) => { this.customRuleText = value; })
-    Row() {
-      Button('恢复模板')
-        .height(40)
-        .layoutWeight(1)
-        .fontSize(14)
-        .onClick(() => { this.customRuleText = RULE_TEMPLATE; })
-      Button('添加规则')
-        .height(40)
-        .layoutWeight(1)
-        .fontSize(14)
-        .margin({ left: 10 })
-        .onClick(() => this.addCustomRule())
-    }
-    .width('100%')
-    .margin({ top: 10, bottom: 20 })
-  }
-
-  @Builder
-  private SettingsAboutPage() {
-    this.SettingBackHeader('关于', '版本、构建信息、界面风格和项目说明。')
-    Text(this.appLanguage === 'en' ? 'Public comic search and scroll reading for HarmonyOS / OpenHarmony.' : '漫画浏览器 HarmonyOS / OpenHarmony 公开漫画搜索与卷轴阅读项目。')
-      .fontSize(13)
-      .fontColor(this.secondaryText())
-      .lineHeight(20)
-      .width('100%')
-      .padding(14)
-      .backgroundColor(this.cardBg())
-      .borderRadius(18)
-      .margin({ bottom: 12 })
-
-    Column() {
-      Text(this.appLanguage === 'en' ? 'Build Info' : '构建信息')
-        .fontSize(18)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.primaryText())
-        .width('100%')
-        .margin({ bottom: 8 })
-      this.AboutInfoRow(this.appLanguage === 'en' ? 'Version' : '版本', APP_VERSION)
-      this.AboutInfoRow(this.appLanguage === 'en' ? 'Version Rule' : '版本结构', this.appLanguage === 'en' ? 'major.full.incremental' : '主版本.全量构建号.增量构建号')
-      this.AboutInfoRow('versionCode', APP_VERSION_CODE + '')
-      this.AboutInfoRow(this.appLanguage === 'en' ? 'Build Type' : '构建类型', APP_BUILD_TYPE)
-      this.AboutInfoRow(this.appLanguage === 'en' ? 'Build Target' : '构建目标', APP_BUILD_TARGET)
-      this.AboutInfoRow(this.appLanguage === 'en' ? 'Build Time' : '构建时间', APP_BUILD_TIME)
-    }
-    .width('100%')
-    .padding(14)
-    .backgroundColor(this.cardBg())
-    .borderRadius(18)
-    .margin({ bottom: 12 })
-
-    Column() {
-      Text(this.appLanguage === 'en' ? 'UI Style' : '界面风格')
-        .fontSize(18)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.primaryText())
-        .width('100%')
-        .margin({ bottom: 8 })
-      this.AboutInfoRow(this.t('theme'), this.themeLabel())
-      this.AboutInfoRow(this.t('language'), this.languageLabel())
-      this.AboutInfoRow(this.t('fullReader'), this.fullscreenReader ? 'ON' : 'OFF')
-    }
-    .width('100%')
-    .padding(14)
-    .backgroundColor(this.cardBg())
-    .borderRadius(18)
-    .margin({ bottom: 20 })
-  }
-
-  @Builder
-  private SettingsDetailPage() {
-    if (this.settingsSection === 'basic') {
-      this.SettingsBasicPage()
-    } else if (this.settingsSection === 'search') {
-      this.SettingsSearchPage()
-    } else if (this.settingsSection === 'sources') {
-      this.SettingsSourcesPage()
-    } else if (this.settingsSection === 'reader') {
-      this.SettingsReaderPage()
-    } else if (this.settingsSection === 'engines') {
-      this.SettingsEnginesPage()
-    } else if (this.settingsSection === 'remote') {
-      this.SettingsRemotePage()
-    } else if (this.settingsSection === 'advanced') {
-      this.SettingsAdvancedPage()
-    } else if (this.settingsSection === 'about') {
-      this.SettingsAboutPage()
-    } else {
-      this.settingsSection = 'menu';
-      this.SettingsMenuPage()
-    }
-  }
-
-  @Builder
-  private SettingsPage() {
-    Scroll() {
-      Column() {
-        if (this.settingsSection === 'menu') {
-          this.SettingsMenuPage()
-        } else {
-          this.SettingsDetailPage()
-        }
-      }
-      .width('100%')
-      .padding(14)
-    }
-    .layoutWeight(1)
-    .backgroundColor(this.appBg())
-  }
-
-'''
-text = replace_between(text, "  @Builder\n  private SettingCard(title: string, desc: string, value: string) {", "  @Builder\n  private AboutInfoRow(label: string, value: string) {", settings_block)
-
-
-# -----------------------------------------------------------------------------
 # Validations.
-# -----------------------------------------------------------------------------
 required_index = [
     "@State private resultViewMode: string = 'list';",
-    "@State private settingsSection: string = 'menu';",
     "app.media.search_home_illustration_light",
     "app.media.search_home_illustration_dark",
+    "输入漫画名称，搜索公开可访问漫画",
     "private resultSourceHost(item: SearchResultItem): string",
     "作者：' + this.resultAuthor(item)",
     "最新章节：' + this.resultLatestChapter(item)",
     "更新时间：' + this.resultUpdateTime(item)",
     "ForEach(this.results, (item: SearchResultItem)",
-    "private SettingsMenuPage()",
-    "this.SettingMenuCard('关于'",
-    "private SettingsAboutPage()",
-    "this.settingsSection === 'about'",
-    "this.activeTab === 'settings' && this.settingsSection !== 'menu'",
-    "分类和热门题材统一放在这里",
 ]
 for required in required_index:
     if required not in text:
         raise SystemExit(f'UI polish missing required content: {required}')
 
-for forbidden in [
-    "this.TabPill('about'",
-    "Button('列表')",
-    "Button('网格')",
-    "ForEach(this.groupedResults()",
-    "this.resultColumns === 3 ? '1fr 1fr 1fr' : '1fr 1fr'",
-]:
+for forbidden in ["this.TabPill('about'", "Button('列表')", "Button('网格')", "ForEach(this.groupedResults()", "this.SearchChip('斗罗大陆')"]:
     if forbidden in text:
         raise SystemExit(f'UI polish still contains forbidden content: {forbidden}')
 
-required_model = ['author?: string;', 'latestChapter?: string;', 'updateTime?: string;', 'category?: string;']
-for required in required_model:
+for required in ['author?: string;', 'latestChapter?: string;', 'updateTime?: string;', 'category?: string;']:
     if required not in model_text:
         raise SystemExit(f'Model missing required field: {required}')
 
