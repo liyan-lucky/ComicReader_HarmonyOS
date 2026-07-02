@@ -1,7 +1,7 @@
 {
   "major": 0,
   "full": 0,
-  "incremental": 0,
-  "buildType": "ci",
-  "buildTime": "2026-06-30T04:08:28.285Z"
+  "incremental": 1,
+  "buildType": "local-incremental",
+  "buildTime": "2026-07-03 03:00:45"
 }

@@ -19,6 +19,19 @@ export default class EntryAbility extends UIAbility {
         return;
       }
       console.info('Succeeded in loading Index.');
+      try {
+        const mainWindow = windowStage.getMainWindowSync();
+        mainWindow.setWindowLayoutFullScreen(true);
+        const sysBarProps: window.SystemBarProperties = {
+          statusBarColor: '#00000000',
+          statusBarContentColor: '#000000',
+          navigationBarColor: '#00000000',
+          navigationBarContentColor: '#000000'
+        };
+        mainWindow.setWindowSystemBarProperties(sysBarProps);
+      } catch (e) {
+        console.error('Failed to set fullscreen mode: ' + JSON.stringify(e));
+      }
     });
   }
 
