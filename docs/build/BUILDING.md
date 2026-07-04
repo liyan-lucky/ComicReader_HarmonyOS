@@ -4,6 +4,29 @@
 
 ## 构建入口
 
+### 本地构建（Windows，推荐）
+
+使用 PowerShell 脚本，自动设置 JAVA_HOME、调用 hvigorw、复制 HAP 到 `99_Temp`：
+
+```powershell
+.\scripts\build_local.ps1
+```
+
+脚本功能：
+
+1. 自动设置 `JAVA_HOME` 指向 DevEco Studio 自带 JBR。
+2. 调用 `node hvigor/hvigor-wrapper.js --mode module -p product=default -p module=entry@default assembleHap`。
+3. 将生成的 HAP 复制到 `E:\Visual_Studio_Code\99_Temp\`。
+
+手动设置 JAVA_HOME（如不使用脚本）：
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Huawei\DevEco Studio\jbr"
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+```
+
+### CI 构建（Linux / GitHub Actions）
+
 全量构建：
 
 ```bash
@@ -28,6 +51,8 @@ SKIP_HAP_BUILD=1 bash scripts/build_incremental.sh
 ```bash
 bash scripts/hdc_install_hap.sh /path/to/app.hap
 ```
+
+注意：CI 脚本（`.sh`）不能包含本地路径，本地构建用独立的 `.ps1` 脚本。
 
 ## 版本规则
 
@@ -123,6 +148,18 @@ HARMONYOS_SDK_URL
 - 自动 patch `Index.ets` 的脚本；
 - 自动把关于页或 Tab 注入页面的构建前脚本。
 
+## 签名说明
+
+- 命令行构建生成未签名 HAP（`entry-default-unsigned.hap`），可安装到已开启开发者模式的设备。
+- DevEco Studio GUI 点击运行会自动生成调试证书并签名安装。
+- 签名配置不要写入 `build-profile.json5`（会暴露密钥，且密码是加密格式无法手写）。
+- 签名通过 DevEco Studio GUI 操作，不在项目配置文件中配置。
+
+## hdc 安装注意
+
+- `hdc install` 对 Windows 绝对路径处理有 bug，会拼接当前目录到绝对路径前面。
+- 解决方法：从 HAP 所在目录用相对路径执行，如 `hdc install entry-default-unsigned.hap`。
+
 ## 本地构建建议
 
 本地开发建议直接使用 DevEco Studio：
@@ -131,7 +168,9 @@ HARMONYOS_SDK_URL
 2. 等待 hvigor 同步；
 3. 使用 `default` / `HarmonyOS` / `phone` 作为常规调试目标；
 4. 配置本地签名；
-5. 运行 `entry` 模块。
+5. 运行 `entry` 模块；
+6. 命令行构建使用 `scripts/build_local.ps1`；
+7. 构建后如 `oh-package.json5` 被覆盖，用 `git checkout -- oh-package.json5 entry/oh-package.json5` 还原。
 
 ## 日志和诊断
 

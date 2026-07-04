@@ -1,6 +1,6 @@
 # 当前仓库状态
 
-更新时间：2026-07-03
+更新时间：2026-07-04
 
 ## 定位
 
@@ -10,8 +10,11 @@
 
 - 工程类型：HarmonyOS / OpenHarmony ArkTS Stage 应用。
 - 包名：`com.nw.cleansite.novel.hm`。
+- 当前版本：0.1.10（全量构建号 1，增量构建号 10）。
 - 当前能力边界：公开漫画资源搜索、结果整理、章节卷轴阅读、书架/历史/设置等 App 侧能力。
 - 规则来源：默认从 `ComicReader_Rules` 的 `generated/index.json` 读取远程规则。
+- 搜索源：搜索引擎（Bing/DuckDuckGo/Google/Yandex）+ HTML 规则源 + API 源（Internet Archive/Wikimedia/Open Library/Library of Congress/Pepper）。
+- 数据持久化：书架/历史/主题/语言通过 `@ohos.data.preferences` 持久化存储。
 - 合规边界：不托管漫画图片、章节正文、付费内容、账号数据、站点 Logo、字体、SDK 压缩包、签名证书、HAP/APP 发布包或其他第三方受保护资源。
 
 ## 当前 UI 状态
@@ -20,10 +23,15 @@
 - 底部 Tab 栏毛玻璃效果 + 悬浮胶囊样式（borderRadius 28）。
 - 支持 明亮 / 暗黑 / 跟随系统 三种主题。
 - 支持 中文 / English / 跟随系统 三种语言，所有 UI 文本通过 `t()` 翻译方法切换。
-- 搜索首页：Stack 布局 + 插画图片 + 搜索框 + 渐变半透明遮罩 + 状态栏避让。
-- 设置页：SectionLabel + CardContainer 分组 + LinkRow/ToggleRow。
+- 布局架构：Stack 三层叠加（底层可滚动内容 + 中层渐变半透明 HeaderOverlay + 底层导航栏）。
+- 状态栏处理：`expandSafeArea` + `avoidStatusBarHeight` Blank 占位，渐变穿透状态栏，内容起始在下方。
+- 搜索首页：Column 布局 + 插图 + 透明线框搜索框 + 顶部/底部 Blank 避让。
+- 搜索按钮：绿色胶囊形 `#34C759`，加载时 Canvas 沿按钮轮廓绘制渐变描边旋转动画（深绿→透明）。
+- 搜索框：透明背景 + 灰色线框，X 按钮可中断搜索+清空结果+回到首页。
+- Tab 图标状态：选中绿色图标+文字，未选中灰色图标+文字，通过 `this.activeTab` 直接驱动。
+- 设置页：SectionLabel + CardContainer 分组 + LinkRow/ToggleRow + 自定义 JSON 规则应用按钮。
 - 所有图标使用 SVG（stroke 格式），来自 ProIcons / Lucide Icons，存放在 `entry/src/main/resources/rawfile/`。
-- 全屏显示模式：`expandSafeArea` + 状态栏透明。
+- 全屏显示模式：`expandSafeArea` + 状态栏透明 + 9 段渐变半透明 HeaderOverlay。
 
 ## 当前分支和备份
 

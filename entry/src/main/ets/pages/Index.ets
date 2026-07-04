@@ -6,9 +6,22 @@ import { looksLikeUrl, normalizeUserUrl } from '../common/UrlUtil';
 import { DEFAULT_SEARCH_ENGINES, buildEngineQuery, buildSearchEngineUrl, parseSearchEngineResults, isEngineConfigured, engineHeaders, searchEngineUserAgent } from '../common/SearchEngines';
 import { RemoteRuleService, DEFAULT_REMOTE_RULE_URL } from '../common/RemoteRuleService';
 import { APP_VERSION, APP_BUILD_TIME } from '../common/BuildInfo';
+import {
+  buildInternetArchiveSearchUrl, parseInternetArchiveSearch,
+  buildWikimediaSearchUrl, parseWikimediaSearch,
+  buildOpenLibrarySearchUrl, parseOpenLibrarySearch,
+  buildLibraryOfCongressSearchUrl, parseLibraryOfCongressSearch,
+  searchPepperCatalog, isPepperPseudoUrl, parsePepperImages,
+  isArchivePseudoUrl, archiveIdentifierFromUrl,
+  buildInternetArchiveManifestUrl, parseInternetArchiveManifestImages,
+  buildInternetArchiveMetadataUrl, parseInternetArchiveMetadataImages,
+  isWikimediaPseudoUrl, wikimediaImageFromUrl,
+  isLocPseudoUrl, locImageFromUrl
+} from '../common/ApiSources';
 import drawing from '@ohos.graphics.drawing';
 import common from '@ohos.app.ability.common';
 import window from '@ohos.window';
+import dataPreferences from '@ohos.data.preferences';
 
 function toArgbColor(color: string): number {
   const normalized = color.trim().startsWith('#') ? color.trim().substring(1) : color.trim();
@@ -42,7 +55,11 @@ struct Index {
   @State private currentCover: string = '';
   @State private currentSourceId: string = '';
   @State private currentSourceName: string = '';
-  @State private isLoading: boolean = false;
+  @State @Watch('onLoadingChanged') private isLoading: boolean = false;
+  @State private loadingAngle: number = 0;
+  private loadingTimerId: number = -1;
+  private canvasSettings: RenderingContextSettings = new RenderingContextSettings(true);
+  private canvasCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.canvasSettings);
 
   @State private searchMode: string = 'mixed';
   @State private searchAllEngines: boolean = false;
@@ -73,11 +90,57 @@ struct Index {
   @State private avoidStatusBarHeight: number = 0;
 
   @State private systemColorMode: string = 'light';
+  private preferencesStore: dataPreferences.Preferences | null = null;
+
+  private async initPreferences(): Promise<void> {
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      this.preferencesStore = await dataPreferences.getPreferences(context, 'comic_reader_store');
+      await this.loadPersistedData();
+    } catch (e) {
+    }
+  }
+
+  private async loadPersistedData(): Promise<void> {
+    if (this.preferencesStore === null) return;
+    try {
+      const historyJson = await this.preferencesStore.get('reading_history', '[]') as string;
+      if (typeof historyJson === 'string' && historyJson.length > 2) {
+        this.history = JSON.parse(historyJson) as ReadingHistoryItem[];
+      }
+      const shelfJson = await this.preferencesStore.get('bookshelf', '[]') as string;
+      if (typeof shelfJson === 'string' && shelfJson.length > 2) {
+        this.bookshelf = JSON.parse(shelfJson) as BookshelfItem[];
+      }
+      const appTheme = await this.preferencesStore.get('app_theme', 'light') as string;
+      if (typeof appTheme === 'string' && appTheme.length > 0) {
+        this.appTheme = appTheme;
+      }
+      const appLanguage = await this.preferencesStore.get('app_language', 'zh') as string;
+      if (typeof appLanguage === 'string' && appLanguage.length > 0) {
+        this.appLanguage = appLanguage;
+      }
+    } catch (e) {
+    }
+  }
+
+  private async persistData(): Promise<void> {
+    if (this.preferencesStore === null) return;
+    try {
+      await this.preferencesStore.put('reading_history', JSON.stringify(this.history));
+      await this.preferencesStore.put('bookshelf', JSON.stringify(this.bookshelf));
+      await this.preferencesStore.put('app_theme', this.appTheme);
+      await this.preferencesStore.put('app_language', this.appLanguage);
+      await this.preferencesStore.flush();
+    } catch (e) {
+    }
+  }
 
   aboutToAppear(): void {
     this.queryText = '';
     this.statusText = this.t('initial_status');
     this.remoteRuleStatus = this.t('remote_not_updated');
+    this.avoidStatusBarHeight = 48;
     try {
       const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
       const config = context.config;
@@ -86,9 +149,14 @@ struct Index {
       }
       const mainWindow = context.windowStage.getMainWindowSync();
       const avoidArea = mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-      this.avoidStatusBarHeight = px2vp(avoidArea.topRect.height);
+      const measured = px2vp(avoidArea.topRect.height);
+      console.info(`ComicReader avoidStatusBarHeight measured=${measured} raw=${avoidArea.topRect.height} default=48`);
+      if (measured > 0) this.avoidStatusBarHeight = measured;
     } catch (e) {
+      console.error(`ComicReader avoidStatusBarHeight failed: ${JSON.stringify(e)}`);
     }
+    console.info(`ComicReader avoidStatusBarHeight final=${this.avoidStatusBarHeight}`);
+    this.initPreferences();
   }
 
   onBackPress(): boolean {
@@ -543,7 +611,10 @@ struct Index {
     this.isLoading = true;
     try {
       if (this.searchMode !== 'api_only') await this.searchSelectedEngines(keyword);
-      if (this.searchMode !== 'engine_only') await this.searchHtmlRuleSources(keyword);
+      if (this.searchMode !== 'engine_only') {
+        await this.searchHtmlRuleSources(keyword);
+        await this.searchApiSources(keyword);
+      }
       if (this.autoCoverEnabled) await this.enrichResultCovers(8);
     } finally {
       this.isLoading = false;
@@ -580,6 +651,7 @@ struct Index {
   private async searchHtmlRuleSources(keyword: string): Promise<void> {
     if (!this.enableHtmlRules) return;
     let success = 0;
+    let failed = 0;
     for (let i = 0; i < this.rules.length; i++) {
       const rule = this.rules[i];
       if (rule.searchUrl.trim().length === 0) continue;
@@ -593,12 +665,49 @@ struct Index {
           this.statusText = this.t('rule_progress') + success + this.t('rule_succeeded') + this.results.length + this.t('rule_current');
         }
       } catch (err) {
+        failed++;
       }
+    }
+    if (failed > 0 && success === 0) {
+      this.statusText = this.t('chapter_failed');
     }
   }
 
+  private async searchApiSources(keyword: string): Promise<void> {
+    try {
+      const iaUrl = buildInternetArchiveSearchUrl(keyword);
+      const iaBody = await HttpClient.getText(iaUrl, 'Mozilla/5.0 HarmonyOS ComicReader/1.0', '');
+      const iaResults = parseInternetArchiveSearch(iaBody, keyword);
+      if (iaResults.length > 0) this.appendResults(iaResults);
+    } catch (err) {
+    }
+    try {
+      const wikiUrl = buildWikimediaSearchUrl(keyword);
+      const wikiBody = await HttpClient.getText(wikiUrl, 'Mozilla/5.0 HarmonyOS ComicReader/1.0', '');
+      const wikiResults = parseWikimediaSearch(wikiBody, keyword);
+      if (wikiResults.length > 0) this.appendResults(wikiResults);
+    } catch (err) {
+    }
+    try {
+      const olUrl = buildOpenLibrarySearchUrl(keyword);
+      const olBody = await HttpClient.getText(olUrl, 'Mozilla/5.0 HarmonyOS ComicReader/1.0', '');
+      const olResults = parseOpenLibrarySearch(olBody, keyword);
+      if (olResults.length > 0) this.appendResults(olResults);
+    } catch (err) {
+    }
+    try {
+      const locUrl = buildLibraryOfCongressSearchUrl(keyword);
+      const locBody = await HttpClient.getText(locUrl, 'Mozilla/5.0 HarmonyOS ComicReader/1.0', '');
+      const locResults = parseLibraryOfCongressSearch(locBody, keyword);
+      if (locResults.length > 0) this.appendResults(locResults);
+    } catch (err) {
+    }
+    const pepperResults = searchPepperCatalog(keyword);
+    if (pepperResults.length > 0) this.appendResults(pepperResults);
+  }
+
   private async enrichResultCovers(maxCount: number): Promise<void> {
-    const count = Math.min(maxCount, this.results.length, 8);
+    const count = Math.min(maxCount, this.results.length);
     for (let i = 0; i < count; i++) {
       const item = this.results[i];
       if (item.cover.length > 0) continue;
@@ -623,6 +732,39 @@ struct Index {
     this.mode = 'chapters';
     this.statusText = this.t('reading_chapters');
     try {
+      if (isArchivePseudoUrl(url)) {
+        await this.loadArchiveDetail(archiveIdentifierFromUrl(url), title);
+        return;
+      }
+      if (isWikimediaPseudoUrl(url)) {
+        const imageUrl = wikimediaImageFromUrl(url);
+        this.images = [{ url: imageUrl, index: 1, status: 'waiting' }];
+        this.mode = 'reader';
+        this.statusText = this.t('scroll_complete') + '1' + this.t('images_unit_full') + '.';
+        this.addHistory({ title: title, url: url, index: 1, sourceId: rule.id, sourceName: rule.name }, 1);
+        return;
+      }
+      if (isLocPseudoUrl(url)) {
+        const imageUrl = locImageFromUrl(url);
+        this.images = [{ url: imageUrl, index: 1, status: 'waiting' }];
+        this.mode = 'reader';
+        this.statusText = this.t('scroll_complete') + '1' + this.t('images_unit_full') + '.';
+        this.addHistory({ title: title, url: url, index: 1, sourceId: rule.id, sourceName: rule.name }, 1);
+        return;
+      }
+      if (isPepperPseudoUrl(url)) {
+        const pepperImages = parsePepperImages(url);
+        if (pepperImages.length > 0) {
+          this.images = pepperImages;
+          this.mode = 'reader';
+          this.currentChapterTitle = title;
+          this.statusText = this.t('scroll_complete') + pepperImages.length + this.t('images_unit_full') + '.';
+          this.addHistory({ title: title, url: url, index: 1, sourceId: rule.id, sourceName: rule.name }, pepperImages.length);
+        } else {
+          this.statusText = this.t('no_images');
+        }
+        return;
+      }
       const html = await HttpClient.getText(url, rule.userAgent, rule.referer.length > 0 ? rule.referer : url);
       const parsedChapters = parseChapters(html, rule, url);
       this.chapters = parsedChapters;
@@ -630,6 +772,30 @@ struct Index {
         await this.loadChapter({ title: this.currentTitle, url: url, index: 1, sourceId: rule.id, sourceName: rule.name }, rule);
       } else {
         this.statusText = this.t('found_chapters') + parsedChapters.length + this.t('chapters_unit') + '.';
+      }
+    } catch (err) {
+      this.statusText = this.t('chapter_failed');
+    }
+  }
+
+  private async loadArchiveDetail(identifier: string, title: string): Promise<void> {
+    try {
+      const manifestUrl = buildInternetArchiveManifestUrl(identifier);
+      const manifestBody = await HttpClient.getText(manifestUrl, 'Mozilla/5.0 HarmonyOS ComicReader/1.0', 'https://archive.org/');
+      let images = parseInternetArchiveManifestImages(manifestBody);
+      if (images.length === 0) {
+        const metadataUrl = buildInternetArchiveMetadataUrl(identifier);
+        const metadataBody = await HttpClient.getText(metadataUrl, 'Mozilla/5.0 HarmonyOS ComicReader/1.0', 'https://archive.org/');
+        images = parseInternetArchiveMetadataImages(metadataBody, identifier);
+      }
+      if (images.length > 0) {
+        this.images = images;
+        this.mode = 'reader';
+        this.statusText = this.t('scroll_complete') + images.length + this.t('images_unit_full') + '.';
+        this.addHistory({ title: title, url: 'archive://item/' + encodeURIComponent(identifier), index: 1, sourceId: 'internet_archive_iiif_api', sourceName: 'Internet Archive公开馆藏' }, images.length);
+      } else {
+        this.chapters = [];
+        this.statusText = this.t('no_images');
       }
     } catch (err) {
       this.statusText = this.t('chapter_failed');
@@ -650,7 +816,7 @@ struct Index {
     let pageUrl = firstUrl;
     let allImages: ReaderImageItem[] = [];
     const visited: string[] = [];
-    const maxPages = Math.min(rule.maxReaderPages !== undefined && rule.maxReaderPages > 0 ? rule.maxReaderPages : this.maxReaderPages, this.maxReaderPages, 8);
+    const maxPages = Math.min(rule.maxReaderPages !== undefined && rule.maxReaderPages > 0 ? rule.maxReaderPages : this.maxReaderPages, this.maxReaderPages);
     for (let page = 0; page < maxPages; page++) {
       if (pageUrl.length === 0 || visited.indexOf(pageUrl) >= 0) break;
       visited.push(pageUrl);
@@ -722,6 +888,7 @@ struct Index {
       if (this.history[i].url !== item.url) next.push(this.history[i]);
     }
     this.history = next;
+    this.persistData();
   }
 
   private addCurrentToShelf(): void {
@@ -740,11 +907,12 @@ struct Index {
       progressPercent: this.images.length > 0 ? 100 : 0
     };
     const next = [item];
-    for (let i = 0; i < this.bookshelf.length; i++) {
+    for (let i = 0; i < this.bookshelf.length && next.length < 100; i++) {
       if (this.bookshelf[i].url !== item.url) next.push(this.bookshelf[i]);
     }
     this.bookshelf = next;
     this.statusText = this.t('added_shelf');
+    this.persistData();
   }
 
   private cycleEngine(): void {
@@ -763,9 +931,31 @@ struct Index {
     else this.languageMode = 'chinese';
   }
 
+  private applyCustomRule(): void {
+    try {
+      const parsed = JSON.parse(this.customRuleText) as ComicSourceRule;
+      if (parsed.id !== undefined && parsed.id.length > 0 && parsed.readerImageRegex !== undefined && parsed.readerImageRegex.length > 0) {
+        const exists = this.rules.findIndex((item: ComicSourceRule) => item.id === parsed.id);
+        if (exists >= 0) {
+          const next = [...this.rules];
+          next[exists] = parsed;
+          this.rules = next;
+        } else {
+          this.rules = [parsed, ...this.rules];
+        }
+        this.statusText = this.t('added_shelf');
+      } else {
+        this.statusText = this.t('chapter_failed');
+      }
+    } catch (err) {
+      this.statusText = this.t('chapter_failed');
+    }
+  }
+
   private toggleTheme(): void {
     this.appTheme = this.appTheme === 'light' ? 'dark' : 'light';
     this.statusText = this.t('theme_switched');
+    this.persistData();
   }
 
   private async updateRemoteRules(): Promise<void> {
@@ -773,7 +963,7 @@ struct Index {
     try {
       const loaded = await RemoteRuleService.fetchRemoteRules(this.remoteRuleUrl);
       if (loaded.length > 0) {
-        this.rules = loaded.concat(DEFAULT_SOURCES);
+        this.rules = RemoteRuleService.mergeRules(DEFAULT_SOURCES, loaded);
         this.remoteRuleCount = loaded.length;
         this.remoteRuleStatus = this.t('remote_updated') + loaded.length + this.t('rules_unit');
       } else {
@@ -797,18 +987,117 @@ struct Index {
       .margin({ bottom: 12 })
   }
 
+  private onLoadingChanged(): void {
+    if (this.isLoading) {
+      this.startLoadingAnimation();
+    } else {
+      this.stopLoadingAnimation();
+    }
+  }
+
+  private startLoadingAnimation(): void {
+    this.loadingAngle = 0;
+    this.loadingTimerId = setInterval(() => {
+      this.loadingAngle = (this.loadingAngle + 4) % 3600;
+      this.drawLoadingStroke();
+    }, 16) as number;
+  }
+
+  private stopLoadingAnimation(): void {
+    if (this.loadingTimerId !== -1) {
+      clearInterval(this.loadingTimerId);
+      this.loadingTimerId = -1;
+    }
+  }
+
+  private getPathPoint(dist: number, ox: number, oy: number, w: number, h: number, r: number): number[] {
+    const topLen = w - 2 * r;
+    const rightArcLen = Math.PI * r;
+    const bottomLen = w - 2 * r;
+    const leftArcLen = Math.PI * r;
+    const totalLen = topLen + rightArcLen + bottomLen + leftArcLen;
+    let d = ((dist % totalLen) + totalLen) % totalLen;
+    if (d <= topLen) {
+      return [ox + r + d, oy];
+    }
+    d -= topLen;
+    if (d <= rightArcLen) {
+      const angle = -Math.PI / 2 + d / r;
+      return [ox + w - r + r * Math.cos(angle), oy + r + r * Math.sin(angle)];
+    }
+    d -= rightArcLen;
+    if (d <= bottomLen) {
+      return [ox + w - r - d, oy + h];
+    }
+    d -= bottomLen;
+    const angle2 = Math.PI / 2 + d / r;
+    return [ox + r + r * Math.cos(angle2), oy + r + r * Math.sin(angle2)];
+  }
+
+  private drawLoadingStroke(): void {
+    const ctx = this.canvasCtx;
+    const w = ctx.width;
+    const h = ctx.height;
+    if (w <= 0 || h <= 0) return;
+    ctx.clearRect(0, 0, w, h);
+    const pad = 2;
+    const rw = w - 2 * pad;
+    const rh = h - 2 * pad;
+    const r = rh / 2;
+    const totalLen = 2 * (rw - 2 * r) + 2 * Math.PI * r;
+    const visibleRatio = 0.7;
+    const visibleLen = totalLen * visibleRatio;
+    const segments = 120;
+    const segLen = visibleLen / segments;
+    const offset = (this.loadingAngle / 3600) * totalLen;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'butt';
+    for (let i = 0; i < segments; i++) {
+      const t = i / segments;
+      let alpha: number;
+      if (t < 0.15) {
+        alpha = 1.0;
+      } else {
+        alpha = 1.0 - (t - 0.15) / 0.85;
+      }
+      if (alpha <= 0.02) continue;
+      const startDist = offset + i * segLen;
+      const endDist = offset + (i + 1) * segLen;
+      const p1 = this.getPathPoint(startDist, pad, pad, rw, rh, r);
+      const p2 = this.getPathPoint(endDist, pad, pad, rw, rh, r);
+      ctx.beginPath();
+      ctx.moveTo(p1[0], p1[1]);
+      ctx.lineTo(p2[0], p2[1]);
+      const a = Math.round(alpha * 255);
+      const aHex = a.toString(16).padStart(2, '0');
+      ctx.strokeStyle = '#' + aHex + '34C759';
+      ctx.stroke();
+    }
+  }
+
   @Builder
   private SearchActionButton(heightValue: number) {
-    Button(this.isLoading ? '' : this.t('search'))
-      .height(heightValue)
-      .fontSize(15)
-      .fontColor(this.isLoading ? Color.Transparent : '#FFFFFF')
-      .backgroundColor(this.isLoading ? Color.Transparent : this.accent())
-      .borderRadius(heightValue / 2)
-      .padding({ left: 20, right: 20 })
-      .border({ width: 2, color: this.accent() })
-      .enabled(!this.isLoading)
-      .onClick(() => { this.startSearch(); })
+    Stack() {
+      Button(this.t('search'))
+        .width(76)
+        .height(heightValue)
+        .fontSize(15)
+        .fontColor('#FFFFFF')
+        .backgroundColor('#34C759')
+        .borderRadius(heightValue / 2)
+        .padding({ left: 20, right: 20 })
+        .enabled(!this.isLoading)
+        .onClick(() => { this.startSearch(); })
+      if (this.isLoading) {
+        Canvas(this.canvasCtx)
+          .width(76)
+          .height(heightValue)
+          .hitTestBehavior(HitTestMode.Transparent)
+          .onReady(() => {
+            this.drawLoadingStroke();
+          })
+      }
+    }
   }
 
   private headerGradientColors(): Array<[string, number]> {
@@ -826,16 +1115,19 @@ struct Index {
             TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
               .height(44)
               .fontSize(15)
-              .backgroundColor(this.searchInputBg())
+              .backgroundColor(Color.Transparent)
               .borderRadius(22)
+              .border({ width: 1, color: this.secondaryText() })
               .padding({ left: 14, right: this.queryText.length > 0 ? 40 : 14 })
               .onChange((value: string) => { this.queryText = value; })
               .onSubmit(() => { this.startSearch(); })
             if (this.queryText.length > 0) {
-              Column() {
-                Image($rawfile('ic_x.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
-              }.width(32).height(32).justifyContent(FlexAlign.Center).margin({ right: 6 })
-                .onClick(() => { this.queryText = ''; })
+              Row() {
+                Column() {
+                  Image($rawfile('ic_x.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+                }.width(32).height(32).justifyContent(FlexAlign.Center).margin({ right: 6 })
+                  .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
+              }.width('100%').justifyContent(FlexAlign.End)
             }
           }.layoutWeight(1)
           Column() { this.SearchActionButton(44) }
@@ -853,60 +1145,46 @@ struct Index {
 
   @Builder
   private SearchHome() {
-    Stack() {
-      Column() {
-        Blank().layoutWeight(1)
-        Image($r('app.media.search_home_illustration_light'))
-          .width(220)
-          .height(180)
-          .objectFit(ImageFit.Contain)
-          .margin({ bottom: 24 })
-        Row() {
-          Stack() {
-            TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
-              .height(52)
-              .fontSize(15)
-              .backgroundColor(this.cardBg())
-              .borderRadius(26)
-              .padding({ left: 18, right: this.queryText.length > 0 ? 44 : 18 })
-              .onChange((value: string) => { this.queryText = value; })
-              .onSubmit(() => { this.startSearch(); })
-            if (this.queryText.length > 0) {
+    Column() {
+      Blank().height(this.contentTopInset())
+      Blank().layoutWeight(1)
+      Image($r('app.media.search_home_illustration_light'))
+        .width(220)
+        .height(180)
+        .objectFit(ImageFit.Contain)
+        .margin({ bottom: 24 })
+      Row() {
+        Stack() {
+          TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
+            .height(52)
+            .fontSize(15)
+            .backgroundColor(Color.Transparent)
+            .borderRadius(26)
+            .border({ width: 1, color: this.secondaryText() })
+            .padding({ left: 18, right: this.queryText.length > 0 ? 44 : 18 })
+            .onChange((value: string) => { this.queryText = value; })
+            .onSubmit(() => { this.startSearch(); })
+          if (this.queryText.length > 0) {
+            Row() {
               Column() {
                 Image($rawfile('ic_x.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
               }.width(36).height(36).justifyContent(FlexAlign.Center).margin({ right: 8 })
-                .onClick(() => { this.queryText = ''; })
-            }
-          }.layoutWeight(1)
-          Column() { this.SearchActionButton(52) }
-            .margin({ left: 10 })
-        }
-        .width('100%')
-        .padding({ left: 22, right: 22 })
-        Blank().layoutWeight(1)
+                .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
+            }.width('100%').justifyContent(FlexAlign.End)
+          }
+        }.layoutWeight(1)
+        Column() { this.SearchActionButton(52) }
+          .margin({ left: 10 })
       }
       .width('100%')
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Center)
-      .backgroundColor(this.appBg())
-
-      Column() {
-        Column() {
-          Text(this.t('app_title'))
-            .fontSize(24)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.primaryText())
-            .width('100%')
-        }
-        .width('100%')
-        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-      }
-      .width('100%')
-      .padding({ top: this.avoidStatusBarHeight })
-      .linearGradient({ angle: 180, colors: this.headerGradientColors() })
+      .padding({ left: 22, right: 22 })
+      Blank().layoutWeight(1)
+      Blank().height(this.contentBottomInset())
     }
     .width('100%')
     .layoutWeight(1)
+    .alignItems(HorizontalAlign.Center)
+    .backgroundColor(this.appBg())
   }
 
   @Builder
@@ -962,17 +1240,7 @@ struct Index {
   private ResultsPage() {
     Scroll() {
       Column() {
-        Text(this.searchTitle.length > 0 ? this.t('search_prefix') + this.searchTitle : this.t('search_results'))
-          .fontSize(21)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.primaryText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-        Text(this.t('results_hint'))
-          .fontSize(12)
-          .fontColor(this.secondaryText())
-          .margin({ top: 3, bottom: 10 })
+        Blank().height(this.contentTopInset())
         this.StatusCard()
         if (this.results.length === 0) {
           Text(this.isLoading ? this.t('searching_sources') : this.t('no_results'))
@@ -985,7 +1253,8 @@ struct Index {
         } else {
           ForEach(this.results, (item: SearchResultItem) => { this.ResultListCard(item) }, (item: SearchResultItem) => item.url)
         }
-      }.width('100%').padding(14)
+        Blank().height(this.contentBottomInset())
+      }.width('100%').padding({ left: 14, right: 14 })
     }
     .layoutWeight(1)
     .backgroundColor(this.appBg())
@@ -994,6 +1263,7 @@ struct Index {
   @Builder
   private ChaptersPage() {
     Column() {
+      Blank().height(this.avoidStatusBarHeight)
       Row() {
         Column() {
           Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.primaryText()))
@@ -1038,6 +1308,7 @@ struct Index {
   @Builder
   private ReaderPage() {
     Column() {
+      Blank().height(this.avoidStatusBarHeight)
       Row() {
         Column() {
           Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.primaryText()))
@@ -1063,7 +1334,8 @@ struct Index {
           }, (item: ReaderImageItem) => item.url + item.index)
         }.width('100%').padding(10)
       }.layoutWeight(1).backgroundColor(this.readerDarkMode ? '#050505' : this.appBg())
-    }.layoutWeight(1)
+    }
+    .layoutWeight(1)
   }
 
   @Builder
@@ -1125,6 +1397,7 @@ struct Index {
       if (this.appTheme !== mode) {
         this.appTheme = mode;
         this.statusText = this.t('theme_switched');
+        this.persistData();
       }
       this.themeDialogVisible = false;
     })
@@ -1147,6 +1420,7 @@ struct Index {
     .onClick(() => {
       this.appLanguage = mode;
       this.languageDialogVisible = false;
+      this.persistData();
     })
   }
 
@@ -1179,6 +1453,7 @@ struct Index {
     Stack() {
       Scroll() {
         Column() {
+          Blank().height(this.contentTopInset())
           Text(this.t('settings')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').margin({ top: 12, bottom: 6 })
           this.StatusCard()
 
@@ -1214,8 +1489,9 @@ struct Index {
               Text(APP_BUILD_TIME).fontSize(13).fontColor(this.secondaryText())
             }.width('100%').height(50)
           }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
+          Blank().height(this.contentBottomInset())
         }.width('100%').padding(14)
-      }.layoutWeight(1).padding({ bottom: 100 })
+      }.layoutWeight(1)
       if (this.settingsDialog.length > 0) this.SettingsDialog()
       if (this.themeDialogVisible) this.ThemeDialog()
       if (this.languageDialogVisible) this.LanguageDialog()
@@ -1309,6 +1585,15 @@ struct Index {
         } else {
           this.DialogHeader(this.t('advanced_rules'))
           TextInput({ placeholder: this.t('custom_json'), text: this.customRuleText }).height(120).backgroundColor(this.inputBg()).borderRadius(12).padding(10).onChange((value: string) => { this.customRuleText = value; })
+          Button(this.t('enabled'))
+            .width('100%')
+            .height(42)
+            .fontSize(15)
+            .fontColor('#FFFFFF')
+            .backgroundColor(this.accent())
+            .borderRadius(12)
+            .margin({ top: 10 })
+            .onClick(() => this.applyCustomRule())
         }
       }
       .width('85%')
@@ -1390,6 +1675,7 @@ struct Index {
   private ShelfPage() {
     Scroll() {
       Column() {
+        Blank().height(this.contentTopInset())
         Row() {
           Image($rawfile('ic_shelf.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 8 })
           Text(this.t('shelf')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
@@ -1402,14 +1688,16 @@ struct Index {
               .onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
           }, (item: BookshelfItem) => item.url)
         }
-      }.width('100%').padding(14)
-    }.layoutWeight(1).backgroundColor(this.appBg()).padding({ bottom: 100 })
+        Blank().height(this.contentBottomInset())
+      }.width('100%').padding({ left: 14, right: 14 })
+    }.layoutWeight(1).backgroundColor(this.appBg())
   }
 
   @Builder
   private HistoryPage() {
     Scroll() {
       Column() {
+        Blank().height(this.contentTopInset())
         Row() {
           Image($rawfile('ic_history.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 8 })
           Text(this.t('history')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
@@ -1422,22 +1710,23 @@ struct Index {
               .onClick(() => this.loadChapter({ title: item.chapterTitle, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, this.findRule(item.sourceId)))
           }, (item: ReadingHistoryItem) => item.url)
         }
-      }.width('100%').padding(14)
-    }.layoutWeight(1).backgroundColor(this.appBg()).padding({ bottom: 100 })
+        Blank().height(this.contentBottomInset())
+      }.width('100%').padding({ left: 14, right: 14 })
+    }.layoutWeight(1).backgroundColor(this.appBg())
   }
 
   @Builder
-  private UiIcon(name: string, selected: boolean, size: number) {
-    if (name === 'search') Image($rawfile('ic_search.svg')).width(size).height(size).colorFilter(createStrokeIconColorFilter(selected ? this.accent() : this.secondaryText()))
-    else if (name === 'shelf') Image($rawfile('ic_shelf.svg')).width(size).height(size).colorFilter(createStrokeIconColorFilter(selected ? this.accent() : this.secondaryText()))
-    else if (name === 'history') Image($rawfile('ic_history.svg')).width(size).height(size).colorFilter(createStrokeIconColorFilter(selected ? this.accent() : this.secondaryText()))
-    else Image($rawfile('ic_settings.svg')).width(size).height(size).colorFilter(createStrokeIconColorFilter(selected ? this.accent() : this.secondaryText()))
+  private UiIcon(name: string, size: number) {
+    Image($rawfile(name === 'search' ? 'ic_search.svg' : name === 'shelf' ? 'ic_shelf.svg' : name === 'history' ? 'ic_history.svg' : 'ic_settings.svg'))
+      .width(size)
+      .height(size)
+      .colorFilter(createStrokeIconColorFilter(this.activeTab === name ? this.accent() : this.secondaryText()))
   }
 
   @Builder
   private TabPill(tab: string, label: string) {
     Column({ space: 3 }) {
-      this.UiIcon(tab, this.activeTab === tab, 22)
+      this.UiIcon(tab, 22)
       Text(label)
         .fontSize(11)
         .fontColor(this.activeTab === tab ? this.accent() : this.secondaryText())
@@ -1472,10 +1761,68 @@ struct Index {
     .shadow({ radius: 8, color: '#18000000', offsetY: 3 })
   }
 
+  private headerOverlayHeight(): number {
+    return this.avoidStatusBarHeight + 64;
+  }
+
+  private contentTopInset(): number {
+    return this.headerOverlayHeight();
+  }
+
+  private contentBottomInset(): number {
+    return 96;
+  }
+
+  @Builder
+  private HeaderOverlay() {
+    Column() {
+      Blank().height(this.avoidStatusBarHeight)
+      if (this.activeTab === 'search' && this.mode === 'results') {
+        Row() {
+          Stack() {
+            TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
+              .height(44)
+              .fontSize(15)
+              .backgroundColor(Color.Transparent)
+              .borderRadius(22)
+              .border({ width: 1, color: this.secondaryText() })
+              .padding({ left: 18, right: this.queryText.length > 0 ? 44 : 18 })
+              .onChange((value: string) => { this.queryText = value; })
+              .onSubmit(() => { this.startSearch(); })
+            if (this.queryText.length > 0) {
+              Row() {
+                Column() {
+                  Image($rawfile('ic_x.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+                }.width(32).height(32).justifyContent(FlexAlign.Center).margin({ right: 6 })
+                  .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
+              }.width('100%').justifyContent(FlexAlign.End)
+            }
+          }.layoutWeight(1)
+          Column() { this.SearchActionButton(44) }
+            .margin({ left: 8 })
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+      } else {
+        Column() {
+          Text(this.mode === 'home' || this.mode === 'results' ? this.t('app_title') : this.t(this.activeTab))
+            .fontSize(22)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.primaryText())
+            .width('100%')
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+      }
+    }
+    .width('100%')
+    .height(this.headerOverlayHeight())
+    .linearGradient({ angle: 180, colors: this.headerGradientColors() })
+  }
+
   build() {
     Stack() {
       Column() {
-        if (this.activeTab === 'search' && this.mode === 'results') this.SearchHeader()
         if (this.activeTab === 'search') {
           if (this.mode === 'home') this.SearchHome()
           else if (this.mode === 'results') this.ResultsPage()
@@ -1492,6 +1839,16 @@ struct Index {
       .width('100%')
       .height('100%')
       .backgroundColor(this.appBg())
+
+      if (this.mode !== 'reader' && this.mode !== 'chapters') {
+        Column() {
+          this.HeaderOverlay()
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Start)
+        .hitTestBehavior(HitTestMode.Transparent)
+      }
 
       if (this.mode !== 'reader' && this.mode !== 'chapters') {
         Column() {

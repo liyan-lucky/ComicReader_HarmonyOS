@@ -4,30 +4,48 @@
 
 ## 构建入口
 
-增量构建（日常开发）：
+### 本地构建（Windows，推荐）
 
-```bash
-bash scripts/build.sh incremental
+使用 PowerShell 脚本，自动设置 JAVA_HOME、调用 hvigorw、复制 HAP 到 `99_Temp`：
+
+```powershell
+.\scripts\build_local.ps1
 ```
 
-全量构建：
+脚本功能：
 
-```bash
-bash scripts/build.sh full
-```
+1. 自动设置 `JAVA_HOME` 指向 DevEco Studio 自带 JBR。
+2. 调用 `node hvigor/hvigor-wrapper.js --mode module -p product=default -p module=entry@default assembleHap`。
+3. 将生成的 HAP 复制到 `E:\Visual_Studio_Code\99_Temp\`。
 
-安装 HAP：
-
-```bash
-bash scripts/install.sh
-```
-
-本地构建需设置 `JAVA_HOME` 指向 DevEco Studio 自带 JBR：
+手动设置 JAVA_HOME（如不使用脚本）：
 
 ```powershell
 $env:JAVA_HOME = "C:\Program Files\Huawei\DevEco Studio\jbr"
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 ```
+
+### CI 构建（Linux / GitHub Actions）
+
+增量构建：
+
+```bash
+bash scripts/build_incremental.sh
+```
+
+全量构建：
+
+```bash
+bash scripts/build_full.sh
+```
+
+安装 HAP：
+
+```bash
+bash scripts/hdc_install_hap.sh /path/to/app.hap
+```
+
+注意：CI 脚本（`.sh`）不能包含本地路径，本地构建用独立的 `.ps1` 脚本。
 
 ## 版本规则
 
@@ -98,11 +116,25 @@ Actions 产物名称：`comic-reader-hap`
 
 `secrets.XXX || vars.XXX` 这类表达式容易让问题变复杂。当前只读取 `vars.XXX`。
 
+## 签名说明
+
+- 命令行构建生成未签名 HAP（`entry-default-unsigned.hap`），可安装到已开启开发者模式的设备。
+- DevEco Studio GUI 点击运行会自动生成调试证书并签名安装。
+- 签名配置不要写入 `build-profile.json5`（会暴露密钥，且密码是加密格式无法手写）。
+- 签名通过 DevEco Studio GUI 操作，不在项目配置文件中配置。
+
 ## 本地构建建议
 
 1. 打开仓库根目录，等待 hvigor 同步。
 2. 使用 `default` / `HarmonyOS` / `phone` 作为常规调试目标。
 3. 配置本地签名，运行 `entry` 模块。
+4. 命令行构建使用 `scripts/build_local.ps1`。
+5. 构建后如 `oh-package.json5` 被覆盖，用 `git checkout -- oh-package.json5 entry/oh-package.json5` 还原。
+
+## hdc 安装注意
+
+- `hdc install` 对 Windows 绝对路径处理有 bug，会拼接当前目录到绝对路径前面。
+- 解决方法：从 HAP 所在目录用相对路径执行，如 `hdc install entry-default-unsigned.hap`。
 
 ## 构建失败排查
 

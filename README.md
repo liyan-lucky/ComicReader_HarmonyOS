@@ -37,6 +37,7 @@ docs/
 - [当前仓库状态](docs/CURRENT_STATUS.md)
 - [文档中心](docs/README.md)
 - [构建说明](docs/build/BUILDING.md)
+- [线上构建说明](docs/build/线上构建说明.md)
 - [发布前检查](docs/release/RELEASE_CHECKLIST.md)
 - [维护者说明](docs/maintenance/MAINTAINERS.md)
 - [合规审计](docs/compliance/COMPLIANCE.md)
@@ -50,6 +51,11 @@ docs/
 - [架构说明](docs/architecture/ARCHITECTURE.md)
 - [搜索架构](docs/search/SEARCH_ARCHITECTURE.md)
 - [规则系统](docs/search/RULE_SYSTEM.md)
+- [远程规则说明](docs/search/REMOTE_RULES.md)
+- [审计报告](docs/AUDIT_REPORT.md)
+- [UI优化审计](docs/UI_OPTIMIZATION_AUDIT.md)
+- [使用审计与排错记录](docs/使用审计与排错记录.md)
+- [推送到GitHub](docs/development/PUSH_TO_GITHUB.md)
 
 ## 仓库拆分
 

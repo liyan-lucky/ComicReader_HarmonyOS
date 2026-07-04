@@ -10,12 +10,41 @@
 
 ## 默认搜索顺序
 
+### 搜索引擎
+
 1. Bing 网页结果。
 2. DuckDuckGo HTML 结果。
 3. Google 网页结果。
 4. Yandex 网页结果。
 5. Brave Search API（高级，需要 Key）。
 6. Google Programmable Search API（高级，需要 Key + CX）。
+
+### API 搜索源（无需 Key）
+
+已集成到 `searchApiSources()` 方法（`Index.ets`），源码在 `ApiSources.ets`：
+
+1. **Internet Archive**：公开馆藏搜索，使用高级搜索 API。
+2. **Wikimedia Commons**：图片搜索，使用 MediaWiki API。
+3. **Open Library**：书籍搜索，使用 Open Library Search API。
+4. **Library of Congress**：数字馆藏搜索，使用 LOC API。
+5. **Pepper**：内置目录搜索，使用 Pepper API。
+
+### 伪 URL 处理
+
+API 搜索源的结果使用伪 URL 标识，在 `loadDetail()` 中分发到对应的解析方法：
+
+| 伪 URL 格式 | 解析方法 | 说明 |
+|---|---|---|
+| `archive://item/<identifier>` | `loadArchiveDetail()` | Internet Archive IIIF/元数据解析 |
+| `wikimedia://<url>` | 直接图片 | Wikimedia 图片直出 |
+| `loc://<url>` | 直接图片 | Library of Congress 图片直出 |
+| `pepper://<url>` | 图片解析 | Pepper 内置目录图片解析 |
+
+### 搜索模式
+
+- `mixed`：同时使用搜索引擎和 API 源（默认）。
+- `engine_only`：只使用搜索引擎。
+- `api_only`：只使用 API 搜索源。
 
 ## 结果过滤
 
@@ -70,6 +99,15 @@ https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/i
 ## 自定义规则
 
 高级功能，放在设置页高级规则分区。必须校验 JSON 和 URL，不允许危险协议，不允许绕过登录、付费、验证码、DRM 或反爬。
+
+设置页高级规则区域有 TextInput 和"启用"按钮，用户输入 JSON 后点击"启用"即可解析并按 ID 去重后加入规则列表。
+
+## 持久化
+
+书架/历史/主题/语言通过 `@ohos.data.preferences` 持久化存储，App 重启后数据保留。
+
+- 书架条目上限 100 条。
+- 历史条目上限 40 条。
 
 ## 推荐排查顺序
 

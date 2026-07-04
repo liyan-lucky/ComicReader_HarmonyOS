@@ -2,6 +2,62 @@
 
 本文记录当前 App 的 UI 方向、源码固化目标和图标资源规则。
 
+## 布局架构
+
+当前主页面使用 Stack 三层叠加布局：
+
+```text
+Stack() {
+  // 第1层：可滚动内容（底层）
+  Scroll() {
+    Column() {
+      Blank().height(contentTopInset)    // 顶部避让 HeaderOverlay
+      ... 实际内容 ...
+      Blank().height(contentBottomInset) // 底部避让 BottomTabs
+    }
+  }
+
+  // 第2层：渐变半透明 HeaderOverlay（中层，点击穿透）
+  Column() {
+    Blank().height(avoidStatusBarHeight) // 状态栏占位
+    ... 标题/搜索栏 ...
+  }
+  .linearGradient({ angle: 180, colors: headerGradientColors() })
+  .hitTestBehavior(HitTestMode.Transparent)
+
+  // 第3层：底部导航栏（底层，点击穿透）
+  Column() {
+    Blank()
+    BottomTabs()
+  }
+  .hitTestBehavior(HitTestMode.Transparent)
+}
+.expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+```
+
+关键点：
+
+1. `expandSafeArea` 在根 Stack 上，让渐变穿透状态栏。
+2. HeaderOverlay 用 `hitTestBehavior(Transparent)` 实现点击穿透。
+3. 渐变使用 9 段颜色从 ~75% 不透明度线性过渡到全透明。
+4. 内容页面的 Scroll 内部用 `Blank().height()` 做物理占位避让 Header 和 BottomTabs。
+5. 有自己固定头部的页面（ChaptersPage、ReaderPage）不用 HeaderOverlay，直接用 `Blank().height(avoidStatusBarHeight)` 在头部上方占位。
+6. 搜索首页不用 HeaderOverlay，用 Column 布局 + 顶部/底部 Blank 避让。
+7. SettingsPage 补上底部 Blank 占位。
+
+### 状态栏避让
+
+- `EntryAbility.ets` 中设置 `setWindowLayoutFullScreen(true)` + 透明状态栏。
+- `avoidStatusBarHeight` 默认值 48vp 兜底（`aboutToAppear()` 中 `getWindowAvoidArea` 可能返回 0）。
+- 实测设备值 38.86vp（raw=136px），默认值确保在 API 返回 0 时仍能正常避让。
+- `contentTopInset` = `avoidStatusBarHeight` + HeaderOverlay 高度。
+- `contentBottomInset` = 96vp（底部导航栏高度 + 边距）。
+
+### 重要约束
+
+- Scroll 外层 padding 在 `expandSafeArea` 下不生效，必须在 Scroll 内部用 `Blank().height()` 做物理占位。
+- 参考 `10_Tabssh_harmonyos` 和 `11_Rustdesk_harmonyos` 的状态栏处理方式。
+
 ## 设计目标
 
 - 参考 HarmonyOS 官方应用的清爽、圆角、胶囊化设计语言；
@@ -107,7 +163,8 @@ appTheme = light | dark | system
 - 主文字：`#111827`
 - 次级文字：`#7A828C`
 - 强调色：`#34C759`
-- 输入框背景：`#F0F3F6`
+- 输入框背景：透明（`Color.Transparent`）
+- 输入框边框：`#7A828C`（1px 线框）
 - 边框：`#F0F0F0`
 
 暗黑主题：
@@ -117,8 +174,8 @@ appTheme = light | dark | system
 - 主文字：`#E8ECF4`
 - 次级文字：`#7A828C`
 - 强调色：`#34C759`
-- 输入框背景：`#2A2E3A`
-- 边框：`#2A2E3A`
+- 输入框背景：透明（`Color.Transparent`）
+- 输入框边框：`#7A828C`（1px 线框）
 
 ## 多语言（i18n）
 
@@ -155,6 +212,15 @@ appLanguage = zh | en | system
 ```
 
 样式：毛玻璃效果 + borderRadius 28 + 细边框 + 阴影，选中态绿色图标+绿色文字，未选态灰色图标+灰色文字。
+
+Tab 图标状态驱动：`@Builder UiIcon` 内部直接用 `this.activeTab === name` 判断选中状态，不通过参数传入布尔值（避免状态追踪失效）。
+
+## 搜索按钮
+
+- 绿色胶囊形 `#34C759`，固定宽度 76vp，白色文字。
+- 加载时：Canvas 沿按钮轮廓绘制渐变描边旋转动画（深绿 `#34C759` alpha=1.0 → 透明 alpha=0），按钮文字保持显示。
+- X 按钮：中断搜索 + 清空输入 + 清空结果 + 回到首页。
+- 搜索框：透明背景 + 灰色线框（1px `secondaryText()`）。
 
 ## 书架与阅读进度
 

@@ -56,6 +56,21 @@
 3. Google / Yandex 作为补充。
 4. Brave / Google CSE 放入高级设置，需要 Key。
 
+API 搜索源（无需 Key，已集成到 `searchApiSources()`）：
+
+1. Internet Archive 公开馆藏搜索。
+2. Wikimedia Commons 图片搜索。
+3. Open Library 书籍搜索。
+4. Library of Congress 数字馆藏搜索。
+5. Pepper 内置目录搜索。
+
+伪 URL 处理（`loadDetail()` 中分发）：
+
+- `archive://item/<identifier>` → Internet Archive IIIF/元数据解析。
+- `wikimedia://<url>` → Wikimedia 图片直出。
+- `loc://<url>` → Library of Congress 图片直出。
+- `pepper://<url>` → Pepper 内置目录图片解析。
+
 结果处理：
 
 - 标题清洗。

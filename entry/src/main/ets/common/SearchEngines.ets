@@ -222,10 +222,10 @@ export function buildEngineQuery(keyword: string, extraTerms: string, languageMo
   let query = keyword.trim();
   if (query === '斗罗') query = '斗罗大陆 OR "Soul Land" OR "Douluo Dalu"';
   if (extraTerms.trim().length > 0) query += ' ' + extraTerms.trim();
-  if (languageMode === '中文') query += ' 漫画 在线 阅读 章节';
-  else if (languageMode === '英文') query += ' comic manga read online chapter';
-  else if (languageMode === '日文') query += ' manga webcomic chapter';
-  else if (languageMode === '韩文') query += ' manhwa webtoon episode';
+  if (languageMode === 'chinese' || languageMode === '中文') query += ' 漫画 在线 阅读 章节';
+  else if (languageMode === 'english' || languageMode === '英文') query += ' comic manga read online chapter';
+  else if (languageMode === 'japanese' || languageMode === '日文') query += ' manga webcomic chapter';
+  else if (languageMode === 'korean' || languageMode === '韩文') query += ' manhwa webtoon episode';
   query += ' -抖音 -短视频 -视频 -动画 -电视剧 -百科 -词典 -字典 -拼音 -解释 -汉语 -国学 -贴吧 -知乎 -小红书 -微博 -douyin -tiktok -bilibili -youtube -wiki';
   if (siteHint.trim().length > 0) query += ' ' + siteHint.trim();
   return query.replace(/\s+/g, ' ').trim();

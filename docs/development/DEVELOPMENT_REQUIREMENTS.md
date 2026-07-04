@@ -63,6 +63,9 @@
 - 搜索默认无需 API Key 可用。
 - 默认优先 Bing、DuckDuckGo 等无 Key 搜索链路。
 - API Key 类能力放入设置页高级区。
+- API 搜索源（Internet Archive/Wikimedia/Open Library/Library of Congress/Pepper）已集成，无需 Key。
+- 搜索模式：`mixed`（默认，同时使用搜索引擎和 API 源）/`engine_only`/`api_only`。
+- 书架/历史/主题/语言通过 `@ohos.data.preferences` 持久化存储，App 重启后数据保留。
 
 ## 五、书架 / 热门题材
 
@@ -119,6 +122,7 @@
 - 远程规则失败时保留内置规则。
 - 自定义规则属于高级功能。
 - 远程规则和自定义规则必须校验 schema、URL、数量和字段长度。
+- 自定义规则在设置页高级规则区域有 TextInput 和"启用"按钮，用户输入 JSON 后点击"启用"即可解析并按 ID 去重后加入规则列表。
 - 热门题材推荐后续应由规则仓库或目录索引自动生成并更新。
 
 ## 十、代码结构
