@@ -7,7 +7,7 @@
 ### 已完成
 
 - 搜索输入框 X 图标靠右对齐（Stack + Row justifyContent End）。
-- 搜索按钮颜色改回 `#34C759`，加载时 Canvas 沿胶囊形轮廓绘制渐变描边旋转动画（深绿→透明）。
+- 搜索按钮颜色改回 `#34C759`，加载时 Canvas 沿胶囊形轮廓绘制渐变描边旋转动画（中间最亮→两端渐隐）。
 - 搜索按钮固定宽度 76vp，Canvas 也用 76vp，不再撑开容器。
 - 搜索框改为透明背景+灰色线框。
 - 搜索按钮加载时始终显示"搜索"文字。
@@ -16,11 +16,12 @@
 - HeaderOverlay 搜索框行加 padding top 8vp，headerOverlayHeight 从 56 增到 64。
 - Tab 图标状态修复：`@Builder UiIcon` 不通过参数传 selected，改为内部直接用 `this.activeTab === name` 驱动。
 - `@Builder` 中 if/else 分支改为三元表达式，避免状态追踪失效。
+- 加载动画渐变方向改为中间向两端渐隐（`alpha = 1.0 - 2.0 * |t - 0.5|`）。
 - 更新经验教训文档（新增 6 条经验：#20-#25）。
 
 ### 验证证据
 
-- 增量构建 v0.1.10 通过（0 ERROR，6 WARN），HAP 安装到设备验证。
+- 增量构建 v0.1.11 通过（0 ERROR，6 WARN），HAP 安装到设备验证。
 
 ### 未完成边界
 

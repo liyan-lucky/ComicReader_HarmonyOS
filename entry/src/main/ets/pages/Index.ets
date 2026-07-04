@@ -1054,12 +1054,7 @@ struct Index {
     ctx.lineCap = 'butt';
     for (let i = 0; i < segments; i++) {
       const t = i / segments;
-      let alpha: number;
-      if (t < 0.15) {
-        alpha = 1.0;
-      } else {
-        alpha = 1.0 - (t - 0.15) / 0.85;
-      }
+      const alpha = 1.0 - 2.0 * Math.abs(t - 0.5);
       if (alpha <= 0.02) continue;
       const startDist = offset + i * segLen;
       const endDist = offset + (i + 1) * segLen;
