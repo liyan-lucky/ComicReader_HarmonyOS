@@ -89,7 +89,7 @@ function looksLikeChapter(title: string, url: string): boolean {
     return false;
   }
   const cleanTitle = title.replace(/\s+/g, ' ').trim();
-  if (cleanTitle.length > 48 || /^(首页|分类|排行|排行榜|更新|历史|登录|注册|收藏|书架|恋爱|校园|霸总|都市|搜索|查看全部|查看更多)$/i.test(cleanTitle) ||
+  if (cleanTitle.length > 48 || /^(首页|分类|排行|排行榜|榜单|榜单中心|更新|历史|登录|注册|收藏|书架|恋爱|校园|霸总|都市|搜索|查看全部|查看更多)$/i.test(cleanTitle) ||
     /(阅读顺序|建议从|作品速览|相似(?:漫画|作品)?|相关推荐|全部章节|章节总数|更新信息|更多作品)/i.test(cleanTitle)) {
     return false;
   }
