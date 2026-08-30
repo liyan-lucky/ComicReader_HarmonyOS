@@ -93,8 +93,15 @@ function looksLikeChapter(title: string, url: string): boolean {
     /(阅读顺序|建议从|作品速览|相似(?:漫画|作品)?|相关推荐|全部章节|章节总数|更新信息|更多作品)/i.test(cleanTitle)) {
     return false;
   }
-  if (/(第\s*\d+|第[一二三四五六七八九十百千零〇两]+|话|章|回|卷|chapter|episode|ep\.?\s*\d+|chap)/i.test(text)) {
+  if (/(第\s*\d+|第[一二三四五六七八九十百千零〇两]+|话|章|回|卷|chapter|episode|ep\.?\s*\d+|chap)/i.test(cleanTitle)) {
     return true;
+  }
+  // Search recommendations and cross-promotions often point to a `/read/`
+  // route but are not chapters of the current book. Only numbered chapter
+  // titles may contain this promotional wording.
+  if (/(漫画下拉式|免费阅读|我开启了|相关推荐|猜你喜欢)/i.test(cleanTitle) ||
+    (cleanTitle.match(/漫画/g) ?? []).length > 1) {
+    return false;
   }
   return /\/(ch|chapter|episode|ep|read|view|viewer)[-_\/0-9a-z]+/i.test(url);
 }

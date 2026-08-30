@@ -127,6 +127,16 @@ struct Index {
   private coverCacheDir: string = '';
   private pendingCatalogVersion: string = '';
   private pendingCatalogUrl: string = '';
+  private chapterScroller: Scroller = new Scroller();
+
+  private resetChapterScroll(): void {
+    // The chapters builder replaces the result list in the same page. ArkUI
+    // may otherwise retain the previous Scroll offset, making an ascending
+    // list appear to start halfway through a book.
+    setTimeout(() => {
+      this.chapterScroller.scrollEdge(Edge.Top);
+    }, 0);
+  }
 
   private async initPreferences(): Promise<void> {
     try {
@@ -1095,6 +1105,7 @@ struct Index {
     this.chapters = [];
     this.images = [];
     this.mode = 'chapters';
+    this.resetChapterScroll();
     this.statusText = this.t('reading_chapters');
     this.detailLoading = true;
     this.detailReceivedBytes = 0;
@@ -1169,6 +1180,27 @@ struct Index {
       }
       let parsedChapters = parseChapters(html, rule, url);
       if (parsedChapters.length === 0) parsedChapters = parseChaptersFallback(html, rule, url);
+      // Some comic sites intermittently return a recommendation/challenge
+      // shell with HTTP 200. A single parse must not replace a real directory
+      // with one unrelated link, so retry suspiciously small manifests and
+      // keep whichever response yields the most chapter-like entries.
+      for (let retryIndex = 0; retryIndex < 2 && parsedChapters.length < 3; retryIndex++) {
+        try {
+          this.statusText = this.t('loading_chapters') + ' · ' + this.t('retry') + ' ' + (retryIndex + 1) + '/2';
+          const retryHtml = await HttpClient.getTextWithProgressTimeout(url, rule.userAgent,
+            rule.referer.length > 0 ? rule.referer : url,
+            (received: number, total: number) => {
+              this.detailReceivedBytes = received;
+              this.detailTotalBytes = total;
+            }, 30000);
+          let retryChapters = parseChapters(retryHtml, rule, url);
+          if (retryChapters.length === 0) retryChapters = parseChaptersFallback(retryHtml, rule, url);
+          if (retryChapters.length > parsedChapters.length) parsedChapters = retryChapters;
+        } catch (retryError) {
+          // Preserve the best successful response. A failed reliability retry
+          // must not turn a legitimate one-shot chapter into a request error.
+        }
+      }
       this.chapters = parsedChapters;
       if (parsedChapters.length === 0) {
         this.statusText = this.t('no_chapters');
@@ -1275,6 +1307,12 @@ struct Index {
   }
 
   private chapterNumber(title: string): number {
+    // Several official catalogs prefix the stable episode sequence before the
+    // display title, e.g. `221 - 第131回（上）`. The leading 221 is the real
+    // reading order; using 131 groups split parts incorrectly and moves the
+    // first 220 episodes behind them.
+    const leading = /^\s*(\d+)\s*[-—–.:：]/.exec(title);
+    if (leading && leading[1].length > 0) return Number(leading[1]);
     const match = /第\s*(\d+)\s*[话章回卷]|(?:chapter\s*|episode\s*|ep\.?\s*)(\d+)/i.exec(title);
     if (!match) return -1;
     if (match[1] !== undefined && match[1].length > 0) return Number(match[1]);
@@ -1908,7 +1946,7 @@ struct Index {
           Text(this.detailProgressText()).fontSize(12).fontColor(this.secondaryText()).width('100%')
         }.width('100%').padding({ left: 14, right: 14, bottom: 10 })
       }
-      Scroll() {
+      Scroll(this.chapterScroller) {
         Column() {
           if (this.chapters.length === 0) {
             Text(this.t('no_chapters')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(12).backgroundColor(this.cardBg()).borderRadius(10)
