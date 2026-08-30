@@ -20,13 +20,14 @@ const BLOCKED_SEARCH_WORDS: string[] = [
 ];
 
 const PREFERRED_COMIC_DOMAINS: string[] = [
-  'soullandmanga.com', 'kaixinman.com', 'manhuaus.com', 'mangafire.to', 'mgeko.cc', 'happymh.com',
+  'ac.qq.com', 'kuaikanmanhua.com', 'manga.bilibili.com', 'bilibilicomics.com', 'u17.com',
+  'manhuadao.cn', 'dongmanmanhua.cn', 'soullandmanga.com', 'kaixinman.com', 'manhuaus.com', 'mangafire.to', 'mgeko.cc', 'happymh.com',
   'mangaread.org', 'mangadna.com', 'mh160mh.com', 'shenlanqiyu.cc', 'manga', 'manhua', 'comic', 'webtoon'
 ];
 
 export const DEFAULT_SEARCH_ENGINES: SearchEngineConfig[] = [
-  { id: 'bing_web_html', name: 'Bing 网页结果', description: '无 API Key 模式，读取 Bing 网页搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'bing-html', searchUrl: 'https://www.bing.com/search?q={query}', requiresKey: false, enabled: true },
   { id: 'duckduckgo_html', name: 'DuckDuckGo 网页结果', description: '无 API Key 模式，读取 DuckDuckGo HTML/Lite 搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'duckduckgo-html', searchUrl: 'https://duckduckgo.com/html/?q={query}', requiresKey: false, enabled: true },
+  { id: 'bing_web_html', name: 'Bing 网页结果', description: '无 API Key 模式，读取 Bing 网页搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'bing-html', searchUrl: 'https://www.bing.com/search?q={query}', requiresKey: false, enabled: true },
   { id: 'google_web_html', name: 'Google 网页结果', description: '读取 Google 普通网页结果页；稳定性取决于网络与搜索页是否允许直接访问。', engineType: 'google-html', searchUrl: 'https://www.google.com/search?q={query}', requiresKey: false, enabled: true },
   { id: 'yandex_web_html', name: 'Yandex 网页结果', description: '读取 Yandex 网页搜索结果页，适合英文/多语言兜底检索。', engineType: 'yandex-html', searchUrl: 'https://yandex.com/search/?text={query}', requiresKey: false, enabled: true },
   { id: 'brave_search_api', name: 'Brave Search API', description: '官方 Brave Search API，需要在设置里填写 API Key。', engineType: 'brave-api', searchUrl: 'https://api.search.brave.com/res/v1/web/search?q={query}&count=20', requiresKey: true, enabled: false },
@@ -186,7 +187,13 @@ function isBlockedSearchResult(title: string, url: string, desc: string): boolea
   const lowerUrl = url.toLowerCase();
   const host = hostOf(url);
   const text = (title + ' ' + desc + ' ' + url).toLowerCase();
-  if (containsAny(host, BLOCKED_SEARCH_DOMAINS) || containsAny(lowerUrl, BLOCKED_SEARCH_DOMAINS)) return true;
+  // Official comic sections remain valid search resources even when their
+  // parent domain also hosts video/community content or requires login/pay.
+  const officialComic = lowerUrl.indexOf('ac.qq.com/') >= 0 || lowerUrl.indexOf('kuaikanmanhua.com/') >= 0 ||
+    lowerUrl.indexOf('manga.bilibili.com/') >= 0 || lowerUrl.indexOf('bilibili.com/manga') >= 0 ||
+    lowerUrl.indexOf('bilibilicomics.com/') >= 0 || lowerUrl.indexOf('u17.com/') >= 0 ||
+    lowerUrl.indexOf('manhuadao') >= 0 || lowerUrl.indexOf('dongmanmanhua.cn/') >= 0;
+  if (!officialComic && (containsAny(host, BLOCKED_SEARCH_DOMAINS) || containsAny(lowerUrl, BLOCKED_SEARCH_DOMAINS))) return true;
   if (containsAny(text, BLOCKED_SEARCH_WORDS) && !isPreferredComicDomain(url)) return true;
   return false;
 }
@@ -226,7 +233,10 @@ export function buildEngineQuery(keyword: string, extraTerms: string, languageMo
   else if (languageMode === 'english' || languageMode === '英文') query += ' comic manga read online chapter';
   else if (languageMode === 'japanese' || languageMode === '日文') query += ' manga webcomic chapter';
   else if (languageMode === 'korean' || languageMode === '韩文') query += ' manhwa webtoon episode';
-  query += ' -抖音 -短视频 -视频 -动画 -电视剧 -百科 -词典 -字典 -拼音 -解释 -汉语 -国学 -贴吧 -知乎 -小红书 -微博 -douyin -tiktok -bilibili -youtube -wiki';
+  // Keep the query compact. Long exclusion chains made HTML search providers
+  // return empty/challenge pages and also removed official Bilibili Manga.
+  // Non-comic domains and words are filtered after parsing instead.
+  query += ' -短视频 -百科 -小说';
   if (siteHint.trim().length > 0) query += ' ' + siteHint.trim();
   return query.replace(/\s+/g, ' ').trim();
 }
@@ -282,8 +292,7 @@ function parseByPatterns(html: string, engine: SearchEngineConfig, keyword: stri
 
 function parseGenericHtmlResults(html: string, engine: SearchEngineConfig, keyword: string, baseUrl: string): SearchResultItem[] {
   const strictItems = parseByPatterns(html, engine, keyword, baseUrl, true);
-  if (strictItems.length > 0) return strictItems.slice(0, 30);
-  return parseByPatterns(html, engine, keyword, baseUrl, false).slice(0, 12);
+  return strictItems.slice(0, 30);
 }
 
 function parseGoogleCseResults(jsonText: string, engine: SearchEngineConfig, keyword: string): SearchResultItem[] {

@@ -25,6 +25,14 @@ export interface ComicSourceRule {
   readerNextPageUrlGroups?: number[];
   /** 章节页最多追踪页数，避免死循环，默认 1。 */
   maxReaderPages?: number;
+  /** 规则许可证。 */
+  license?: string;
+  /** 规则来源类型。 */
+  sourceType?: string;
+  /** 合规标记。 */
+  compliance?: Record<string, string | boolean | number>;
+  /** 域名适用列表，用于 URL 匹配。 */
+  domainApplicabilityList?: string[];
 }
 
 export interface SearchEngineConfig {
@@ -90,10 +98,56 @@ export interface ReadingHistoryItem {
   progressPercent: number;
 }
 
+export interface CatalogSource {
+  domain: string;
+  detailUrl?: string;
+  searchUrl?: string;
+  coverUrl?: string;
+  chapters?: CatalogChapter[];
+}
+
+export interface CatalogChapter {
+  title: string;
+  url: string;
+}
+
+export interface CatalogItem {
+  id: string;
+  title: string;
+  sources: CatalogSource[];
+  category: string;
+  language: string;
+  verifiedChapterCount?: number;
+  validationPolicy?: string;
+}
+
+export interface CatalogCategory {
+  id: string;
+  name: string;
+  count: number;
+  items: CatalogItem[];
+}
+
+export interface LanguageInfo {
+  code: string;
+  name: string;
+}
+
+export interface RemoteCatalog {
+  schema?: string;
+  version?: string;
+  updatedAt?: string;
+  language?: LanguageInfo;
+  totalItems?: number;
+  categoryCount?: number;
+  categories?: Record<string, CatalogCategory>;
+}
+
 export interface BookshelfItem {
   title: string;
   url: string;
   cover: string;
+  remoteCover?: string;
   sourceId: string;
   sourceName: string;
   lastChapterTitle: string;

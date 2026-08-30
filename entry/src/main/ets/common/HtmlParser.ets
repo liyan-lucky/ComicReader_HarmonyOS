@@ -88,10 +88,19 @@ function looksLikeChapter(title: string, url: string): boolean {
   if (text.length < 1) {
     return false;
   }
-  if (/(第\s*\d+|第[一二三四五六七八九十百千零〇两]+|话|章|回|卷|chapter|episode|ep\.?\s*\d+|chap|comic|manga|manhua|manhwa)/i.test(text)) {
+  const cleanTitle = title.replace(/\s+/g, ' ').trim();
+  if (cleanTitle.length > 48 || /^(首页|分类|排行|排行榜|更新|历史|登录|注册|收藏|书架|恋爱|校园|霸总|都市|搜索|查看全部|查看更多)$/i.test(cleanTitle) ||
+    /(阅读顺序|建议从|作品速览|相似(?:漫画|作品)?|相关推荐|全部章节|章节总数|更新信息|更多作品)/i.test(cleanTitle)) {
+    return false;
+  }
+  if (/(第\s*\d+|第[一二三四五六七八九十百千零〇两]+|话|章|回|卷|chapter|episode|ep\.?\s*\d+|chap)/i.test(text)) {
     return true;
   }
-  return /\/(ch|chapter|episode|ep|read|view|comic|manga)[-_\/0-9a-z]+/i.test(url);
+  return /\/(ch|chapter|episode|ep|read|view|viewer)[-_\/0-9a-z]+/i.test(url);
+}
+
+function hasExplicitChapterNumber(title: string): boolean {
+  return /(第\s*[0-9一二三四五六七八九十百千零〇两]+\s*[话章回卷]|chapter\s*\d+|episode\s*\d+|ep\.?\s*\d+)/i.test(title);
 }
 
 function looksLikeImage(url: string): boolean {
@@ -111,6 +120,14 @@ function looksLikeImage(url: string): boolean {
   return lower.indexOf('/image') >= 0 || lower.indexOf('/img') >= 0;
 }
 
+function looksLikeReaderImage(url: string): boolean {
+  const lower = url.toLowerCase();
+  if (!looksLikeImage(lower)) return false;
+  if (/(?:^|[\/_\-.])(logo|icon|avatar|banner|advert|ads?|loading|placeholder|spinner|emoji|favicon)(?:[\/_\-.]|$)/i.test(lower)) return false;
+  if (/(?:cover|thumb|thumbnail|chaptercover|search-downlist|site-logo)/i.test(lower)) return false;
+  return true;
+}
+
 function extractCoverFromBlock(block: string, pageUrl: string): string {
   const patterns: RegExp[] = [
     /<img[^>]+(?:data-original|data-src|data-lazy-src|src)=["']([^"']+)["'][^>]*>/i,
@@ -121,7 +138,7 @@ function extractCoverFromBlock(block: string, pageUrl: string): string {
     const match = patterns[i].exec(block);
     if (match && match.length > 1) {
       const url = resolveUrl(match[1], pageUrl);
-      if (url.length > 0 && looksLikeImage(url)) {
+      if (url.length > 0 && looksLikeReaderImage(url)) {
         return url;
       }
     }
@@ -189,7 +206,8 @@ export function parseChapters(html: string, rule: ComicSourceRule, pageUrl: stri
     const url = resolveUrl(rawUrl, pageUrl);
     if (title.length > 0 && url.length > 0 && isHttpUrl(url)) {
       if (!rule.detailChapterFilter || looksLikeChapter(title, url)) {
-        if (!chapters.some((item: ChapterItem) => item.url === url)) {
+        const duplicateIndex = chapters.findIndex((item: ChapterItem) => item.url === url);
+        if (duplicateIndex < 0) {
           chapters.push({
             title: title,
             url: url,
@@ -197,6 +215,8 @@ export function parseChapters(html: string, rule: ComicSourceRule, pageUrl: stri
             sourceId: rule.id,
             sourceName: rule.name
           });
+        } else if (hasExplicitChapterNumber(title) && !hasExplicitChapterNumber(chapters[duplicateIndex].title)) {
+          chapters[duplicateIndex].title = title;
         }
       }
     }
@@ -204,6 +224,30 @@ export function parseChapters(html: string, rule: ComicSourceRule, pageUrl: stri
       regex.lastIndex++;
     }
     match = regex.exec(html);
+  }
+  return chapters;
+}
+
+export function parseChaptersFallback(html: string, rule: ComicSourceRule, pageUrl: string): ChapterItem[] {
+  const chapters: ChapterItem[] = [];
+  const anchorRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match = anchorRegex.exec(html);
+  let guard = 0;
+  while (match !== null && guard < 3000 && chapters.length < 800) {
+    guard++;
+    const title = cleanHtmlText(match[2]);
+    const url = resolveUrl(normalizeUrlCandidate(match[1]), pageUrl);
+    if (title.length > 0 && isHttpUrl(url) && looksLikeChapter(title, url)) {
+      const duplicateIndex = chapters.findIndex((item: ChapterItem) => item.url === url);
+      if (duplicateIndex < 0) {
+        chapters.push({ title: title, url: url, index: chapters.length + 1,
+          sourceId: rule.id, sourceName: rule.name });
+      } else if (hasExplicitChapterNumber(title) && !hasExplicitChapterNumber(chapters[duplicateIndex].title)) {
+        chapters[duplicateIndex].title = title;
+      }
+    }
+    if (match.index === anchorRegex.lastIndex) anchorRegex.lastIndex++;
+    match = anchorRegex.exec(html);
   }
   return chapters;
 }
@@ -230,11 +274,15 @@ export function parseImages(html: string, rule: ComicSourceRule, pageUrl: string
     }
     match = regex.exec(html);
   }
-  const extraUrls = extractImageUrlsFromText(html, pageUrl);
-  for (let i = 0; i < extraUrls.length; i++) {
-    const url = extraUrls[i];
-    if (!images.some((item: ReaderImageItem) => item.url === url)) {
-      images.push({ url: url, index: images.length + 1, status: 'waiting' });
+  // One or two matches are commonly the page cover and a placeholder. Keep
+  // scanning embedded chapter arrays/scripts before declaring the page done.
+  if (images.length < 3) {
+    const extraUrls = extractImageUrlsFromText(html, pageUrl);
+    for (let i = 0; i < extraUrls.length; i++) {
+      const url = extraUrls[i];
+      if (looksLikeReaderImage(url) && !images.some((item: ReaderImageItem) => item.url === url)) {
+        images.push({ url: url, index: images.length + 1, status: 'waiting' });
+      }
     }
   }
   return images;

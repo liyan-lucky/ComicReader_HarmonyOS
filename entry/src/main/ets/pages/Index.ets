@@ -1,10 +1,11 @@
-import { ComicSourceRule, SearchResultItem, ChapterItem, ReaderImageItem, ReadingHistoryItem, BookshelfItem, SearchEngineConfig } from '../model/ComicModels';
+import { ComicSourceRule, SearchResultItem, ChapterItem, ReaderImageItem, ReadingHistoryItem, BookshelfItem, SearchEngineConfig, RemoteCatalog, CatalogCategory, CatalogItem, CatalogSource } from '../model/ComicModels';
 import { DEFAULT_SOURCES, RULE_TEMPLATE, ruleForPublicUrl } from '../common/SourceRules';
 import { HttpClient } from '../common/HttpClient';
-import { parseSearchResults, parseChapters, parseImages, parseNextPageUrl } from '../common/HtmlParser';
+import { parseSearchResults, parseChapters, parseChaptersFallback, parseImages, parseNextPageUrl } from '../common/HtmlParser';
 import { looksLikeUrl, normalizeUserUrl } from '../common/UrlUtil';
 import { DEFAULT_SEARCH_ENGINES, buildEngineQuery, buildSearchEngineUrl, parseSearchEngineResults, isEngineConfigured, engineHeaders, searchEngineUserAgent } from '../common/SearchEngines';
 import { RemoteRuleService, DEFAULT_REMOTE_RULE_URL } from '../common/RemoteRuleService';
+import { CatalogService } from '../common/CatalogService';
 import { APP_VERSION, APP_BUILD_TIME } from '../common/BuildInfo';
 import {
   buildInternetArchiveSearchUrl, parseInternetArchiveSearch,
@@ -22,6 +23,8 @@ import drawing from '@ohos.graphics.drawing';
 import common from '@ohos.app.ability.common';
 import window from '@ohos.window';
 import dataPreferences from '@ohos.data.preferences';
+import util from '@ohos.util';
+import fs from '@ohos.file.fs';
 
 function toArgbColor(color: string): number {
   const normalized = color.trim().startsWith('#') ? color.trim().substring(1) : color.trim();
@@ -49,12 +52,26 @@ struct Index {
   @State private images: ReaderImageItem[] = [];
   @State private history: ReadingHistoryItem[] = [];
   @State private bookshelf: BookshelfItem[] = [];
+  @State private remoteCatalog: RemoteCatalog | null = null;
+  @State private catalogCategories: CatalogCategory[] = [];
+  @State private selectedCatalogCategory: string = '';
+  @State private catalogItems: CatalogItem[] = [];
+  @State private catalogLoading: boolean = false;
+  @State private catalogUpdateStatus: string = '';
+  @State private catalogCheckingOnline: boolean = false;
+  @State private catalogUpdateAvailable: boolean = false;
+  @State private catalogReceivedBytes: number = 0;
+  @State private catalogTotalBytes: number = 0;
+  @State private catalogProgressPercent: number = 0;
   @State private currentTitle: string = '';
   @State private currentUrl: string = '';
   @State private currentChapterTitle: string = '';
   @State private currentCover: string = '';
   @State private currentSourceId: string = '';
   @State private currentSourceName: string = '';
+  @State private detailLoading: boolean = false;
+  @State private detailReceivedBytes: number = 0;
+  @State private detailTotalBytes: number = 0;
   @State @Watch('onLoadingChanged') private isLoading: boolean = false;
   @State private loadingAngle: number = 0;
   private loadingTimerId: number = -1;
@@ -73,30 +90,52 @@ struct Index {
   @State private enableHtmlRules: boolean = true;
   @State private autoCoverEnabled: boolean = false;
   @State private maxSearchResults: number = 40;
-  @State private maxReaderPages: number = 6;
+  @State private maxReaderPages: number = 30;
+  @State private readerRenderLimit: number = 6;
+  @State private readerPaginationLoading: boolean = false;
+  @State private readerChangingChapter: boolean = false;
+  @State private chapterReversed: boolean = true;
   @State private showImageIndex: boolean = true;
   @State private readerDarkMode: boolean = true;
   @State private fullscreenReader: boolean = true;
   @State private floatingReaderControls: boolean = true;
+  @State private readerToolsVisible: boolean = false;
   @State private appTheme: string = 'light';
   @State private appLanguage: string = 'zh';
+  @StorageProp('systemColorMode') private systemColorMode: string = 'light';
+  @StorageProp('uiVersion') @Watch('onUiVersionChanged') private uiRefresh: number = 0;
+  @State private uiVersion: number = 0;
   @State private remoteRuleUrl: string = DEFAULT_REMOTE_RULE_URL;
   @State private remoteRuleStatus: string = '';
   @State private remoteRuleCount: number = 0;
+  @State private updatingCatalog: boolean = false;
+  @State private updatingRules: boolean = false;
+  @State private updateDialogVisible: boolean = false;
   @State private customRuleText: string = RULE_TEMPLATE;
   @State private settingsDialog: string = '';
   @State private themeDialogVisible: boolean = false;
   @State private languageDialogVisible: boolean = false;
   @State private avoidStatusBarHeight: number = 0;
+  @State private bottomSafeInset: number = 28;
+  @State private debugKeepScreenOn: boolean = true;
+  @State private historyTab: string = 'history';
+  @State private historyViewMode: string = 'list';
+  @State private historyMenuVisible: boolean = false;
 
-  @State private systemColorMode: string = 'light';
   private preferencesStore: dataPreferences.Preferences | null = null;
+  private catalogCachePath: string = '';
+  private coverCacheDir: string = '';
+  private pendingCatalogVersion: string = '';
+  private pendingCatalogUrl: string = '';
 
   private async initPreferences(): Promise<void> {
     try {
       const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      this.coverCacheDir = context.filesDir + '/bookshelf_covers';
+      try { fs.mkdirSync(this.coverCacheDir, true); } catch (e) {}
       this.preferencesStore = await dataPreferences.getPreferences(context, 'comic_reader_store');
       await this.loadPersistedData();
+      this.cacheExistingBookshelfCovers();
     } catch (e) {
     }
   }
@@ -115,11 +154,16 @@ struct Index {
       const appTheme = await this.preferencesStore.get('app_theme', 'light') as string;
       if (typeof appTheme === 'string' && appTheme.length > 0) {
         this.appTheme = appTheme;
+        this.updateSystemBarColors();
       }
       const appLanguage = await this.preferencesStore.get('app_language', 'zh') as string;
       if (typeof appLanguage === 'string' && appLanguage.length > 0) {
         this.appLanguage = appLanguage;
+        this.refreshCatalogLanguageFilter();
       }
+      this.debugKeepScreenOn = await this.preferencesStore.get('debug_keep_screen_on', true) as boolean;
+      this.chapterReversed = await this.preferencesStore.get('chapter_reversed', true) as boolean;
+      this.applyKeepScreenOn();
     } catch (e) {
     }
   }
@@ -131,6 +175,8 @@ struct Index {
       await this.preferencesStore.put('bookshelf', JSON.stringify(this.bookshelf));
       await this.preferencesStore.put('app_theme', this.appTheme);
       await this.preferencesStore.put('app_language', this.appLanguage);
+      await this.preferencesStore.put('debug_keep_screen_on', this.debugKeepScreenOn);
+      await this.preferencesStore.put('chapter_reversed', this.chapterReversed);
       await this.preferencesStore.flush();
     } catch (e) {
     }
@@ -143,20 +189,174 @@ struct Index {
     this.avoidStatusBarHeight = 48;
     try {
       const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
-      const config = context.config;
-      if (config && config.colorMode !== undefined && config.colorMode === -1) {
-        this.systemColorMode = 'dark';
-      }
       const mainWindow = context.windowStage.getMainWindowSync();
       const avoidArea = mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
       const measured = px2vp(avoidArea.topRect.height);
+      const bottomMeasured = px2vp(avoidArea.bottomRect.height);
       console.info(`ComicReader avoidStatusBarHeight measured=${measured} raw=${avoidArea.topRect.height} default=48`);
       if (measured > 0) this.avoidStatusBarHeight = measured;
+      if (bottomMeasured > 0) this.bottomSafeInset = bottomMeasured;
     } catch (e) {
       console.error(`ComicReader avoidStatusBarHeight failed: ${JSON.stringify(e)}`);
     }
     console.info(`ComicReader avoidStatusBarHeight final=${this.avoidStatusBarHeight}`);
     this.initPreferences();
+    this.loadRemoteCatalog();
+  }
+
+  private applyCatalog(catalog: RemoteCatalog): void {
+    this.remoteCatalog = catalog;
+    this.catalogCategories = CatalogService.getCategories(catalog);
+    if (this.catalogCategories.length === 0) {
+      this.selectedCatalogCategory = '';
+      this.catalogItems = [];
+      return;
+    }
+    const selectedExists = this.catalogCategories.some((cat: CatalogCategory) =>
+      cat.id === this.selectedCatalogCategory);
+    if (!selectedExists) this.selectedCatalogCategory = this.catalogCategories[0].id;
+    this.catalogItems = this.filteredCatalogItems(catalog, this.selectedCatalogCategory);
+  }
+
+  private isChineseCatalogTitle(title: string): boolean {
+    const hasHan = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(title);
+    const hasJapaneseKana = /[\u3040-\u30FF]/.test(title);
+    const hasKorean = /[\uAC00-\uD7AF]/.test(title);
+    return hasHan && !hasJapaneseKana && !hasKorean;
+  }
+
+  private isCatalogNavigationTitle(title: string): boolean {
+    const value = title.replace(/\s+/g, ' ').trim();
+    return /^(?:作品)?分类$|^(?:查看)?全部(?:作品|漫画)?$|^(?:查看)?更多(?:[\u3400-\u9FFF]{0,8}类)?(?:作品|漫画)?$|^(?:进入|返回)(?:分类|首页)$|^(?:完结抽奖|书页|没有了|暂无更多|没有更多了?|已经到底了?|加载更多|上[一]?页|下[一]?页|首[页章]|尾页|末页|浏览历史|阅读历史|历史记录|我的历史|漫.{0,6}的历史)$/.test(value);
+  }
+
+  private isCatalogNavigationItem(item: CatalogItem): boolean {
+    if (this.isCatalogNavigationTitle(item.title)) return true;
+    for (let i = 0; i < item.sources.length; i++) {
+      const url = (item.sources[i].detailUrl ?? '').toLowerCase();
+      if (/(?:\/|[?&])(history|category|categories|genre|genres|rank|ranking|bookshelf|bookmark|login|register)(?:\/|[?&=]|$)/.test(url)) return true;
+    }
+    return false;
+  }
+
+  private filteredCatalogItems(catalog: RemoteCatalog, categoryId: string): CatalogItem[] {
+    const items = CatalogService.getItemsForCategory(catalog, categoryId);
+    if (this.appLanguage === 'en') {
+      return items.filter((item: CatalogItem) => !this.isCatalogNavigationItem(item) && /[A-Za-z]/.test(item.title) &&
+        !/[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/.test(item.title));
+    }
+    return items.filter((item: CatalogItem) => !this.isCatalogNavigationItem(item) && this.isChineseCatalogTitle(item.title));
+  }
+
+  private refreshCatalogLanguageFilter(): void {
+    if (this.remoteCatalog !== null && this.selectedCatalogCategory.length > 0) {
+      this.catalogItems = this.filteredCatalogItems(this.remoteCatalog, this.selectedCatalogCategory);
+    }
+  }
+
+  private loadCachedCatalog(): RemoteCatalog | null {
+    try {
+      if (this.catalogCachePath.length > 0 && fs.accessSync(this.catalogCachePath)) {
+        return JSON.parse(fs.readTextSync(this.catalogCachePath)) as RemoteCatalog;
+      }
+    } catch (e) {
+    }
+    return null;
+  }
+
+  private saveCatalogCache(catalog: RemoteCatalog): void {
+    if (this.catalogCachePath.length === 0) return;
+    const tempPath = this.catalogCachePath + '.tmp';
+    try {
+      const output: fs.File = fs.openSync(tempPath,
+        fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      try {
+        fs.writeSync(output.fd, JSON.stringify(catalog));
+      } finally {
+        fs.closeSync(output);
+      }
+      if (fs.accessSync(this.catalogCachePath)) fs.unlinkSync(this.catalogCachePath);
+      fs.renameSync(tempPath, this.catalogCachePath);
+    } catch (e) {
+      try {
+        if (fs.accessSync(tempPath)) fs.unlinkSync(tempPath);
+      } catch (ignored) {
+      }
+    }
+  }
+
+  private catalogStage(zh: string, en: string): string {
+    return this.isEn() ? en : zh;
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes <= 0) return '--';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  private detailProgressText(): string {
+    if (this.detailTotalBytes > 0) {
+      const percent = Math.min(100, Math.floor(this.detailReceivedBytes * 100 / this.detailTotalBytes));
+      return percent + '% · ' + this.formatBytes(this.detailReceivedBytes) + ' / ' + this.formatBytes(this.detailTotalBytes);
+    }
+    if (this.detailReceivedBytes > 0) return this.formatBytes(this.detailReceivedBytes);
+    return this.t('reading_chapters');
+  }
+
+  private catalogProgressText(): string {
+    if (this.catalogTotalBytes > 0) {
+      return this.catalogProgressPercent + '% · ' + this.formatBytes(this.catalogReceivedBytes) +
+        ' / ' + this.formatBytes(this.catalogTotalBytes);
+    }
+    if (this.catalogReceivedBytes > 0) return this.formatBytes(this.catalogReceivedBytes);
+    return this.catalogUpdateStatus;
+  }
+
+  private async loadRemoteCatalog(): Promise<void> {
+    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    this.catalogCachePath = context.filesDir + '/catalog.zh-Hans.cache.json';
+    this.catalogLoading = true;
+    this.catalogUpdateStatus = this.catalogStage('正在读取内置目录…', 'Reading bundled catalog…');
+    try {
+      const rawBytes = context.resourceManager.getRawFileContentSync('catalog/catalog.zh-Hans.json');
+      const decoder = new util.TextDecoder('utf-8');
+      const rawStr = decoder.decodeToString(rawBytes);
+      const localCatalog = JSON.parse(rawStr) as RemoteCatalog;
+      if (localCatalog.categories) this.applyCatalog(localCatalog);
+    } catch (e) {
+    }
+    this.catalogUpdateStatus = this.catalogStage('正在读取目录缓存…', 'Reading catalog cache…');
+    const cachedCatalog = this.loadCachedCatalog();
+    if (cachedCatalog?.categories && cachedCatalog.version &&
+      CatalogService.isNewerVersion(cachedCatalog.version, this.remoteCatalog?.version)) {
+      this.applyCatalog(cachedCatalog);
+    }
+    this.catalogLoading = this.remoteCatalog === null;
+    try {
+      this.catalogCheckingOnline = true;
+      this.catalogUpdateStatus = this.catalogStage('正在检查线上目录版本…', 'Checking online catalog version…');
+      const update = await CatalogService.fetchCatalogUpdate();
+      if (CatalogService.isNewerVersion(update.version, this.remoteCatalog?.version)) {
+        this.pendingCatalogVersion = update.version;
+        this.pendingCatalogUrl = update.url;
+        this.catalogUpdateAvailable = true;
+        this.catalogUpdateStatus = this.catalogStage('发现目录更新 ' + update.version + '，请在数据更新中确认',
+          'Catalog update ' + update.version + ' is available. Confirm in Data Update.');
+      } else {
+        this.catalogUpdateAvailable = false;
+        this.catalogUpdateStatus = this.catalogStage('目录已是最新，继续使用缓存',
+          'Catalog is current. Using cache.');
+      }
+      this.catalogLoading = false;
+    } catch (e) {
+      this.catalogLoading = false;
+      this.catalogUpdateStatus = this.catalogStage('线上检查失败，继续使用现有缓存',
+        'Online check failed. Using existing cache.');
+      console.error('ComicReader catalog startup check failed: ' + JSON.stringify(e));
+    } finally {
+      this.catalogCheckingOnline = false;
+    }
   }
 
   onBackPress(): boolean {
@@ -191,11 +391,45 @@ struct Index {
     return this.appTheme === 'dark';
   }
 
+  private updateSystemBarColors(): void {
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const contentColor = this.isDark() ? '#FFFFFF' : '#000000';
+      context.windowStage.getMainWindowSync().setWindowSystemBarProperties({
+        statusBarColor: '#00000000',
+        statusBarContentColor: contentColor,
+        navigationBarColor: '#00000000',
+        navigationBarContentColor: contentColor
+      });
+    } catch (e) {
+    }
+  }
+
+  private applyKeepScreenOn(): void {
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      context.windowStage.getMainWindowSync().setWindowKeepScreenOn(this.debugKeepScreenOn);
+    } catch (e) {
+    }
+  }
+
+  private toggleDebugKeepScreenOn(): void {
+    this.debugKeepScreenOn = !this.debugKeepScreenOn;
+    this.applyKeepScreenOn();
+    this.persistData();
+  }
+
   private isEn(): boolean {
     return this.appLanguage === 'en';
   }
 
+  private onUiVersionChanged(): void {
+    this.uiVersion = this.uiRefresh;
+    if (this.appTheme === 'system') this.updateSystemBarColors();
+  }
+
   private t(key: string): string {
+    this.uiVersion;
     if (this.isEn()) {
       if (key === 'app_title') return 'Comic Reader';
       if (key === 'search') return 'Search';
@@ -214,10 +448,15 @@ struct Index {
       if (key === 'searching_sources') return 'Searching public comic sources...';
       if (key === 'no_results') return 'No results found. Try different keywords.';
       if (key === 'chapter_list') return 'Chapters';
+      if (key === 'previous_chapter') return 'Previous';
+      if (key === 'next_chapter') return 'Next';
+      if (key === 'chapter_ascending') return 'Ascending';
+      if (key === 'chapter_descending') return 'Descending';
       if (key === 'no_chapters') return 'No chapters. This may be a single chapter, or the rule doesn\'t match.';
       if (key === 'basic_settings') return 'Basic';
       if (key === 'app_settings') return 'App Settings';
       if (key === 'about') return 'About';
+      if (key === 'debug_keep_screen_on') return 'Keep screen on for debugging';
       if (key === 'theme') return 'Theme';
       if (key === 'language') return 'Language';
       if (key === 'light') return 'Light';
@@ -256,6 +495,10 @@ struct Index {
       if (key === 'disabled') return 'Disabled';
       if (key === 'shelf_empty') return 'Shelf is empty. Add comics after reading.';
       if (key === 'history_empty') return 'No reading history.';
+      if (key === 'my_bookshelf') return 'My Bookshelf';
+      if (key === 'comic_catalog') return 'Comic Catalog';
+      if (key === 'catalog_loading') return 'Loading catalog...';
+      if (key === 'select_category') return 'Select a category to browse';
       if (key === 'images_unit') return 'img';
       if (key === 'enter_name') return 'Please enter a comic name.';
       if (key === 'reading_chapters') return 'Reading chapter list...';
@@ -273,6 +516,11 @@ struct Index {
       if (key === 'remote_updating') return 'Updating remote rules...';
       if (key === 'remote_empty') return 'Remote rules empty. Using built-in rules.';
       if (key === 'remote_failed') return 'Remote rules update failed.';
+      if (key === 'data_update') return 'Data Update';
+      if (key === 'update_all') return 'Update All';
+      if (key === 'update_rules') return 'Update Rules';
+      if (key === 'update_catalog') return 'Update Catalog';
+      if (key === 'updating') return 'Updating...';
       if (key === 'url_parse') return 'Public URL Parse';
       if (key === 'initial_status') return 'Enter a comic name to search public comic sites.';
       if (key === 'mixed') return 'Mixed';
@@ -309,6 +557,10 @@ struct Index {
       if (key === 'theme_light') return 'Light';
       if (key === 'theme_dark') return 'Dark';
       if (key === 'theme_system') return 'System';
+      if (key === 'internet_archive') return 'Internet Archive Public Collection';
+      if (key === 'favorites') return 'Favorites';
+      if (key === 'list_view') return 'List';
+      if (key === 'grid_view') return 'Grid';
       return key;
     }
     if (key === 'app_title') return '漫画浏览器';
@@ -328,10 +580,15 @@ struct Index {
     if (key === 'searching_sources') return '正在搜索公开漫画来源...';
     if (key === 'no_results') return '没有找到结果，换个关键词试试。';
     if (key === 'chapter_list') return '章节目录';
+    if (key === 'previous_chapter') return '上一章';
+    if (key === 'next_chapter') return '下一章';
+    if (key === 'chapter_ascending') return '正序';
+    if (key === 'chapter_descending') return '倒序';
     if (key === 'no_chapters') return '没有章节。可能该结果本身就是单话漫画，或目录规则不匹配。';
     if (key === 'basic_settings') return '基础设置';
     if (key === 'app_settings') return 'APP设置';
     if (key === 'about') return '关于';
+    if (key === 'debug_keep_screen_on') return '调试时屏幕常亮';
     if (key === 'theme') return '主题';
     if (key === 'language') return '语言';
     if (key === 'light') return '明亮';
@@ -370,6 +627,10 @@ struct Index {
     if (key === 'disabled') return '已关闭';
     if (key === 'shelf_empty') return '书架为空。阅读章节后可加入书架。';
     if (key === 'history_empty') return '暂无阅读历史。';
+    if (key === 'my_bookshelf') return '我的书架';
+    if (key === 'comic_catalog') return '漫画目录';
+    if (key === 'catalog_loading') return '加载目录中...';
+    if (key === 'select_category') return '选择分类浏览漫画';
     if (key === 'images_unit') return '图';
     if (key === 'enter_name') return '请输入漫画名称。';
     if (key === 'reading_chapters') return '正在读取章节目录...';
@@ -387,6 +648,11 @@ struct Index {
     if (key === 'remote_updating') return '正在更新远程规则...';
     if (key === 'remote_empty') return '远程规则为空，继续使用内置规则。';
     if (key === 'remote_failed') return '远程规则更新失败。';
+    if (key === 'data_update') return '数据更新';
+    if (key === 'update_all') return '全部更新';
+    if (key === 'update_rules') return '更新规则';
+    if (key === 'update_catalog') return '更新目录';
+    if (key === 'updating') return '更新中...';
     if (key === 'url_parse') return '公开URL解析';
     if (key === 'initial_status') return '输入漫画名称后搜索公开漫画网页。';
     if (key === 'mixed') return '混合';
@@ -423,6 +689,10 @@ struct Index {
     if (key === 'theme_light') return '明亮';
     if (key === 'theme_dark') return '暗黑';
     if (key === 'theme_system') return '跟随系统';
+    if (key === 'internet_archive') return 'Internet Archive公开馆藏';
+    if (key === 'favorites') return '收藏';
+    if (key === 'list_view') return '列表';
+    if (key === 'grid_view') return '网格';
     return key;
   }
 
@@ -454,7 +724,8 @@ struct Index {
   private cardBg(): string { return this.isDark() ? '#1E232F' : '#FFFFFF'; }
   private accent(): string { return '#34C759'; }
   private primaryText(): string { return this.isDark() ? '#E8ECF4' : '#111827'; }
-  private secondaryText(): string { return this.isDark() ? '#7A828C' : '#7A828C'; }
+  private secondaryText(): string { return this.isDark() ? '#B6BFCC' : '#667085'; }
+  private actionBg(): string { return '#167A36'; }
   private warnBg(): string { return this.isDark() ? '#2A2210' : '#FFF7E8'; }
   private warnText(): string { return this.isDark() ? '#F0C060' : '#8A5A12'; }
   private selectedSoftBg(): string { return this.isDark() ? '#1A3020' : '#E9FFF0'; }
@@ -483,6 +754,30 @@ struct Index {
 
   private ruleForItemUrl(url: string, sourceId: string): ComicSourceRule {
     return ruleForPublicUrl(url, this.findRule(sourceId));
+  }
+
+  private findRuleByUrl(url: string): ComicSourceRule {
+    const targetHost = this.hostOf(url).toLowerCase();
+    // Remote rules are merged into this.rules at runtime.  Match those rules
+    // before falling back to the compile-time public rule table; otherwise a
+    // newly published catalog domain can never use its newly published rule.
+    for (let i = 0; i < this.rules.length; i++) {
+      const ruleHost = this.hostOf(this.rules[i].homepage).toLowerCase();
+      if (ruleHost.length > 0 && (targetHost === ruleHost || targetHost.endsWith('.' + ruleHost))) {
+        return this.rules[i];
+      }
+    }
+    for (let i = 0; i < this.rules.length; i++) {
+      const domains = this.rules[i].domainApplicabilityList;
+      if (!domains) continue;
+      for (let j = 0; j < domains.length; j++) {
+        const domain = this.hostOf(domains[j]).toLowerCase();
+        if (domain.length > 0 && (targetHost === domain || targetHost.endsWith('.' + domain))) {
+          return this.rules[i];
+        }
+      }
+    }
+    return ruleForPublicUrl(url, this.genericRule());
   }
 
   private nowText(): string {
@@ -610,15 +905,59 @@ struct Index {
     this.resetSearchState(keyword);
     this.isLoading = true;
     try {
+      this.searchLocalCatalog(keyword);
+      // Local replay-validated entries appear immediately. Web search is a
+      // discovery function: official, paid, login-gated or partially free
+      // resources remain valid matches. Readability is evaluated only after a
+      // result is opened and must not hide Tencent/Kuaikan/etc. search hits.
       if (this.searchMode !== 'api_only') await this.searchSelectedEngines(keyword);
       if (this.searchMode !== 'engine_only') {
         await this.searchHtmlRuleSources(keyword);
-        await this.searchApiSources(keyword);
+        if (this.appLanguage === 'en') await this.searchApiSources(keyword);
       }
       if (this.autoCoverEnabled) await this.enrichResultCovers(8);
     } finally {
       this.isLoading = false;
       this.statusText = this.results.length > 0 ? this.t('search_complete') + this.results.length + this.t('results_suffix') : this.t('no_comic_results');
+    }
+  }
+
+  private searchLocalCatalog(keyword: string): void {
+    if (this.remoteCatalog === null) return;
+    const expected = keyword.toLowerCase().replace(/\s+/g, '');
+    if (expected.length === 0) return;
+    const categories = CatalogService.getCategories(this.remoteCatalog);
+    for (let i = 0; i < categories.length; i++) {
+      const categoryName = categories[i].name.toLowerCase().replace(/\s+/g, '');
+      const categoryId = categories[i].id.toLowerCase().replace(/\s+/g, '');
+      const categoryMatched = categoryName.indexOf(expected) >= 0 || categoryId.indexOf(expected) >= 0;
+      const items = CatalogService.getItemsForCategory(this.remoteCatalog, categories[i].id);
+      for (let j = 0; j < items.length; j++) {
+        const item = items[j];
+        // Search must never advertise legacy entries that were accepted by the
+        // old decorative-image heuristic.
+        if (item.validationPolicy !== 'readability-v4') continue;
+        const titleMatched = item.title.toLowerCase().replace(/\s+/g, '').indexOf(expected) >= 0;
+        if (!titleMatched && !categoryMatched) continue;
+        const source = this.preferredCatalogSource(item);
+        if (source === null || !source.detailUrl || source.detailUrl.length === 0) continue;
+        if (!source.chapters || source.chapters.length !== (item.verifiedChapterCount ?? 0)) continue;
+        this.appendResults([{
+          title: item.title,
+          url: source.detailUrl,
+          cover: source.coverUrl ?? '',
+          sourceId: this.findRuleByUrl(source.detailUrl).id,
+          sourceName: source.domain,
+          isChapter: false,
+          resultType: 'catalog',
+          groupName: item.title,
+          description: categories[i].name + ' · ' + (item.verifiedChapterCount ?? 0) + this.t('chapters_unit'),
+          category: categories[i].name
+        }]);
+      }
+    }
+    if (this.results.length > 0) {
+      this.statusText = this.t('search_complete') + this.results.length + this.t('results_suffix');
     }
   }
 
@@ -652,24 +991,50 @@ struct Index {
     if (!this.enableHtmlRules) return;
     let success = 0;
     let failed = 0;
+    let attempted = 0;
+    const pending: Promise<SearchResultItem[]>[] = [];
     for (let i = 0; i < this.rules.length; i++) {
       const rule = this.rules[i];
       if (rule.searchUrl.trim().length === 0) continue;
-      try {
-        const searchUrl = rule.searchUrl.replace('{keyword}', encodeURIComponent(keyword));
-        const html = await HttpClient.getText(searchUrl, rule.userAgent, rule.referer.length > 0 ? rule.referer : rule.homepage);
-        const parsed = parseSearchResults(html, rule, searchUrl, keyword);
-        if (parsed.length > 0) {
-          success++;
-          this.appendResults(parsed);
-          this.statusText = this.t('rule_progress') + success + this.t('rule_succeeded') + this.results.length + this.t('rule_current');
-        }
-      } catch (err) {
+      // url-only rules parse links discovered elsewhere; they are not search
+      // endpoints. Trying all generated rules here caused 1000+ serial HTTP
+      // requests and made normal search appear frozen.
+      if (rule.searchMethod === 'url-only') continue;
+      // Direct site endpoints are a secondary supplement after web discovery.
+      // Keep the foreground search bounded; unreachable legacy sources must
+      // not make an otherwise complete result page look permanently busy.
+      if (attempted >= 8) break;
+      attempted++;
+      pending.push(this.fetchHtmlRuleResults(rule, keyword));
+    }
+    const batches = await Promise.all(pending);
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const parsed = batches[batchIndex];
+      if (parsed.length > 0) {
+        success++;
+        this.appendResults(parsed);
+        this.statusText = this.t('rule_progress') + success + this.t('rule_succeeded') + this.results.length + this.t('rule_current');
+      } else {
         failed++;
       }
     }
     if (failed > 0 && success === 0) {
       this.statusText = this.t('chapter_failed');
+    }
+  }
+
+  private async fetchHtmlRuleResults(rule: ComicSourceRule, keyword: string): Promise<SearchResultItem[]> {
+    try {
+      const searchUrl = rule.searchUrl.replace('{keyword}', encodeURIComponent(keyword));
+      const html = await HttpClient.getTextWithTimeout(searchUrl, rule.userAgent,
+        rule.referer.length > 0 ? rule.referer : rule.homepage, 8000);
+      return parseSearchResults(html, rule, searchUrl, keyword).filter((item: SearchResultItem) => {
+        const expected = keyword.toLowerCase().replace(/\s+/g, '');
+        const actual = (item.title + ' ' + (item.description ?? '')).toLowerCase().replace(/\s+/g, '');
+        return expected.length > 0 && actual.indexOf(expected) >= 0;
+      });
+    } catch (err) {
+      return [];
     }
   }
 
@@ -731,7 +1096,27 @@ struct Index {
     this.images = [];
     this.mode = 'chapters';
     this.statusText = this.t('reading_chapters');
+    this.detailLoading = true;
+    this.detailReceivedBytes = 0;
+    this.detailTotalBytes = 0;
     try {
+      // The release pipeline already replayed every published chapter URL.
+      // Prefer that exact manifest over parsing the site again with a generic
+      // regex; this keeps device behaviour equivalent to the online audit.
+      const manifestItems = this.remoteCatalog !== null ? CatalogService.getAllItems(this.remoteCatalog) : this.catalogItems;
+      for (let catalogIndex = 0; catalogIndex < manifestItems.length; catalogIndex++) {
+        const sources = manifestItems[catalogIndex].sources;
+        for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
+          const source = sources[sourceIndex];
+          if (source.detailUrl !== url || !source.chapters || source.chapters.length === 0) continue;
+          this.chapters = source.chapters.map((chapter, index: number): ChapterItem => {
+            return { title: chapter.title, url: chapter.url, index: index + 1,
+              sourceId: rule.id, sourceName: rule.name };
+          });
+          this.statusText = this.t('found_chapters') + this.chapters.length + this.t('chapters_unit') + '.';
+          return;
+        }
+      }
       if (isArchivePseudoUrl(url)) {
         await this.loadArchiveDetail(archiveIdentifierFromUrl(url), title);
         return;
@@ -765,16 +1150,39 @@ struct Index {
         }
         return;
       }
-      const html = await HttpClient.getText(url, rule.userAgent, rule.referer.length > 0 ? rule.referer : url);
-      const parsedChapters = parseChapters(html, rule, url);
+      let html = '';
+      try {
+        html = await HttpClient.getTextWithProgressTimeout(url, rule.userAgent,
+          rule.referer.length > 0 ? rule.referer : url,
+          (received: number, total: number) => {
+            this.detailReceivedBytes = received;
+            this.detailTotalBytes = total;
+          }, 60000);
+      } catch (firstError) {
+        this.statusText = this.t('loading_chapters') + ' · ' + this.t('retry');
+        html = await HttpClient.getTextWithProgressTimeout(url, rule.userAgent,
+          rule.referer.length > 0 ? rule.referer : url,
+          (received: number, total: number) => {
+            this.detailReceivedBytes = received;
+            this.detailTotalBytes = total;
+          }, 60000);
+      }
+      let parsedChapters = parseChapters(html, rule, url);
+      if (parsedChapters.length === 0) parsedChapters = parseChaptersFallback(html, rule, url);
       this.chapters = parsedChapters;
       if (parsedChapters.length === 0) {
-        await this.loadChapter({ title: this.currentTitle, url: url, index: 1, sourceId: rule.id, sourceName: rule.name }, rule);
+        this.statusText = this.t('no_chapters');
+        console.error('ComicReader no chapters matched: rule=' + rule.id + ', url=' + url +
+          ', htmlLength=' + html.length);
       } else {
         this.statusText = this.t('found_chapters') + parsedChapters.length + this.t('chapters_unit') + '.';
       }
     } catch (err) {
       this.statusText = this.t('chapter_failed');
+      console.error('ComicReader detail request failed: rule=' + rule.id + ', url=' + url +
+        ', error=' + JSON.stringify(err));
+    } finally {
+      this.detailLoading = false;
     }
   }
 
@@ -792,7 +1200,7 @@ struct Index {
         this.images = images;
         this.mode = 'reader';
         this.statusText = this.t('scroll_complete') + images.length + this.t('images_unit_full') + '.';
-        this.addHistory({ title: title, url: 'archive://item/' + encodeURIComponent(identifier), index: 1, sourceId: 'internet_archive_iiif_api', sourceName: 'Internet Archive公开馆藏' }, images.length);
+        this.addHistory({ title: title, url: 'archive://item/' + encodeURIComponent(identifier), index: 1, sourceId: 'internet_archive_iiif_api', sourceName: this.t('internet_archive') }, images.length);
       } else {
         this.chapters = [];
         this.statusText = this.t('no_images');
@@ -804,8 +1212,8 @@ struct Index {
 
   private mergeReaderImages(base: ReaderImageItem[], incoming: ReaderImageItem[]): ReaderImageItem[] {
     const next: ReaderImageItem[] = [];
-    for (let i = 0; i < base.length && next.length < 120; i++) next.push({ url: base[i].url, index: next.length + 1, status: base[i].status });
-    for (let j = 0; j < incoming.length && next.length < 120; j++) {
+    for (let i = 0; i < base.length && next.length < 500; i++) next.push({ url: base[i].url, index: next.length + 1, status: base[i].status });
+    for (let j = 0; j < incoming.length && next.length < 500; j++) {
       const image = incoming[j];
       if (!next.some((oldItem: ReaderImageItem) => oldItem.url === image.url)) next.push({ url: image.url, index: next.length + 1, status: 'waiting' });
     }
@@ -816,18 +1224,25 @@ struct Index {
     let pageUrl = firstUrl;
     let allImages: ReaderImageItem[] = [];
     const visited: string[] = [];
-    const maxPages = Math.min(rule.maxReaderPages !== undefined && rule.maxReaderPages > 0 ? rule.maxReaderPages : this.maxReaderPages, this.maxReaderPages);
+    const rulePages = rule.maxReaderPages !== undefined && rule.maxReaderPages > 0 ? rule.maxReaderPages : 1;
+    const maxPages = Math.max(rulePages, this.maxReaderPages);
     for (let page = 0; page < maxPages; page++) {
       if (pageUrl.length === 0 || visited.indexOf(pageUrl) >= 0) break;
       visited.push(pageUrl);
       const html = await HttpClient.getText(pageUrl, rule.userAgent, rule.referer.length > 0 ? rule.referer : pageUrl);
       const pageImages = parseImages(html, rule, pageUrl);
       allImages = this.mergeReaderImages(allImages, pageImages);
+      // Render each successfully parsed page immediately. Long chapters should
+      // not remain black while the following pagination requests are running.
+      this.images = allImages;
       const nextUrl = parseNextPageUrl(html, rule, pageUrl);
       if (nextUrl.length === 0 || nextUrl === pageUrl) break;
       pageUrl = nextUrl;
       this.statusText = this.t('tracking_pages') + (page + 2) + this.t('pages_unit') + this.t('extracted_images') + allImages.length + this.t('images_unit_full') + '.';
     }
+    // A normal comic chapter should contain more than a cover and placeholder.
+    // Do not present two decorative assets as a successfully loaded chapter.
+    if (allImages.length < 8) return [];
     return allImages;
   }
 
@@ -839,6 +1254,9 @@ struct Index {
     this.currentSourceId = chapter.sourceId;
     this.currentSourceName = chapter.sourceName;
     this.images = [];
+    this.readerRenderLimit = 6;
+    this.readerPaginationLoading = true;
+    this.readerToolsVisible = false;
     this.statusText = this.t('generating_scroll');
     try {
       const parsedImages = await this.fetchReaderImagesWithPagination(chapter.url, rule);
@@ -847,7 +1265,92 @@ struct Index {
       this.addHistory(chapter, parsedImages.length);
     } catch (err) {
       this.statusText = this.t('scroll_failed');
+    } finally {
+      this.readerPaginationLoading = false;
     }
+  }
+
+  private displayedReaderImages(): ReaderImageItem[] {
+    return this.images.slice(0, Math.min(this.images.length, this.readerRenderLimit));
+  }
+
+  private chapterNumber(title: string): number {
+    const match = /第\s*(\d+)\s*[话章回卷]|(?:chapter\s*|episode\s*|ep\.?\s*)(\d+)/i.exec(title);
+    if (!match) return -1;
+    if (match[1] !== undefined && match[1].length > 0) return Number(match[1]);
+    return match[2] !== undefined && match[2].length > 0 ? Number(match[2]) : -1;
+  }
+
+  private chaptersInReadingOrder(): ChapterItem[] {
+    const ordered = [...this.chapters];
+    ordered.sort((left: ChapterItem, right: ChapterItem): number => {
+      const leftNumber = this.chapterNumber(left.title);
+      const rightNumber = this.chapterNumber(right.title);
+      if (leftNumber >= 0 && rightNumber >= 0) return leftNumber - rightNumber;
+      if (leftNumber >= 0) return -1;
+      if (rightNumber >= 0) return 1;
+      return 0;
+    });
+    return ordered;
+  }
+
+  private currentImagesFinished(): boolean {
+    if (this.images.length === 0 || this.readerRenderLimit < this.images.length) return false;
+    return !this.images.some((item: ReaderImageItem) => item.status === 'waiting');
+  }
+
+  private async loadNextChapterIfReady(): Promise<void> {
+    if (this.readerChangingChapter || this.readerPaginationLoading || !this.currentImagesFinished()) return;
+    const ordered = this.chaptersInReadingOrder();
+    const currentIndex = ordered.findIndex((item: ChapterItem) => item.url === this.currentUrl);
+    if (currentIndex < 0 || currentIndex + 1 >= ordered.length) return;
+    const nextChapter = ordered[currentIndex + 1];
+    this.readerChangingChapter = true;
+    try {
+      await this.loadChapter(nextChapter, this.findRule(nextChapter.sourceId));
+    } finally {
+      this.readerChangingChapter = false;
+    }
+  }
+
+  private async loadRelativeChapter(offset: number): Promise<void> {
+    if (this.readerChangingChapter || this.readerPaginationLoading) return;
+    const ordered = this.chaptersInReadingOrder();
+    const currentIndex = ordered.findIndex((item: ChapterItem) => item.url === this.currentUrl);
+    const targetIndex = currentIndex + offset;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+    this.readerChangingChapter = true;
+    try {
+      await this.loadChapter(ordered[targetIndex], this.findRule(ordered[targetIndex].sourceId));
+    } finally {
+      this.readerChangingChapter = false;
+    }
+  }
+
+  private hasRelativeChapter(offset: number): boolean {
+    const ordered = this.chaptersInReadingOrder();
+    const currentIndex = ordered.findIndex((item: ChapterItem) => item.url === this.currentUrl);
+    return currentIndex >= 0 && currentIndex + offset >= 0 && currentIndex + offset < ordered.length;
+  }
+
+  private displayedChapters(): ChapterItem[] {
+    const source = [...this.chapters];
+    source.sort((left: ChapterItem, right: ChapterItem): number => {
+      const leftNumber = this.chapterNumber(left.title);
+      const rightNumber = this.chapterNumber(right.title);
+      if (leftNumber >= 0 && rightNumber >= 0 && leftNumber !== rightNumber) {
+        return this.chapterReversed ? leftNumber - rightNumber : rightNumber - leftNumber;
+      }
+      if (leftNumber >= 0 && rightNumber < 0) return -1;
+      if (leftNumber < 0 && rightNumber >= 0) return 1;
+      return 0;
+    });
+    const displayed: ChapterItem[] = [];
+    for (let i = 0; i < source.length; i++) {
+      displayed.push({ title: source[i].title, url: source[i].url, index: i + 1,
+        sourceId: source[i].sourceId, sourceName: source[i].sourceName });
+    }
+    return displayed;
   }
 
   private markImage(index: number, status: string): void {
@@ -862,7 +1365,10 @@ struct Index {
         next.push(item);
       }
     }
-    if (changed) this.images = next;
+    if (changed) {
+      this.images = next;
+      if (this.readerRenderLimit < this.images.length) this.readerRenderLimit++;
+    }
   }
 
   private openSearchResult(item: SearchResultItem): void {
@@ -891,6 +1397,60 @@ struct Index {
     this.persistData();
   }
 
+  private coverCacheName(url: string): string {
+    let hash = 7;
+    for (let i = 0; i < url.length; i++) hash = (hash * 31 + url.charCodeAt(i)) % 2147483647;
+    const lower = url.toLowerCase();
+    let extension = '.img';
+    if (/\.png(?:\?|$)/.test(lower)) extension = '.png';
+    else if (/\.webp(?:\?|$)/.test(lower)) extension = '.webp';
+    else if (/\.gif(?:\?|$)/.test(lower)) extension = '.gif';
+    else if (/\.jpe?g(?:\?|$)/.test(lower)) extension = '.jpg';
+    return hash.toString() + extension;
+  }
+
+  private async cacheBookshelfCover(itemUrl: string, remoteCover: string): Promise<void> {
+    if (this.coverCacheDir.length === 0 || !/^https?:\/\//i.test(remoteCover)) return;
+    const localPath = this.coverCacheDir + '/' + this.coverCacheName(remoteCover);
+    try {
+      if (!fs.accessSync(localPath)) {
+        const rule = this.findRuleByUrl(itemUrl);
+        const bytes = await HttpClient.getBytes(remoteCover, rule.userAgent,
+          rule.referer.length > 0 ? rule.referer : itemUrl);
+        const file = fs.openSync(localPath, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+        fs.writeSync(file.fd, bytes);
+        fs.closeSync(file);
+      }
+      const next: BookshelfItem[] = [];
+      for (let i = 0; i < this.bookshelf.length; i++) {
+        const old = this.bookshelf[i];
+        if (old.url === itemUrl) {
+          next.push({
+            title: old.title, url: old.url, cover: 'file://' + localPath, remoteCover: remoteCover,
+            sourceId: old.sourceId, sourceName: old.sourceName,
+            lastChapterTitle: old.lastChapterTitle, lastChapterUrl: old.lastChapterUrl,
+            addedAt: old.addedAt, lastReadAt: old.lastReadAt,
+            imageCount: old.imageCount, progressPercent: old.progressPercent, readCount: old.readCount
+          });
+        } else {
+          next.push(old);
+        }
+      }
+      this.bookshelf = next;
+      this.persistData();
+    } catch (e) {
+      console.error('ComicReader cover cache failed: ' + JSON.stringify(e));
+    }
+  }
+
+  private cacheExistingBookshelfCovers(): void {
+    for (let i = 0; i < this.bookshelf.length; i++) {
+      const item = this.bookshelf[i];
+      const remote = item.remoteCover && item.remoteCover.length > 0 ? item.remoteCover : item.cover;
+      if (/^https?:\/\//i.test(remote)) this.cacheBookshelfCover(item.url, remote);
+    }
+  }
+
   private addCurrentToShelf(): void {
     if (this.currentUrl.length === 0) return;
     const item: BookshelfItem = {
@@ -899,6 +1459,7 @@ struct Index {
       sourceId: this.currentSourceId,
       sourceName: this.currentSourceName,
       cover: this.currentCover,
+      remoteCover: this.currentCover,
       lastChapterTitle: this.currentChapterTitle,
       lastChapterUrl: this.currentUrl,
       addedAt: this.nowText(),
@@ -913,6 +1474,7 @@ struct Index {
     this.bookshelf = next;
     this.statusText = this.t('added_shelf');
     this.persistData();
+    this.cacheBookshelfCover(item.url, this.currentCover);
   }
 
   private cycleEngine(): void {
@@ -954,12 +1516,14 @@ struct Index {
 
   private toggleTheme(): void {
     this.appTheme = this.appTheme === 'light' ? 'dark' : 'light';
+    this.updateSystemBarColors();
     this.statusText = this.t('theme_switched');
     this.persistData();
   }
 
   private async updateRemoteRules(): Promise<void> {
     this.remoteRuleStatus = this.t('remote_updating');
+    this.updatingRules = true;
     try {
       const loaded = await RemoteRuleService.fetchRemoteRules(this.remoteRuleUrl);
       if (loaded.length > 0) {
@@ -972,6 +1536,51 @@ struct Index {
     } catch (err) {
       this.remoteRuleStatus = this.t('remote_failed');
     }
+    this.updatingRules = false;
+  }
+
+  private async updateCatalog(): Promise<void> {
+    if (this.updatingCatalog) return;
+    this.updatingCatalog = true;
+    this.catalogReceivedBytes = 0;
+    this.catalogTotalBytes = 0;
+    this.catalogProgressPercent = 0;
+    try {
+      this.catalogUpdateStatus = this.catalogStage('正在检查线上目录版本…', 'Checking online catalog version…');
+      const update = await CatalogService.fetchCatalogUpdate();
+      if (CatalogService.isNewerVersion(update.version, this.remoteCatalog?.version)) {
+        this.catalogUpdateStatus = this.catalogStage('发现新版本，正在下载目录…', 'New version found. Downloading catalog…');
+        this.pendingCatalogVersion = update.version;
+        this.pendingCatalogUrl = update.url;
+        const catalog = await CatalogService.fetchCatalogFromUrl(update.url,
+          (received: number, total: number) => {
+            this.catalogReceivedBytes = received;
+            this.catalogTotalBytes = total;
+            this.catalogProgressPercent = total > 0 ? Math.min(100, Math.floor(received * 100 / total)) : 0;
+          });
+        if (catalog.version === update.version) {
+          this.catalogUpdateStatus = this.catalogStage('下载完成，正在校验并写入缓存…', 'Download complete. Validating and caching…');
+          this.saveCatalogCache(catalog);
+          this.applyCatalog(catalog);
+          this.catalogProgressPercent = 100;
+          this.catalogUpdateAvailable = false;
+          this.catalogUpdateStatus = this.catalogStage('目录已更新至 ' + update.version,
+            'Catalog updated to ' + update.version);
+        }
+      } else {
+        this.catalogUpdateStatus = this.catalogStage('目录已是最新，继续使用缓存',
+          'Catalog is current. Using cache.');
+      }
+    } catch (err) {
+      this.catalogUpdateStatus = this.catalogStage('线上检查失败，继续使用现有缓存',
+        'Online check failed. Using existing cache.');
+      console.error('ComicReader catalog manual update failed: ' + JSON.stringify(err));
+    }
+    this.updatingCatalog = false;
+  }
+
+  private async updateAll(): Promise<void> {
+    await Promise.all([this.updateRemoteRules(), this.updateCatalog()]);
   }
 
   @Builder
@@ -1078,7 +1687,7 @@ struct Index {
         .height(heightValue)
         .fontSize(15)
         .fontColor('#FFFFFF')
-        .backgroundColor('#34C759')
+        .backgroundColor(this.actionBg())
         .borderRadius(heightValue / 2)
         .padding({ left: 20, right: 20 })
         .enabled(!this.isLoading)
@@ -1110,6 +1719,8 @@ struct Index {
             TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
               .height(44)
               .fontSize(15)
+              .fontColor(this.primaryText())
+              .placeholderColor(this.secondaryText())
               .backgroundColor(Color.Transparent)
               .borderRadius(22)
               .border({ width: 1, color: this.secondaryText() })
@@ -1153,6 +1764,8 @@ struct Index {
           TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
             .height(52)
             .fontSize(15)
+            .fontColor(this.primaryText())
+            .placeholderColor(this.secondaryText())
             .backgroundColor(Color.Transparent)
             .borderRadius(26)
             .border({ width: 1, color: this.secondaryText() })
@@ -1217,7 +1830,7 @@ struct Index {
         Text(this.t('latest_chapter') + this.resultLatest(item)).fontSize(12).fontColor(this.secondaryText()).margin({ top: 4 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         Text(this.t('update_time') + this.resultUpdate(item)).fontSize(12).fontColor(this.secondaryText()).margin({ top: 4 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         Row() {
-          Text(this.t('comic_tag')).fontSize(11).fontColor('#FFFFFF').padding({ left: 8, right: 8, top: 3, bottom: 3 }).backgroundColor(this.accent()).borderRadius(10)
+          Text(this.t('comic_tag')).fontSize(11).fontColor('#FFFFFF').padding({ left: 8, right: 8, top: 3, bottom: 3 }).backgroundColor(this.actionBg()).borderRadius(10)
           Text(this.hostOf(item.url)).fontSize(11).fontColor(this.secondaryText()).layoutWeight(1).margin({ left: 8 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }.width('100%').margin({ top: 7 })
       }.layoutWeight(1).margin({ left: 12 })
@@ -1266,24 +1879,44 @@ struct Index {
         Text(this.currentTitle.length > 0 ? this.currentTitle : this.t('chapter_list'))
           .fontSize(19)
           .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
           .layoutWeight(1)
           .margin({ left: 6 })
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.chapterReversed ? this.t('chapter_ascending') : this.t('chapter_descending'))
+          .fontSize(13)
+          .fontColor(this.accent())
+          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+          .border({ width: 1, color: this.accent() })
+          .borderRadius(14)
+          .onClick(() => {
+            this.chapterReversed = !this.chapterReversed;
+            this.persistData();
+          })
         Column() {
           Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent()))
         }.padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
       }.width('100%').padding({ left: 4, right: 4, top: 10, bottom: 8 })
       Column() { this.StatusCard() }.padding({ left: 14, right: 14 })
+      if (this.detailLoading) {
+        Column({ space: 6 }) {
+          Progress({ value: this.detailTotalBytes > 0
+            ? Math.min(100, Math.floor(this.detailReceivedBytes * 100 / this.detailTotalBytes)) : 0,
+            total: 100, type: ProgressType.Linear })
+            .width('100%').height(6).color(this.accent())
+          Text(this.detailProgressText()).fontSize(12).fontColor(this.secondaryText()).width('100%')
+        }.width('100%').padding({ left: 14, right: 14, bottom: 10 })
+      }
       Scroll() {
         Column() {
           if (this.chapters.length === 0) {
             Text(this.t('no_chapters')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(12).backgroundColor(this.cardBg()).borderRadius(10)
           } else {
-            ForEach(this.chapters, (chapter: ChapterItem) => {
+            ForEach(this.displayedChapters(), (chapter: ChapterItem) => {
               Row() {
-                Text(chapter.index + '').fontSize(13).fontColor('#FFFFFF').textAlign(TextAlign.Center).width(32).height(32).backgroundColor(this.accent()).borderRadius(16)
-                Text(chapter.title).fontSize(15).fontWeight(FontWeight.Medium).layoutWeight(1).margin({ left: 10 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text(chapter.index + '').fontSize(13).fontColor('#FFFFFF').textAlign(TextAlign.Center).width(32).height(32).backgroundColor(this.actionBg()).borderRadius(16)
+                Text(chapter.title).fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.primaryText()).layoutWeight(1).margin({ left: 10 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
               }
               .width('100%')
               .padding(12)
@@ -1303,32 +1936,54 @@ struct Index {
   @Builder
   private ReaderPage() {
     Column() {
-      Blank().height(this.avoidStatusBarHeight)
-      Row() {
-        Column() {
-          Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.primaryText()))
-        }.padding({ left: 12, right: 8, top: 6, bottom: 6 }).onClick(() => { this.mode = this.chapters.length > 0 ? 'chapters' : 'results'; })
-        Text(this.currentChapterTitle.length > 0 ? this.currentChapterTitle : this.currentTitle).fontSize(16).fontWeight(FontWeight.Bold).layoutWeight(1).margin({ left: 6 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        Column() {
-          Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent()))
-        }.padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
-      }.width('100%').padding(10).backgroundColor(this.readerBarBg())
+      // The root deliberately expands under the system bars for the normal
+      // pages.  Reader chrome can be hidden, so it still needs an unconditional
+      // top spacer; otherwise the loading/status card overlaps the clock.
+      Blank().height(this.avoidStatusBarHeight).backgroundColor(this.readerDarkMode ? '#050505' : this.appBg())
+      if (this.readerToolsVisible) {
+        Row() {
+          Column() {
+            Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.primaryText()))
+          }.padding({ left: 12, right: 8, top: 6, bottom: 6 }).onClick(() => { this.mode = this.chapters.length > 0 ? 'chapters' : 'results'; })
+          Text(this.currentChapterTitle.length > 0 ? this.currentChapterTitle : this.currentTitle).fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1).margin({ left: 6 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Column() {
+            Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent()))
+          }.padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
+        }.width('100%').padding(10).backgroundColor(this.readerBarBg())
+      }
       Scroll() {
         Column() {
           this.StatusCard()
-          ForEach(this.images, (item: ReaderImageItem) => {
+          ForEach(this.displayedReaderImages(), (item: ReaderImageItem) => {
             Column() {
-              if (this.showImageIndex) Text('#' + item.index + ' · ' + item.status).fontSize(11).fontColor(this.secondaryText()).margin({ bottom: 4 })
+              if (this.showImageIndex && item.status === 'error') {
+                Text('#' + item.index + ' · ' + this.t('image_failed'))
+                  .fontSize(11)
+                  .fontColor(this.secondaryText())
+                  .padding({ top: 4, bottom: 4 })
+              }
               Image(item.url)
                 .width('100%')
                 .objectFit(ImageFit.Contain)
                 .backgroundColor(this.readerDarkMode ? '#111111' : '#FFFFFF')
                 .onComplete(() => this.markImage(item.index, 'ok'))
                 .onError(() => this.markImage(item.index, 'error'))
-            }.width('100%').margin({ bottom: 8 })
+            }.width('100%')
           }, (item: ReaderImageItem) => item.url + item.index)
         }.width('100%').padding(10)
-      }.layoutWeight(1).backgroundColor(this.readerDarkMode ? '#050505' : this.appBg())
+      }
+      .layoutWeight(1)
+      .backgroundColor(this.readerDarkMode ? '#050505' : this.appBg())
+      .onReachEnd(() => { this.loadNextChapterIfReady(); })
+      .onClick(() => { this.readerToolsVisible = !this.readerToolsVisible; })
+      if (this.readerToolsVisible) {
+        Row() {
+          Text(this.t('previous_chapter')).fontSize(14).fontColor(this.hasRelativeChapter(-1) ? this.primaryText() : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => this.loadRelativeChapter(-1))
+          Text(this.t('chapter_list')).fontSize(14).fontColor(this.primaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => { this.mode = 'chapters'; })
+          Text(this.t('favorites')).fontSize(14).fontColor(this.accent()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => this.addCurrentToShelf())
+          Text(this.t('next_chapter')).fontSize(14).fontColor(this.hasRelativeChapter(1) ? this.primaryText() : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => this.loadRelativeChapter(1))
+        }.width('100%').backgroundColor(this.readerBarBg())
+      }
     }
     .layoutWeight(1)
   }
@@ -1391,6 +2046,8 @@ struct Index {
     .onClick(() => {
       if (this.appTheme !== mode) {
         this.appTheme = mode;
+        this.updateSystemBarColors();
+        AppStorage.setOrCreate<number>('uiVersion', Date.now());
         this.statusText = this.t('theme_switched');
         this.persistData();
       }
@@ -1414,6 +2071,8 @@ struct Index {
     .border(showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
     .onClick(() => {
       this.appLanguage = mode;
+      this.refreshCatalogLanguageFilter();
+      AppStorage.setOrCreate<number>('uiVersion', Date.now());
       this.languageDialogVisible = false;
       this.persistData();
     })
@@ -1449,7 +2108,6 @@ struct Index {
       Scroll() {
         Column() {
           Blank().height(this.contentTopInset())
-          Text(this.t('settings')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').margin({ top: 12, bottom: 6 })
           this.StatusCard()
 
           this.SectionLabel(this.t('basic_settings'))
@@ -1470,8 +2128,21 @@ struct Index {
             Column() { this.LinkRow('ic_code', this.t('advanced_rules'), this.rules.length + this.t('sources_unit'), true) }.onClick(() => { this.settingsDialog = 'advanced'; })
           }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
 
+          this.SectionLabel(this.t('data_update'))
+          Column({ space: 0 }) {
+            Column() { this.LinkRow('ic_refresh', this.t('data_update'), '', false) }.onClick(() => { this.updateDialogVisible = true; })
+          }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
+
           this.SectionLabel(this.t('about'))
           Column({ space: 0 }) {
+            Row({ space: 12 }) {
+              Image($rawfile('ic_eye.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              Text(this.t('debug_keep_screen_on')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+              Toggle({ type: ToggleType.Switch, isOn: this.debugKeepScreenOn })
+                .selectedColor(this.accent())
+                .switchPointColor('#FFFFFF')
+            }.width('100%').height(50).onClick(() => { this.toggleDebugKeepScreenOn(); })
+            Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
             Row({ space: 12 }) {
               Image($rawfile('ic_info.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
               Text(this.t('version')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
@@ -1490,6 +2161,7 @@ struct Index {
       if (this.settingsDialog.length > 0) this.SettingsDialog()
       if (this.themeDialogVisible) this.ThemeDialog()
       if (this.languageDialogVisible) this.LanguageDialog()
+      if (this.updateDialogVisible) this.UpdateDialog()
     }.layoutWeight(1).backgroundColor(this.appBg())
   }
 
@@ -1543,8 +2215,8 @@ struct Index {
             Column() { this.DialogToggleRow(this.t('all_engines'), this.searchAllEngines, true) }.onClick(() => { this.searchAllEngines = !this.searchAllEngines; })
             Column() { this.DialogLinkRow(this.t('language_pref'), this.languageModeDisplay(), true) }.onClick(() => this.nextLanguageMode())
           }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
-          TextInput({ placeholder: this.t('extra_terms'), text: this.extraSearchTerms }).height(42).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.extraSearchTerms = value; })
-          TextInput({ placeholder: this.t('site_hint'), text: this.siteHint }).height(42).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.siteHint = value; })
+          TextInput({ placeholder: this.t('extra_terms'), text: this.extraSearchTerms }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.extraSearchTerms = value; })
+          TextInput({ placeholder: this.t('site_hint'), text: this.siteHint }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.siteHint = value; })
         } else if (this.settingsDialog === 'sources') {
           this.DialogHeader(this.t('source_switch'))
           Column({ space: 0 }) {
@@ -1560,7 +2232,7 @@ struct Index {
             Column() { this.DialogToggleRow(this.t('show_page_num'), this.showImageIndex, true) }.onClick(() => { this.showImageIndex = !this.showImageIndex; })
             Column() { this.DialogLinkRow(this.t('reading_bg'), this.readerDarkMode ? this.t('dark_color') : this.t('light_color'), true) }.onClick(() => { this.readerDarkMode = !this.readerDarkMode; })
             Column() { this.DialogLinkRow(this.t('max_results'), this.maxSearchResults + this.t('items_unit'), true) }.onClick(() => { this.maxSearchResults = this.maxSearchResults === 40 ? 80 : 40; })
-            Column() { this.DialogLinkRow(this.t('chapter_pages'), this.maxReaderPages + this.t('pages_unit'), true) }.onClick(() => { this.maxReaderPages = this.maxReaderPages === 6 ? 8 : 6; })
+            Column() { this.DialogLinkRow(this.t('chapter_pages'), this.maxReaderPages + this.t('pages_unit'), true) }.onClick(() => { this.maxReaderPages = this.maxReaderPages === 30 ? 50 : 30; })
           }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
         } else if (this.settingsDialog === 'engines') {
           this.DialogHeader(this.t('search_engine'))
@@ -1575,17 +2247,17 @@ struct Index {
           Column({ space: 0 }) {
             Column() { this.DialogLinkRow(this.t('remote_count'), this.remoteRuleCount + this.t('rules_unit'), false) }.onClick(() => this.updateRemoteRules())
           }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
-          TextInput({ placeholder: this.t('remote_url'), text: this.remoteRuleUrl }).height(42).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.remoteRuleUrl = value; })
+          TextInput({ placeholder: this.t('remote_url'), text: this.remoteRuleUrl }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.remoteRuleUrl = value; })
           Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
         } else {
           this.DialogHeader(this.t('advanced_rules'))
-          TextInput({ placeholder: this.t('custom_json'), text: this.customRuleText }).height(120).backgroundColor(this.inputBg()).borderRadius(12).padding(10).onChange((value: string) => { this.customRuleText = value; })
+          TextInput({ placeholder: this.t('custom_json'), text: this.customRuleText }).height(120).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding(10).onChange((value: string) => { this.customRuleText = value; })
           Button(this.t('enabled'))
             .width('100%')
             .height(42)
             .fontSize(15)
             .fontColor('#FFFFFF')
-            .backgroundColor(this.accent())
+            .backgroundColor(this.actionBg())
             .borderRadius(12)
             .margin({ top: 10 })
             .onClick(() => this.applyCustomRule())
@@ -1667,25 +2339,188 @@ struct Index {
   }
 
   @Builder
+  private UpdateDialog() {
+    Column() {
+      Column({ space: 20 }) {
+        Row() {
+          Text(this.t('data_update'))
+            .fontSize(20)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.primaryText())
+          Blank()
+          Image($rawfile('ic_close.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.primaryText())).onClick(() => { this.updateDialogVisible = false; })
+        }.width('100%')
+        Column({ space: 0 }) {
+          Row() {
+            Image($rawfile('ic_refresh.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 10 })
+            Text(this.t('update_all')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+            if (this.updatingRules || this.updatingCatalog) {
+              LoadingProgress().width(18).height(18).color(this.accent())
+            }
+          }.width('100%').height(50).onClick(() => { this.updateAll(); })
+          Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
+          Row() {
+            Image($rawfile('ic_rule.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 10 })
+            Text(this.t('update_rules')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+            if (this.updatingRules) {
+              LoadingProgress().width(18).height(18).color(this.accent())
+            } else {
+              Text(this.remoteRuleCount + this.t('rules_unit')).fontSize(13).fontColor(this.secondaryText())
+            }
+          }.width('100%').height(50).onClick(() => { this.updateRemoteRules(); })
+          Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
+          Row() {
+            Image($rawfile('ic_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 10 })
+            Text(this.t('update_catalog')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+            if (this.updatingCatalog) {
+              LoadingProgress().width(18).height(18).color(this.accent())
+            } else {
+              Text(this.catalogUpdateAvailable
+                ? this.catalogStage('有更新', 'Update available')
+                : this.catalogCategories.length + this.t('items_unit'))
+                .fontSize(13)
+                .fontColor(this.catalogUpdateAvailable ? this.warnText() : this.secondaryText())
+            }
+          }.width('100%').height(50).onClick(() => { this.updateCatalog(); })
+          if (this.updatingCatalog || this.catalogProgressPercent > 0) {
+            Column({ space: 6 }) {
+              Progress({ value: this.catalogProgressPercent, total: 100, type: ProgressType.Linear })
+                .width('100%')
+                .height(6)
+                .color(this.accent())
+              Text(this.catalogProgressText())
+                .fontSize(12)
+                .fontColor(this.secondaryText())
+                .width('100%')
+            }.width('100%').padding({ left: 30, right: 4, bottom: 8 })
+          } else if (this.catalogUpdateStatus.length > 0) {
+            Text(this.catalogUpdateStatus).fontSize(12).fontColor(this.secondaryText())
+              .width('100%').padding({ left: 30, right: 4, bottom: 8 })
+          }
+        }.width('100%')
+      }
+      .width('85%')
+      .padding(24)
+      .backgroundColor(this.cardBg())
+      .borderRadius(16)
+      .shadow({ radius: 20, color: '#18000000', offsetX: 0, offsetY: 4 })
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(this.dialogOverlay())
+    .justifyContent(FlexAlign.Center)
+    .onClick(() => { this.updateDialogVisible = false; })
+  }
+
+  @Builder
   private ShelfPage() {
     Scroll() {
       Column() {
         Blank().height(this.contentTopInset())
-        Row() {
-          Image($rawfile('ic_shelf.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 8 })
-          Text(this.t('shelf')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
-        }.width('100%').margin({ top: 12, bottom: 12 })
-        if (this.bookshelf.length === 0) {
-          Text(this.t('shelf_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
+
+        if (this.catalogUpdateStatus.length > 0) {
+          Row({ space: 8 }) {
+            if (this.catalogCheckingOnline || this.catalogLoading || this.updatingCatalog) {
+              LoadingProgress().width(18).height(18).color(this.accent())
+            }
+            Text(this.updatingCatalog ? this.catalogProgressText() : this.catalogUpdateStatus)
+              .fontSize(12)
+              .fontColor(this.secondaryText())
+              .layoutWeight(1)
+          }
+          .width('100%')
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .margin({ left: 10, right: 10, bottom: 8 })
+          .backgroundColor(this.cardBg())
+          .borderRadius(12)
+        }
+
+        if (this.catalogLoading) {
+          Column() {
+            LoadingProgress().width(24).height(24).color(this.accent())
+            Text(this.catalogUpdateStatus.length > 0 ? this.catalogUpdateStatus : (this.t('catalog_loading') ?? '加载目录中...')).fontSize(14).fontColor(this.secondaryText()).margin({ top: 8 })
+          }.width('100%').height(200).justifyContent(FlexAlign.Center)
+        } else if (this.catalogCategories.length > 0) {
+          if (this.selectedCatalogCategory.length > 0 && this.catalogItems.length > 0) {
+            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+              ForEach(this.catalogItems, (item: CatalogItem) => {
+                Column() {
+                  Stack() {
+                    if (this.catalogItemCover(item).length > 0) {
+                      Image(this.catalogItemCover(item)).width('100%').height(140).objectFit(ImageFit.Cover).borderRadius({ topLeft: 12, topRight: 12 })
+                    } else {
+                      Column() {
+                        Text(item.title.substring(0, 1)).fontSize(28).fontWeight(FontWeight.Bold).fontColor(this.accent())
+                      }.width('100%').height(140).justifyContent(FlexAlign.Center).backgroundColor(this.coverPlaceholderBg()).borderRadius({ topLeft: 12, topRight: 12 })
+                    }
+                  }.width('100%').height(140).clip(true)
+
+                  Text(item.title).fontSize(12).fontColor(this.primaryText()).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 6, bottom: 6 })
+                }
+                .width('32%')
+                .backgroundColor(this.cardBg())
+                .borderRadius(12)
+                .clip(true)
+                .margin({ bottom: 8 })
+                .onClick(() => {
+                  const source = this.preferredCatalogSource(item);
+                  if (source?.detailUrl) {
+                    this.currentCover = source.coverUrl ? source.coverUrl : this.catalogItemCover(item);
+                    this.loadDetail(source.detailUrl, item.title, this.findRuleByUrl(source.detailUrl));
+                  } else if (source?.searchUrl) {
+                    this.queryText = item.title;
+                    this.activeTab = 'search';
+                    this.startSearch();
+                  }
+                })
+              }, (item: CatalogItem) => item.id)
+            }
+            .width('100%')
+            .padding({ left: 10, right: 10, top: 4, bottom: 14 })
+          } else {
+            Column() {
+              Text(this.t('select_category') ?? '选择分类浏览漫画').fontSize(14).fontColor(this.secondaryText()).margin({ top: 40 })
+            }.width('100%').justifyContent(FlexAlign.Center)
+          }
         } else {
-          ForEach(this.bookshelf, (item: BookshelfItem) => {
-            Column() { this.SettingCard(item.title, item.sourceName + ' · ' + item.lastReadAt, item.progressPercent + '%') }
-              .onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
-          }, (item: BookshelfItem) => item.url)
+          if (this.bookshelf.length === 0) {
+            Text(this.t('shelf_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
+          } else {
+            ForEach(this.bookshelf, (item: BookshelfItem) => {
+              Column() { this.SettingCard(item.title, item.sourceName + ' · ' + item.lastReadAt, item.progressPercent + '%') }
+                .onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
+            }, (item: BookshelfItem) => item.url)
+          }
         }
         Blank().height(this.contentBottomInset())
-      }.width('100%').padding({ left: 14, right: 14 })
-    }.layoutWeight(1).backgroundColor(this.appBg())
+      }.width('100%').padding({ left: 10, right: 10 })
+    }
+    .layoutWeight(1)
+    .scrollable(ScrollDirection.Vertical)
+    .scrollBar(BarState.Auto)
+    .backgroundColor(this.appBg())
+  }
+
+  private catalogItemCover(item: CatalogItem): string {
+    for (let i = 0; i < item.sources.length; i++) {
+      if (item.sources[i].coverUrl && item.sources[i].coverUrl!.length > 0) {
+        return item.sources[i].coverUrl!;
+      }
+    }
+    return '';
+  }
+
+  private preferredCatalogSource(item: CatalogItem): CatalogSource | null {
+    let fallback: CatalogSource | null = null;
+    for (let i = 0; i < item.sources.length; i++) {
+      const source = item.sources[i];
+      if (source.detailUrl && source.detailUrl.length > 0) {
+        if (fallback === null) fallback = source;
+        if (this.findRuleByUrl(source.detailUrl).id !== this.genericRule().id) return source;
+      }
+    }
+    if (fallback !== null) return fallback;
+    return item.sources.length > 0 ? item.sources[0] : null;
   }
 
   @Builder
@@ -1693,17 +2528,54 @@ struct Index {
     Scroll() {
       Column() {
         Blank().height(this.contentTopInset())
-        Row() {
-          Image($rawfile('ic_history.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 8 })
-          Text(this.t('history')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
-        }.width('100%').margin({ top: 12, bottom: 12 })
-        if (this.history.length === 0) {
-          Text(this.t('history_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
+        if (this.historyTab === 'history') {
+          if (this.history.length === 0) {
+            Text(this.t('history_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
+          } else if (this.historyViewMode === 'grid') {
+            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+              ForEach(this.history, (item: ReadingHistoryItem) => {
+                Column() {
+                  if (item.cover.length > 0) {
+                    Image(item.cover).width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).objectFit(ImageFit.Cover)
+                  } else {
+                    Column() { Text(this.t('no_cover')).fontSize(11).fontColor(this.secondaryText()) }.width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).justifyContent(FlexAlign.Center).backgroundColor(this.cardBg())
+                  }
+                  Text(item.title).fontSize(12).fontColor(this.primaryText()).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 4 })
+                  Text(item.chapterTitle).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
+                }.width('31.5%').margin({ bottom: 10 }).backgroundColor(this.cardBg()).borderRadius(12)
+                  .onClick(() => this.loadChapter({ title: item.chapterTitle, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, this.findRule(item.sourceId)))
+              }, (item: ReadingHistoryItem) => item.url)
+            }.width('100%')
+          } else {
+            ForEach(this.history, (item: ReadingHistoryItem) => {
+              Column() { this.SettingCard(item.title, item.chapterTitle + ' · ' + item.lastReadAt, item.imageCount + this.t('images_unit')) }
+                .onClick(() => this.loadChapter({ title: item.chapterTitle, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, this.findRule(item.sourceId)))
+            }, (item: ReadingHistoryItem) => item.url)
+          }
         } else {
-          ForEach(this.history, (item: ReadingHistoryItem) => {
-            Column() { this.SettingCard(item.title, item.chapterTitle + ' · ' + item.lastReadAt, item.imageCount + this.t('images_unit')) }
-              .onClick(() => this.loadChapter({ title: item.chapterTitle, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, this.findRule(item.sourceId)))
-          }, (item: ReadingHistoryItem) => item.url)
+          if (this.bookshelf.length === 0) {
+            Text(this.t('shelf_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
+          } else if (this.historyViewMode === 'grid') {
+            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+              ForEach(this.bookshelf, (item: BookshelfItem) => {
+                Column() {
+                  if (item.cover.length > 0) {
+                    Image(item.cover).width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).objectFit(ImageFit.Cover)
+                  } else {
+                    Column() { Text(this.t('no_cover')).fontSize(11).fontColor(this.secondaryText()) }.width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).justifyContent(FlexAlign.Center).backgroundColor(this.cardBg())
+                  }
+                  Text(item.title).fontSize(12).fontColor(this.primaryText()).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 4 })
+                  Text(item.sourceName).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
+                }.width('31.5%').margin({ bottom: 10 }).backgroundColor(this.cardBg()).borderRadius(12)
+                  .onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
+              }, (item: BookshelfItem) => item.url)
+            }.width('100%')
+          } else {
+            ForEach(this.bookshelf, (item: BookshelfItem) => {
+              Column() { this.SettingCard(item.title, item.sourceName + ' · ' + item.lastReadAt, item.progressPercent + '%') }
+                .onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
+            }, (item: BookshelfItem) => item.url)
+          }
         }
         Blank().height(this.contentBottomInset())
       }.width('100%').padding({ left: 14, right: 14 })
@@ -1750,7 +2622,7 @@ struct Index {
     .width('100%')
     .height(56)
     .borderRadius(28)
-    .backgroundColor(this.isDark() ? '#20000000' : '#30FFFFFF')
+    .backgroundColor(this.isDark() ? '#10000000' : '#18FFFFFF')
     .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT, adaptiveColor: AdaptiveColor.AVERAGE })
     .border({ width: 1, color: this.isDark() ? '#18FFFFFF' : '#28FFFFFF' })
     .shadow({ radius: 8, color: '#18000000', offsetY: 3 })
@@ -1765,7 +2637,7 @@ struct Index {
   }
 
   private contentBottomInset(): number {
-    return 96;
+    return 80 + this.bottomSafeInset;
   }
 
   @Builder
@@ -1778,6 +2650,8 @@ struct Index {
             TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
               .height(44)
               .fontSize(15)
+              .fontColor(this.primaryText())
+              .placeholderColor(this.secondaryText())
               .backgroundColor(Color.Transparent)
               .borderRadius(22)
               .border({ width: 1, color: this.secondaryText() })
@@ -1795,6 +2669,82 @@ struct Index {
           }.layoutWeight(1)
           Column() { this.SearchActionButton(44) }
             .margin({ left: 8 })
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+      } else if (this.activeTab === 'shelf') {
+        Scroll() {
+          Row({ space: 8 }) {
+            ForEach(this.catalogCategories, (cat: CatalogCategory) => {
+              Text(cat.name)
+                .fontSize(14)
+                .fontWeight(this.selectedCatalogCategory === cat.id ? FontWeight.Bold : FontWeight.Normal)
+                .fontColor(this.selectedCatalogCategory === cat.id ? this.accent() : this.primaryText())
+                .maxLines(1)
+                .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                .borderRadius(16)
+                .border({ width: 1, color: this.selectedCatalogCategory === cat.id ? this.accent() : this.borderSubtle() })
+                .onClick(() => {
+                  if (this.selectedCatalogCategory === cat.id) {
+                    this.selectedCatalogCategory = '';
+                    this.catalogItems = [];
+                  } else {
+                    this.selectedCatalogCategory = cat.id;
+                    this.catalogItems = this.filteredCatalogItems(this.remoteCatalog!, cat.id);
+                  }
+                })
+            }, (cat: CatalogCategory) => cat.id)
+          }
+          .padding({ left: 14, right: 14 })
+        }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .width('100%')
+        .padding({ top: 8, bottom: 8 })
+        .backgroundColor(Color.Transparent)
+      } else if (this.activeTab === 'history') {
+        Row() {
+          Row({ space: 16 }) {
+            Text(this.t('history'))
+              .fontSize(20)
+              .fontWeight(this.historyTab === 'history' ? FontWeight.Bold : FontWeight.Normal)
+              .fontColor(this.historyTab === 'history' ? this.primaryText() : this.secondaryText())
+              .onClick(() => { this.historyTab = 'history'; })
+            Text(this.t('favorites'))
+              .fontSize(20)
+              .fontWeight(this.historyTab === 'favorites' ? FontWeight.Bold : FontWeight.Normal)
+              .fontColor(this.historyTab === 'favorites' ? this.primaryText() : this.secondaryText())
+              .onClick(() => { this.historyTab = 'favorites'; })
+          }.layoutWeight(1)
+          Stack() {
+            Image($rawfile('ic_more.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              .onClick(() => { this.historyMenuVisible = !this.historyMenuVisible; })
+            if (this.historyMenuVisible) {
+              Column() {
+                Row({ space: 8 }) {
+                  Image($rawfile('ic_layout.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.historyViewMode === 'list' ? this.accent() : this.secondaryText()))
+                  Text(this.t('list_view')).fontSize(14).fontColor(this.historyViewMode === 'list' ? this.accent() : this.primaryText())
+                }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.historyViewMode = 'list'; this.historyMenuVisible = false; })
+                Row({ space: 8 }) {
+                  Image($rawfile('ic_shelf.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.historyViewMode === 'grid' ? this.accent() : this.secondaryText()))
+                  Text(this.t('grid_view')).fontSize(14).fontColor(this.historyViewMode === 'grid' ? this.accent() : this.primaryText())
+                }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.historyViewMode = 'grid'; this.historyMenuVisible = false; })
+              }
+              .width(140)
+              .backgroundColor(this.cardBg())
+              .borderRadius(12)
+              .shadow({ radius: 12, color: '#30000000', offsetY: 4 })
+              .border({ width: 1, color: this.borderSubtle() })
+              .position({ x: -100, y: 36 })
+            }
+          }.width(36).height(36).alignContent(Alignment.Center)
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+      } else if (this.activeTab === 'settings') {
+        Row() {
+          Image($rawfile('ic_settings.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 8 })
+          Text(this.t('settings')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
         }
         .width('100%')
         .padding({ left: 14, right: 14, top: 8, bottom: 8 })
@@ -1817,48 +2767,53 @@ struct Index {
 
   build() {
     Stack() {
-      Column() {
-        if (this.activeTab === 'search') {
-          if (this.mode === 'home') this.SearchHome()
-          else if (this.mode === 'results') this.ResultsPage()
-          else if (this.mode === 'chapters') this.ChaptersPage()
-          else this.ReaderPage()
-        } else if (this.activeTab === 'shelf') {
-          this.ShelfPage()
-        } else if (this.activeTab === 'history') {
-          this.HistoryPage()
-        } else {
-          this.SettingsPage()
-        }
-      }
-      .width('100%')
-      .height('100%')
-      .backgroundColor(this.appBg())
-
-      if (this.mode !== 'reader' && this.mode !== 'chapters') {
+      ForEach([`${this.uiVersion}`], (_: string) => {
         Column() {
-          this.HeaderOverlay()
+          if (this.activeTab === 'search') {
+            if (this.mode === 'home') this.SearchHome()
+            else if (this.mode === 'results') this.ResultsPage()
+            else if (this.mode === 'chapters') this.ChaptersPage()
+            else this.ReaderPage()
+          } else if (this.activeTab === 'shelf') {
+            this.ShelfPage()
+          } else if (this.activeTab === 'history') {
+            this.HistoryPage()
+          } else {
+            this.SettingsPage()
+          }
         }
         .width('100%')
         .height('100%')
-        .justifyContent(FlexAlign.Start)
-        .hitTestBehavior(HitTestMode.Transparent)
-      }
+        .backgroundColor(this.appBg())
 
-      if (this.mode !== 'reader' && this.mode !== 'chapters') {
-        Column() {
-          Blank()
-          this.BottomTabs()
+        if (this.mode !== 'reader' && this.mode !== 'chapters') {
+          Column() {
+            this.HeaderOverlay()
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Start)
+          .backgroundColor(Color.Transparent)
+          .hitTestBehavior(HitTestMode.Transparent)
         }
-        .width('100%')
-        .height('100%')
-        .justifyContent(FlexAlign.End)
-        .padding({ left: 14, right: 14, bottom: 14 })
-        .hitTestBehavior(HitTestMode.Transparent)
-      }
+
+        if (this.mode !== 'reader' && this.mode !== 'chapters') {
+          Column() {
+            Blank()
+            this.BottomTabs()
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.End)
+          .padding({ left: 10, right: 10, bottom: Math.max(0, this.bottomSafeInset - 2) })
+          .backgroundColor(Color.Transparent)
+          .hitTestBehavior(HitTestMode.Transparent)
+        }
+      }, (item: string, index: number) => `${item}_${index}`)
     }
     .width('100%')
     .height('100%')
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    .id(`root_${this.uiVersion}`)
   }
 }

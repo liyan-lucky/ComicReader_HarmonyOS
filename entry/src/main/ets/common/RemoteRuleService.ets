@@ -1,18 +1,41 @@
-import { ComicSourceRule } from '../model/ComicModels';
+import { ComicSourceRule, LanguageInfo } from '../model/ComicModels';
 import { HttpClient } from './HttpClient';
 import { isValidPublicRule } from './RuleValidator';
 
-export const DEFAULT_REMOTE_RULE_URL: string = 'https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/index.json';
+export const DEFAULT_REMOTE_RULE_URL: string = 'https://raw.githubusercontent.com/liyan-lucky/ComicReader_Rules/main/generated/update_manifest.json';
 
-const EXPECTED_SCHEMA: string = 'womh_comic_rules_index_v1';
-const MAX_REMOTE_RULES: number = 200;
+const EXPECTED_RULE_SCHEMA: string = 'womh_comic_rules_index_v1';
+const EXPECTED_MANIFEST_SCHEMA: string = 'comic_reader_update_manifest_v1';
+// The generated zh-Hans index currently contains roughly one thousand audited
+// public sources. Rejecting the whole index at 200 made every online update fail.
+const MAX_REMOTE_RULES: number = 1200;
 
 interface RemoteRuleIndex {
   schema?: string;
   version?: string;
   updatedAt?: string;
   rules?: ComicSourceRule[];
-  compliance?: Record<string, object | string | boolean | number>;
+  compliance?: Record<string, string | boolean | number>;
+}
+
+interface ManifestRulesEntry {
+  version?: string;
+  url?: string;
+  language?: LanguageInfo;
+  languages?: Record<string, ManifestRulesEntry>;
+}
+
+interface ManifestCatalogEntry {
+  version?: string;
+  url?: string;
+  language?: LanguageInfo;
+  languages?: Record<string, ManifestCatalogEntry>;
+}
+
+interface UpdateManifest {
+  schema?: string;
+  rules?: ManifestRulesEntry;
+  catalog?: ManifestCatalogEntry;
 }
 
 function isSafeRemoteRuleUrl(url: string): boolean {
@@ -21,7 +44,7 @@ function isSafeRemoteRuleUrl(url: string): boolean {
 }
 
 function isTrustedIndex(parsed: RemoteRuleIndex): boolean {
-  if (parsed.schema !== EXPECTED_SCHEMA) {
+  if (parsed.schema !== EXPECTED_RULE_SCHEMA) {
     return false;
   }
   if (parsed.rules === undefined) {
@@ -30,16 +53,59 @@ function isTrustedIndex(parsed: RemoteRuleIndex): boolean {
   return parsed.rules.length <= MAX_REMOTE_RULES;
 }
 
+function isTrustedManifest(parsed: UpdateManifest): boolean {
+  return parsed.schema === EXPECTED_MANIFEST_SCHEMA;
+}
+
 export class RemoteRuleService {
   static async fetchRemoteRules(url: string): Promise<ComicSourceRule[]> {
     if (!isSafeRemoteRuleUrl(url)) {
       throw new Error('Remote rule URL must use HTTPS');
     }
     const text = await HttpClient.getText(url, 'Mozilla/5.0 HarmonyOS ComicReader RemoteRules/1.0', 'https://github.com/');
+    const parsed = JSON.parse(text) as RemoteRuleIndex | UpdateManifest;
+
+    if (isTrustedManifest(parsed as UpdateManifest)) {
+      const manifest = parsed as UpdateManifest;
+      const rulesUrl = manifest.rules?.url;
+      if (!rulesUrl) {
+        throw new Error('Manifest missing rules URL');
+      }
+      return RemoteRuleService.fetchRulesFromUrl(rulesUrl);
+    }
+
+    if (isTrustedIndex(parsed as RemoteRuleIndex)) {
+      return RemoteRuleService.extractValidRules(parsed as RemoteRuleIndex);
+    }
+
+    throw new Error('Invalid remote rule index or manifest');
+  }
+
+  static async fetchRulesFromUrl(rulesUrl: string): Promise<ComicSourceRule[]> {
+    if (!isSafeRemoteRuleUrl(rulesUrl)) {
+      throw new Error('Rules URL must use HTTPS');
+    }
+    const text = await HttpClient.getText(rulesUrl, 'Mozilla/5.0 HarmonyOS ComicReader RemoteRules/1.0', 'https://github.com/');
     const parsed = JSON.parse(text) as RemoteRuleIndex;
     if (!isTrustedIndex(parsed)) {
       throw new Error('Invalid remote rule index');
     }
+    return RemoteRuleService.extractValidRules(parsed);
+  }
+
+  static async fetchCatalogUrl(manifestUrl: string): Promise<string> {
+    if (!isSafeRemoteRuleUrl(manifestUrl)) {
+      throw new Error('Manifest URL must use HTTPS');
+    }
+    const text = await HttpClient.getText(manifestUrl, 'Mozilla/5.0 HarmonyOS ComicReader Catalog/1.0', 'https://github.com/');
+    const manifest = JSON.parse(text) as UpdateManifest;
+    if (!isTrustedManifest(manifest) || !manifest.catalog?.url) {
+      throw new Error('Invalid manifest or missing catalog URL');
+    }
+    return manifest.catalog.url;
+  }
+
+  private static extractValidRules(parsed: RemoteRuleIndex): ComicSourceRule[] {
     const remoteRules = parsed.rules === undefined ? [] : parsed.rules;
     const validRules: ComicSourceRule[] = [];
     for (let i = 0; i < remoteRules.length; i++) {

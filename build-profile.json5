@@ -1,9 +1,24 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\Sinylon-hw\\.ohos\\config\\default_14_ComicReader_HarmonyOS_TzBh37Nj4kSyvVmKu0tHZ3WnAPijuckZL4EI80N4ij8=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001AA36DCAC91D9D5E576298D89CC552B2C07516F81A17F8DB50630907E6BCDD00226EE167EB36E2",
+          "profile": "C:\\Users\\Sinylon-hw\\.ohos\\config\\default_14_ComicReader_HarmonyOS_TzBh37Nj4kSyvVmKu0tHZ3WnAPijuckZL4EI80N4ij8=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\Sinylon-hw\\.ohos\\config\\default_14_ComicReader_HarmonyOS_TzBh37Nj4kSyvVmKu0tHZ3WnAPijuckZL4EI80N4ij8=.p12",
+          "storePassword": "0000001AC1C81B14AFB47FEFE43B6FA68B6D1CC090542FF4085D12740B4846C9023D7E24AFD116833980"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
+        "signingConfig": "default",
         "compileSdkVersion": "6.1.1(24)",
         "compatibleSdkVersion": "6.1.0(23)",
         "runtimeOS": "HarmonyOS",

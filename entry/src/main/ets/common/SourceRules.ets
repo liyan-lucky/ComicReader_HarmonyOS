@@ -292,10 +292,39 @@ export const RULE_TEMPLATE = `{
 
 export function ruleForPublicUrl(url: string, fallback: ComicSourceRule): ComicSourceRule {
   const lower = url.toLowerCase();
+  const hostOf = (value: string): string => {
+    let host = value.toLowerCase().trim();
+    const protocol = host.indexOf('://');
+    if (protocol >= 0) host = host.substring(protocol + 3);
+    const slash = host.indexOf('/');
+    if (slash >= 0) host = host.substring(0, slash);
+    const port = host.indexOf(':');
+    if (port >= 0) host = host.substring(0, port);
+    return host.startsWith('www.') ? host.substring(4) : host;
+  };
+  const targetHost = hostOf(lower);
   const find = (id: string): ComicSourceRule => {
     const found = DEFAULT_SOURCES.find((item: ComicSourceRule) => item.id === id);
     return found ? found : fallback;
   };
+  // Generated applicability lists may contain compatibility domains shared by
+  // many rules. Always select the rule whose own homepage matches first.
+  for (let i = 0; i < GENERATED_SOURCES.length; i++) {
+    const ruleHost = hostOf(GENERATED_SOURCES[i].homepage);
+    if (ruleHost.length > 0 && (targetHost === ruleHost || targetHost.endsWith('.' + ruleHost))) {
+      return GENERATED_SOURCES[i];
+    }
+  }
+  for (let i = 0; i < GENERATED_SOURCES.length; i++) {
+    const rule = GENERATED_SOURCES[i];
+    if (rule.domainApplicabilityList) {
+      for (let j = 0; j < rule.domainApplicabilityList.length; j++) {
+        if (lower.indexOf(rule.domainApplicabilityList[j]) >= 0) {
+          return rule;
+        }
+      }
+    }
+  }
   if (lower.indexOf('m.ac.qq.com') >= 0 || lower.indexOf('comic.qq.com') >= 0 || lower.indexOf('ac.qq.com') >= 0) {
     return find('tencent_ac_official_catalog');
   }
@@ -358,7 +387,24 @@ export function isUnverifiedPublicDomain(url: string): boolean {
     lower.indexOf('mangafire.to') >= 0 ||
     lower.indexOf('mangadna.com') >= 0 ||
     lower.indexOf('mangaread.org') >= 0 ||
-    lower.indexOf('mycomic.com') >= 0;
+    lower.indexOf('mycomic.com') >= 0 ||
+    lower.indexOf('labimanhua.com') >= 0 ||
+    lower.indexOf('dm5.cn') >= 0 ||
+    lower.indexOf('manwang.net') >= 0 ||
+    lower.indexOf('ttkmh.com') >= 0 ||
+    lower.indexOf('hitomi.la') >= 0 ||
+    lower.indexOf('bilibili.com') >= 0 ||
+    lower.indexOf('jwxs.org') >= 0 ||
+    lower.indexOf('lpsdimataram.com') >= 0 ||
+    lower.indexOf('shenqimanhua.net') >= 0 ||
+    lower.indexOf('ycymh.com') >= 0 ||
+    lower.indexOf('manhuaba.com') >= 0 ||
+    lower.indexOf('manwame.com') >= 0 ||
+    lower.indexOf('xiaoaimh.com') >= 0 ||
+    lower.indexOf('mechacomic.jp') >= 0 ||
+    lower.indexOf('yanmaga.jp') >= 0 ||
+    lower.indexOf('pocket.shonenmagazine.com') >= 0 ||
+    lower.indexOf('kodansha.co.jp') >= 0;
 }
 
 export function isOfficialOrPublicCollectionDomain(url: string): boolean {
@@ -414,5 +460,22 @@ export function isTop20AuditedPublicReadableDomain(url: string): boolean {
     lower.indexOf('shenlanqiyu.org') >= 0 ||
     lower.indexOf('mycomic.com') >= 0 ||
     lower.indexOf('m.ac.qq.com') >= 0 ||
-    lower.indexOf('ac.qq.com') >= 0;
+    lower.indexOf('ac.qq.com') >= 0 ||
+    lower.indexOf('labimanhua.com') >= 0 ||
+    lower.indexOf('dm5.cn') >= 0 ||
+    lower.indexOf('manwang.net') >= 0 ||
+    lower.indexOf('ttkmh.com') >= 0 ||
+    lower.indexOf('hitomi.la') >= 0 ||
+    lower.indexOf('bilibili.com') >= 0 ||
+    lower.indexOf('jwxs.org') >= 0 ||
+    lower.indexOf('lpsdimataram.com') >= 0 ||
+    lower.indexOf('shenqimanhua.net') >= 0 ||
+    lower.indexOf('ycymh.com') >= 0 ||
+    lower.indexOf('manhuaba.com') >= 0 ||
+    lower.indexOf('manwame.com') >= 0 ||
+    lower.indexOf('xiaoaimh.com') >= 0 ||
+    lower.indexOf('mechacomic.jp') >= 0 ||
+    lower.indexOf('yanmaga.jp') >= 0 ||
+    lower.indexOf('pocket.shonenmagazine.com') >= 0 ||
+    lower.indexOf('kodansha.co.jp') >= 0;
 }

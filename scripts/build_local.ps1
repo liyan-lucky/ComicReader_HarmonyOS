@@ -16,13 +16,20 @@ Write-Host "[本地构建] 产物目录: $TEMP_DIR"
 Set-Location $ROOT_DIR
 
 node scripts/update_build_version.js --incremental --target local-build
+if ($LASTEXITCODE -ne 0) { throw "版本号更新失败，退出码: $LASTEXITCODE" }
 
 Write-Host "[本地构建] 直接调用hvigor构建HAP..." -ForegroundColor Cyan
+$buildStartedAt = Get-Date
 & node "$DEVECO_TOOLS\hvigor\bin\hvigorw.js" --stacktrace assembleHap
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[本地构建] 编译失败，不复制已有旧产物。" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
 
 if (!(Test-Path $TEMP_DIR)) { New-Item -ItemType Directory -Path $TEMP_DIR -Force | Out-Null }
 
-$hapFiles = Get-ChildItem -Path $ROOT_DIR -Filter '*.hap' -Recurse -ErrorAction SilentlyContinue
+$hapFiles = Get-ChildItem -Path $ROOT_DIR -Filter '*.hap' -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -ge $buildStartedAt.AddSeconds(-2) }
 if ($hapFiles) {
     foreach ($hap in $hapFiles) {
         Copy-Item $hap.FullName -Destination $TEMP_DIR -Force

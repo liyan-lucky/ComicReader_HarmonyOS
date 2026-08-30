@@ -2,10 +2,28 @@ import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import UIAbility from '@ohos.app.ability.UIAbility';
 import Want from '@ohos.app.ability.Want';
 import window from '@ohos.window';
+import Configuration from '@ohos.app.ability.Configuration';
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     console.info('ComicReader EntryAbility onCreate');
+    this.pushColorModeToAppStorage();
+  }
+
+  onConfigurationUpdated(newConfig: Configuration): void {
+    this.pushColorModeToAppStorage();
+  }
+
+  private pushColorModeToAppStorage(): void {
+    try {
+      const config: Record<string, Object> = this.context.config as Record<string, Object>;
+      const colorMode: number = (config['colorMode'] as number) ?? 1;
+      const isDark = colorMode === 0;
+      AppStorage.setOrCreate<string>('systemColorMode', isDark ? 'dark' : 'light');
+      AppStorage.setOrCreate<number>('uiVersion', Date.now());
+    } catch (e) {
+      AppStorage.setOrCreate<string>('systemColorMode', 'light');
+    }
   }
 
   onDestroy(): void {

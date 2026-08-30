@@ -137,6 +137,18 @@ function safeTitle(value: string, fallback: string): string {
   return fallback;
 }
 
+function normalizedSearchText(value: string): string {
+  return value.toLowerCase().replace(/<[^>]+>/g, ' ').replace(/[\s\p{P}\p{S}]+/gu, '');
+}
+
+function matchesOriginalKeyword(text: string, keyword: string): boolean {
+  const expected = normalizedSearchText(keyword);
+  if (expected.length === 0) {
+    return false;
+  }
+  return normalizedSearchText(text).indexOf(expected) >= 0;
+}
+
 function compactDesc(value: string): string {
   const clean = safeTitle(value, '');
   if (clean.length > 110) {
@@ -237,7 +249,7 @@ export function parseInternetArchiveSearch(jsonText: string, keyword: string): S
     const creator = readJsonString(block, 'creator');
     const year = readJsonString(block, 'year');
     const desc = compactDesc(readJsonString(block, 'description'));
-    if (identifier.length > 0 && title.length > 0) {
+    if (identifier.length > 0 && title.length > 0 && matchesOriginalKeyword(title + ' ' + creator + ' ' + desc + ' ' + block, keyword)) {
       const meta = (creator.length > 0 ? creator + ' · ' : '') + (year.length > 0 ? year + ' · ' : '') + desc;
       if (!results.some((item: SearchResultItem) => item.url === makeArchivePseudoUrl(identifier))) {
         results.push({
@@ -326,7 +338,7 @@ export function parseOpenLibrarySearch(jsonText: string, keyword: string): Searc
     const coverId = readJsonNumber(block, 'cover_i');
     const ia = readFirstArrayString(block, 'ia');
     const hasFullText = /"has_fulltext"\s*:\s*true/i.test(block) || /"public_scan_b"\s*:\s*true/i.test(block);
-    if (title.length > 0 && ia.length > 0 && hasFullText) {
+    if (title.length > 0 && ia.length > 0 && hasFullText && matchesOriginalKeyword(title + ' ' + author + ' ' + block, keyword)) {
       const cover = coverId.length > 0 ? 'https://covers.openlibrary.org/b/id/' + coverId + '-L.jpg' : 'https://archive.org/services/img/' + encodeURIComponent(ia);
       const meta = (author.length > 0 ? author + ' · ' : '') + (year.length > 0 ? year + ' · ' : '') + 'Open Library索引到Internet Archive公开可读馆藏';
       results.push({
@@ -356,7 +368,7 @@ export function parseWikimediaSearch(jsonText: string, keyword: string): SearchR
     const block = match[2];
     const imageUrl = readJsonString(block, 'thumburl').length > 0 ? readJsonString(block, 'thumburl') : readJsonString(block, 'url');
     const fullUrl = readJsonString(block, 'url').length > 0 ? readJsonString(block, 'url') : imageUrl;
-    if (rawTitle.length > 0 && fullUrl.length > 0 && /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(fullUrl)) {
+    if (rawTitle.length > 0 && fullUrl.length > 0 && /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(fullUrl) && matchesOriginalKeyword(rawTitle + ' ' + block, keyword)) {
       if (!results.some((item: SearchResultItem) => item.url === makeWikimediaPseudoUrl(fullUrl))) {
         results.push({
           title: rawTitle,
@@ -392,7 +404,7 @@ export function parseLibraryOfCongressSearch(jsonText: string, keyword: string):
     }
     const date = readJsonString(block, 'date');
     const subject = readFirstArrayString(block, 'subject');
-    if (title.length > 0 && image.length > 0 && /\.(jpg|jpeg|png|webp)(\?|$|\/)/i.test(image)) {
+    if (title.length > 0 && image.length > 0 && /\.(jpg|jpeg|png|webp)(\?|$|\/)/i.test(image) && matchesOriginalKeyword(title + ' ' + subject + ' ' + block, keyword)) {
       results.push({
         title: title,
         url: makeLocPseudoUrl(image),
