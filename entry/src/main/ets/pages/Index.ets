@@ -81,7 +81,10 @@ struct Index {
   @State private searchMode: string = 'mixed';
   @State private searchAllEngines: boolean = true;
   @State private languageMode: string = 'chinese';
-  @State private extraSearchTerms: string = '漫画 在线 阅读 章节 manhua manga read chapter';
+  // Language-specific terms are appended by buildEngineQuery. Keeping this
+  // empty avoids an accidental AND query that requires Chinese pages to also
+  // contain every English term (the main cause of one-result genre searches).
+  @State private extraSearchTerms: string = '';
   @State private siteHint: string = '';
   @State private braveApiKey: string = '';
   @State private googleApiKey: string = '';
@@ -89,7 +92,7 @@ struct Index {
   @State private enableSearchEngines: boolean = true;
   @State private enableHtmlRules: boolean = true;
   @State private autoCoverEnabled: boolean = false;
-  @State private maxSearchResults: number = 40;
+  @State private maxSearchResults: number = 80;
   @State private maxReaderPages: number = 30;
   @State private readerRenderLimit: number = 6;
   @State private readerPaginationLoading: boolean = false;
@@ -101,6 +104,7 @@ struct Index {
   @State private floatingReaderControls: boolean = true;
   @State private iconColorMode: string = 'colorful';
   @State private readerToolsVisible: boolean = false;
+  @State private readerChapterPanelVisible: boolean = false;
   @State private appTheme: string = 'light';
   @State private appLanguage: string = 'zh';
   @StorageProp('systemColorMode') private systemColorMode: string = 'light';
@@ -176,6 +180,8 @@ struct Index {
       const savedIconMode = await this.preferencesStore.get('icon_color_mode', 'colorful') as string;
       this.iconColorMode = typeof savedIconMode === 'string' && savedIconMode.length > 0 ? savedIconMode : 'colorful';
       this.chapterReversed = await this.preferencesStore.get('chapter_reversed', true) as boolean;
+      this.fullscreenReader = await this.preferencesStore.get('fullscreen_reader', true) as boolean;
+      this.floatingReaderControls = await this.preferencesStore.get('floating_reader_controls', true) as boolean;
       this.applyKeepScreenOn();
     } catch (e) {
     }
@@ -191,6 +197,8 @@ struct Index {
       await this.preferencesStore.put('debug_keep_screen_on', this.debugKeepScreenOn);
       await this.preferencesStore.put('icon_color_mode', this.iconColorMode);
       await this.preferencesStore.put('chapter_reversed', this.chapterReversed);
+      await this.preferencesStore.put('fullscreen_reader', this.fullscreenReader);
+      await this.preferencesStore.put('floating_reader_controls', this.floatingReaderControls);
       await this.preferencesStore.flush();
     } catch (e) {
     }
@@ -379,6 +387,7 @@ struct Index {
       return true;
     }
     if (this.mode === 'reader') {
+      this.applyReaderFullscreen(false);
       this.mode = this.chapters.length > 0 ? 'chapters' : (this.results.length > 0 ? 'results' : 'home');
       this.activeTab = 'search';
       return true;
@@ -415,6 +424,17 @@ struct Index {
         navigationBarColor: '#00000000',
         navigationBarContentColor: contentColor
       });
+    } catch (e) {
+    }
+  }
+
+  private applyReaderFullscreen(enabled: boolean): void {
+    this.fullscreenReader = enabled;
+    try {
+      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      const mainWindow = context.windowStage.getMainWindowSync();
+      mainWindow.setWindowSystemBarEnable(enabled ? [] : ['status', 'navigation']);
+      if (!enabled) this.updateSystemBarColors();
     } catch (e) {
     }
   }
@@ -784,6 +804,16 @@ struct Index {
     if (mode === 'violet') return '#AF52DE';
     if (mode === 'magenta') return '#FF2D92';
     return this.accent();
+  }
+  private colorfulValue(key: string): string {
+    if (this.iconColorMode !== 'colorful') return this.iconModeColor(this.iconColorMode);
+    const palette: string[] = ['#FF3B30', '#FF9500', '#F5C400', '#34C759', '#00C7BE', '#0A84FF', '#5856D6', '#AF52DE', '#FF2D92'];
+    let value = 0;
+    for (let i = 0; i < key.length; i++) value = (value + key.charCodeAt(i) * (i + 1)) % palette.length;
+    return palette[value];
+  }
+  private searchActionColor(): string {
+    return this.colorfulValue('search-' + this.activeTab + '-' + this.mode + '-' + this.selectedEngineIndex);
   }
   private iconColorModeDisplay(): string { return this.t('icon_color_' + this.iconColorMode); }
   private tabIconKey(name: string): string {
@@ -1360,6 +1390,8 @@ struct Index {
     this.readerRenderLimit = 6;
     this.readerPaginationLoading = true;
     this.readerToolsVisible = false;
+    this.readerChapterPanelVisible = false;
+    this.applyReaderFullscreen(this.fullscreenReader);
     this.statusText = this.t('generating_scroll');
     try {
       const parsedImages = await this.fetchReaderImagesWithPagination(chapter.url, rule);
@@ -1586,6 +1618,22 @@ struct Index {
     this.cacheBookshelfCover(item.url, this.currentCover);
   }
 
+  private isCurrentFavorite(): boolean {
+    return this.bookshelf.some((item: BookshelfItem) => item.title === this.currentTitle &&
+      (this.currentSourceId.length === 0 || item.sourceId === this.currentSourceId));
+  }
+
+  private toggleCurrentFavorite(): void {
+    if (this.isCurrentFavorite()) {
+      this.bookshelf = this.bookshelf.filter((item: BookshelfItem) => !(item.title === this.currentTitle &&
+        (this.currentSourceId.length === 0 || item.sourceId === this.currentSourceId)));
+      this.statusText = this.isEn() ? 'Removed from favorites.' : '已取消收藏。';
+      this.persistData();
+      return;
+    }
+    this.addCurrentToShelf();
+  }
+
   private cycleEngine(): void {
     this.selectedEngineIndex = (this.selectedEngineIndex + 1) % this.searchEngines.length;
   }
@@ -1783,7 +1831,8 @@ struct Index {
       ctx.lineTo(p2[0], p2[1]);
       const a = Math.round(alpha * 255);
       const aHex = a.toString(16).padStart(2, '0');
-      ctx.strokeStyle = '#' + aHex + '34C759';
+      const segmentColor = this.colorfulValue('loading-' + Math.floor(i / 14));
+      ctx.strokeStyle = '#' + aHex + segmentColor.substring(1);
       ctx.stroke();
     }
   }
@@ -1796,7 +1845,7 @@ struct Index {
         .height(heightValue)
         .fontSize(15)
         .fontColor('#FFFFFF')
-        .backgroundColor(this.actionBg())
+        .backgroundColor(this.searchActionColor())
         .borderRadius(heightValue / 2)
         .padding({ left: 20, right: 20 })
         .enabled(!this.isLoading)
@@ -2024,8 +2073,13 @@ struct Index {
           } else {
             ForEach(this.displayedChapters(), (chapter: ChapterItem) => {
               Row() {
-                Text(chapter.index + '').fontSize(13).fontColor('#FFFFFF').textAlign(TextAlign.Center).width(32).height(32).backgroundColor(this.actionBg()).borderRadius(16)
-                Text(chapter.title).fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.primaryText()).layoutWeight(1).margin({ left: 10 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text(chapter.title.trim().length > 0 ? chapter.title : this.t('chapter_list') + ' ' + chapter.index)
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.primaryText())
+                  .layoutWeight(1)
+                  .maxLines(2)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
               }
               .width('100%')
               .padding(12)
@@ -2044,22 +2098,7 @@ struct Index {
 
   @Builder
   private ReaderPage() {
-    Column() {
-      // The root deliberately expands under the system bars for the normal
-      // pages.  Reader chrome can be hidden, so it still needs an unconditional
-      // top spacer; otherwise the loading/status card overlaps the clock.
-      Blank().height(this.avoidStatusBarHeight).backgroundColor(this.readerDarkMode ? '#050505' : this.appBg())
-      if (this.readerToolsVisible) {
-        Row() {
-          Column() {
-            Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back')))
-          }.padding({ left: 12, right: 8, top: 6, bottom: 6 }).onClick(() => { this.mode = this.chapters.length > 0 ? 'chapters' : 'results'; })
-          Text(this.currentChapterTitle.length > 0 ? this.currentChapterTitle : this.currentTitle).fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1).margin({ left: 6 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          Column() {
-            Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_add_shelf')))
-          }.padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
-        }.width('100%').padding(10).backgroundColor(this.readerBarBg())
-      }
+    Stack() {
       Scroll() {
         Column() {
           this.StatusCard()
@@ -2084,17 +2123,66 @@ struct Index {
       .layoutWeight(1)
       .backgroundColor(this.readerDarkMode ? '#050505' : this.appBg())
       .onReachEnd(() => { this.loadNextChapterIfReady(); })
-      .onClick(() => { this.readerToolsVisible = !this.readerToolsVisible; })
-      if (this.readerToolsVisible) {
+      .onClick(() => {
+        if (this.floatingReaderControls) this.readerToolsVisible = !this.readerToolsVisible;
+      })
+
+      if (this.readerToolsVisible && this.floatingReaderControls) {
+        Column() {
+          Row() {
+            Text('‹').fontSize(32).fontColor(this.iconColor('ic_back')).width(42).textAlign(TextAlign.Center)
+              .onClick(() => { this.applyReaderFullscreen(false); this.mode = this.chapters.length > 0 ? 'chapters' : 'results'; })
+            Text(this.currentChapterTitle.length > 0 ? this.currentChapterTitle : this.currentTitle)
+              .fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            Text(this.fullscreenReader ? (this.isEn() ? 'Exit fullscreen' : '退出全屏') : (this.isEn() ? 'Fullscreen' : '全屏'))
+              .fontSize(13).fontColor(this.iconColor('ic_fullscreen')).padding({ left: 10, right: 8, top: 10, bottom: 10 })
+              .onClick(() => this.applyReaderFullscreen(!this.fullscreenReader))
+          }
+          .width('100%').padding({ left: 8, right: 8 })
+          .backgroundColor(this.glassBg())
+          .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+
+          Blank()
+
+          Row() {
+            Text(this.t('previous_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(-1) ? this.iconColor('ic_back') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => this.loadRelativeChapter(-1))
+            Text(this.t('chapter_list')).fontSize(13).fontColor(this.iconColor('ic_layout')).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => { this.readerChapterPanelVisible = true; })
+            Text(this.isCurrentFavorite() ? '♥' : '♡').fontSize(28).fontColor(this.iconColor('ic_add_shelf')).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 7, bottom: 7 }).onClick(() => this.toggleCurrentFavorite())
+            Text(this.t('next_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(1) ? this.iconColor('ic_reader') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => this.loadRelativeChapter(1))
+          }
+          .width('100%')
+          .backgroundColor(this.glassBg())
+          .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+        }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)
+      }
+
+      if (this.readerChapterPanelVisible) {
         Row() {
-          Text(this.t('previous_chapter')).fontSize(14).fontColor(this.hasRelativeChapter(-1) ? this.primaryText() : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => this.loadRelativeChapter(-1))
-          Text(this.t('chapter_list')).fontSize(14).fontColor(this.primaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => { this.mode = 'chapters'; })
-          Text(this.t('favorites')).fontSize(14).fontColor(this.accent()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => this.addCurrentToShelf())
-          Text(this.t('next_chapter')).fontSize(14).fontColor(this.hasRelativeChapter(1) ? this.primaryText() : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => this.loadRelativeChapter(1))
-        }.width('100%').backgroundColor(this.readerBarBg())
+          Scroll() {
+            Column() {
+              Row() {
+                Text(this.t('chapter_list')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
+                Text('×').fontSize(26).fontColor(this.iconColor('ic_close')).padding(8).onClick(() => { this.readerChapterPanelVisible = false; })
+              }.width('100%')
+              ForEach(this.displayedChapters(), (chapter: ChapterItem) => {
+                Text(chapter.title.trim().length > 0 ? chapter.title : this.t('chapter_list') + ' ' + chapter.index)
+                  .fontSize(14)
+                  .fontColor(chapter.url === this.currentUrl ? this.iconColor('ic_reader') : this.primaryText())
+                  .width('100%').maxLines(2).padding({ top: 11, bottom: 11 })
+                  .border({ width: { bottom: 1 }, color: this.borderSubtle() })
+                  .onClick(() => { this.readerChapterPanelVisible = false; this.loadChapter(chapter, this.findRule(chapter.sourceId)); })
+              }, (chapter: ChapterItem) => chapter.url)
+            }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 24 })
+          }
+          .width('76%').height('100%')
+          .backgroundColor(this.glassBg())
+          .backgroundBlurStyle(BlurStyle.Thick, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+          Blank().layoutWeight(1).height('100%').onClick(() => { this.readerChapterPanelVisible = false; })
+        }.width('100%').height('100%')
       }
     }
-    .layoutWeight(1)
+    .width('100%').height('100%')
   }
 
   @Builder
@@ -2262,8 +2350,8 @@ struct Index {
           Column({ space: 0 }) {
             Column() { this.LinkRow('ic_moon', this.t('theme'), this.themeDisplay(), false) }.onClick(() => { this.themeDialogVisible = true; })
             Column() { this.LinkRow('ic_language', this.t('language'), this.languageDisplay(), true) }.onClick(() => { this.languageDialogVisible = true; })
-            Column() { this.ToggleSettingRow('ic_fullscreen', this.t('reader_fullscreen'), this.fullscreenReader, true) }.onClick(() => { this.fullscreenReader = !this.fullscreenReader; })
-            Column() { this.ToggleSettingRow('ic_layout', this.t('floating_controls'), this.floatingReaderControls, true) }.onClick(() => { this.floatingReaderControls = !this.floatingReaderControls; })
+            Column() { this.ToggleSettingRow('ic_fullscreen', this.t('reader_fullscreen'), this.fullscreenReader, true) }.onClick(() => { this.fullscreenReader = !this.fullscreenReader; this.persistData(); })
+            Column() { this.ToggleSettingRow('ic_layout', this.t('floating_controls'), this.floatingReaderControls, true) }.onClick(() => { this.floatingReaderControls = !this.floatingReaderControls; this.persistData(); })
             Column() { this.LinkRow('ic_theme', this.t('icon_color'), this.iconColorModeDisplay(), true) }.onClick(() => { this.settingsDialog = 'icons'; })
           }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
 
@@ -2399,7 +2487,9 @@ struct Index {
             Column() { this.DialogToggleRow(this.t('auto_cover'), this.autoCoverEnabled, false) }.onClick(() => { this.autoCoverEnabled = !this.autoCoverEnabled; })
             Column() { this.DialogToggleRow(this.t('show_page_num'), this.showImageIndex, true) }.onClick(() => { this.showImageIndex = !this.showImageIndex; })
             Column() { this.DialogLinkRow(this.t('reading_bg'), this.readerDarkMode ? this.t('dark_color') : this.t('light_color'), true) }.onClick(() => { this.readerDarkMode = !this.readerDarkMode; })
-            Column() { this.DialogLinkRow(this.t('max_results'), this.maxSearchResults + this.t('items_unit'), true) }.onClick(() => { this.maxSearchResults = this.maxSearchResults === 40 ? 80 : 40; })
+            Column() { this.DialogLinkRow(this.t('max_results'), this.maxSearchResults + this.t('items_unit'), true) }.onClick(() => {
+              this.maxSearchResults = this.maxSearchResults === 40 ? 80 : (this.maxSearchResults === 80 ? 160 : 40);
+            })
             Column() { this.DialogLinkRow(this.t('chapter_pages'), this.maxReaderPages + this.t('pages_unit'), true) }.onClick(() => { this.maxReaderPages = this.maxReaderPages === 30 ? 50 : 30; })
           }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
         } else if (this.settingsDialog === 'engines') {
@@ -2623,7 +2713,7 @@ struct Index {
                     }
                   }.width('100%').height(140).clip(true)
 
-                  Text(item.title).fontSize(12).fontColor(this.primaryText()).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 6, bottom: 6 })
+                  Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.id)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 6, bottom: 6 })
                 }
                 .width('32%')
                 .backgroundColor(this.cardBg())
@@ -2708,7 +2798,7 @@ struct Index {
                   } else {
                     Column() { Text(this.t('no_cover')).fontSize(11).fontColor(this.secondaryText()) }.width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).justifyContent(FlexAlign.Center).backgroundColor(this.cardBg())
                   }
-                  Text(item.title).fontSize(12).fontColor(this.primaryText()).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 4 })
+                  Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 4 })
                   Text(item.chapterTitle).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
                 }.width('31.5%').margin({ bottom: 10 }).backgroundColor(this.cardBg()).borderRadius(12)
                   .onClick(() => this.loadChapter({ title: item.chapterTitle, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, this.findRule(item.sourceId)))
@@ -2732,7 +2822,7 @@ struct Index {
                   } else {
                     Column() { Text(this.t('no_cover')).fontSize(11).fontColor(this.secondaryText()) }.width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).justifyContent(FlexAlign.Center).backgroundColor(this.cardBg())
                   }
-                  Text(item.title).fontSize(12).fontColor(this.primaryText()).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 4 })
+                  Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 4 })
                   Text(item.sourceName).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
                 }.width('31.5%').margin({ bottom: 10 }).backgroundColor(this.cardBg()).borderRadius(12)
                   .onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
@@ -2848,11 +2938,11 @@ struct Index {
               Text(cat.name)
                 .fontSize(14)
                 .fontWeight(this.selectedCatalogCategory === cat.id ? FontWeight.Bold : FontWeight.Normal)
-                .fontColor(this.selectedCatalogCategory === cat.id ? this.accent() : this.primaryText())
+                .fontColor(this.colorfulValue(cat.id))
                 .maxLines(1)
                 .padding({ left: 12, right: 12, top: 6, bottom: 6 })
                 .borderRadius(16)
-                .border({ width: 1, color: this.selectedCatalogCategory === cat.id ? this.accent() : this.borderSubtle() })
+                .border({ width: 1, color: this.selectedCatalogCategory === cat.id ? this.colorfulValue(cat.id) : this.borderSubtle() })
                 .onClick(() => {
                   if (this.selectedCatalogCategory === cat.id) {
                     this.selectedCatalogCategory = '';

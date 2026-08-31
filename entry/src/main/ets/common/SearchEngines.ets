@@ -28,6 +28,9 @@ const PREFERRED_COMIC_DOMAINS: string[] = [
 export const DEFAULT_SEARCH_ENGINES: SearchEngineConfig[] = [
   { id: 'duckduckgo_html', name: 'DuckDuckGo 网页结果', description: '无 API Key 模式，读取 DuckDuckGo HTML/Lite 搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'duckduckgo-html', searchUrl: 'https://duckduckgo.com/html/?q={query}', requiresKey: false, enabled: true },
   { id: 'bing_web_html', name: 'Bing 网页结果', description: '无 API Key 模式，读取 Bing 网页搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'bing-html', searchUrl: 'https://www.bing.com/search?q={query}', requiresKey: false, enabled: true },
+  { id: 'baidu_web_html', name: '百度网页结果', description: '中文公开网页搜索，用于补充国内漫画平台和聚合站点结果。', engineType: 'baidu-html', searchUrl: 'https://www.baidu.com/s?rn=50&wd={query}', requiresKey: false, enabled: true },
+  { id: 'sogou_web_html', name: '搜狗网页结果', description: '中文公开网页搜索，用于补充书名别名和国内站点结果。', engineType: 'sogou-html', searchUrl: 'https://www.sogou.com/web?num=30&query={query}', requiresKey: false, enabled: true },
+  { id: 'so_web_html', name: '360 网页结果', description: '中文公开网页搜索，作为国内漫画资源召回补充。', engineType: 'so-html', searchUrl: 'https://www.so.com/s?q={query}', requiresKey: false, enabled: true },
   { id: 'google_web_html', name: 'Google 网页结果', description: '读取 Google 普通网页结果页；稳定性取决于网络与搜索页是否允许直接访问。', engineType: 'google-html', searchUrl: 'https://www.google.com/search?q={query}', requiresKey: false, enabled: true },
   { id: 'yandex_web_html', name: 'Yandex 网页结果', description: '读取 Yandex 网页搜索结果页，适合英文/多语言兜底检索。', engineType: 'yandex-html', searchUrl: 'https://yandex.com/search/?text={query}', requiresKey: false, enabled: true },
   { id: 'brave_search_api', name: 'Brave Search API', description: '官方 Brave Search API，需要在设置里填写 API Key。', engineType: 'brave-api', searchUrl: 'https://api.search.brave.com/res/v1/web/search?q={query}&count=20', requiresKey: true, enabled: false },
@@ -269,8 +272,8 @@ function parseByPatterns(html: string, engine: SearchEngineConfig, keyword: stri
   const patterns: RegExp[] = [
     /<li[^>]+class=["'][^"']*b_algo[^"']*["'][\s\S]*?<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<p[^>]*>([\s\S]{0,520}?)<\/p>[\s\S]*?<\/li>/gim,
     /<li[^>]+class=["'][^"']*b_algo[^"']*["'][\s\S]*?<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<\/li>/gim,
-    /<a[^>]+class=["'][^"']*(?:result__a|result-link|result-title|organic__url|serp-item__title-link)[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
-    /<a[^>]+href=["']([^"']+)["'][^>]+class=["'][^"']*(?:result__a|result-link|result-title|organic__url|serp-item__title-link)[^"']*["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
+    /<a[^>]+class=["'][^"']*(?:result__a|result-link|result-title|organic__url|serp-item__title-link|vr-title|res-title|c-title|result_title)[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
+    /<a[^>]+href=["']([^"']+)["'][^>]+class=["'][^"']*(?:result__a|result-link|result-title|organic__url|serp-item__title-link|vr-title|res-title|c-title|result_title)[^"']*["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
     /<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<\/h2>/gim,
     /<h3[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<\/h3>/gim,
     /<a[^>]+href=["']((?:https?:\/\/|\/url\?q=|\/l\/\?kh=|[^"']*uddg=)[^"']+)["'][^>]*>([\s\S]{1,300}?)<\/a>/gim
