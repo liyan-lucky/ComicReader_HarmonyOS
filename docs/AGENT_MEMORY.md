@@ -19,6 +19,10 @@
 - 绿色主色 `#34C759`，按钮统一绿色 + 白色文字 + 圆角。
 - 网络不稳定时多试几次，不要改其他配置。
 - 参考项目 `E:\Visual_Studio_Code\11_Rustdesk_harmonyos` 的 UI 风格和文档体系。
+- UI 以自定义透明渐变磨砂、多彩线性图标、可穿透状态栏为统一基线；深色主题必须逐页审计。
+- 线上数据只提示更新，不自动下载；更新必须显示百分比和大小并可后台继续。
+- 搜索必须面向全网公开资源，目录仅作为种子与增强，不能限制搜索范围。
+- 当前完整产品基线见 `docs/SESSION_REQUIREMENTS_2026-08-31.md`。
 
 ## 项目关键信息
 
@@ -27,7 +31,7 @@
 | 包名 | `com.nw.cleansite.novel.hm` |
 | 主分支 | `main` |
 | 长期分支 | `main` |
-| 当前版本 | 0.1.0 |
+| 当前工作树版本 | 0.1.110 |
 | 主入口 | `entry/src/main/ets/pages/Index.ets` |
 | API 搜索源 | `entry/src/main/ets/common/ApiSources.ets` |
 | 本地构建脚本 | `scripts/build_local.ps1` |

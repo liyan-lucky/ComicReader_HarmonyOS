@@ -5,6 +5,9 @@
 ## 当前状态入口
 
 - [`CURRENT_STATUS.md`](CURRENT_STATUS.md)：仓库当前事实、分支/备份策略、Actions 和文档维护规则。
+- [`SESSION_REQUIREMENTS_2026-08-31.md`](SESSION_REQUIREMENTS_2026-08-31.md)：本轮全部新增产品要求、实现状态和下一轮设备验收顺序，后续开发优先阅读。
+- [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md)：跨对话接棒状态。
+- [`AGENT_MEMORY.md`](AGENT_MEMORY.md)：固定工作约束与用户偏好。
 
 ## 文档分类
 

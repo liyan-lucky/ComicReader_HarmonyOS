@@ -1,5 +1,7 @@
 # UI 规范
 
+> 最新页面、阅读器、磨砂、多彩消息、顶部间距和滑动删除验收基线见 [`../SESSION_REQUIREMENTS_2026-08-31.md`](../SESSION_REQUIREMENTS_2026-08-31.md)。
+
 ## 全局风格
 
 - APP 主色：`#34C759`。

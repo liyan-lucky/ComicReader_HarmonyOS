@@ -1,6 +1,8 @@
 # 当前仓库状态
 
-更新时间：2026-07-23
+更新时间：2026-08-31
+
+> 本轮完整需求与验证基线见 [SESSION_REQUIREMENTS_2026-08-31.md](SESSION_REQUIREMENTS_2026-08-31.md)。
 
 ## 定位
 
@@ -10,14 +12,14 @@
 
 - 工程类型：HarmonyOS / OpenHarmony ArkTS Stage 应用。
 - 包名：`com.nw.cleansite.novel.hm`。
-- 当前版本：0.1.21（增量构建号 1021）。
+- 当前工作树版本：0.1.110（版本码 1110）。
 - 当前能力边界：公开漫画资源搜索、结果整理、章节卷轴阅读、书架目录浏览、历史/设置等 App 侧能力。
 - 规则来源：默认从 `ComicReader_Rules` 的 `generated/update_manifest.json` 读取远程规则（两步获取：manifest → rules）。
 - 目录来源：从 `update_manifest.json` 的 `catalog.url` 获取远程目录，本地 rawfile 作为 fallback。
 - 目录解析同时兼容旧版 `womh_comic_catalog_v1` 和规则仓库增量发布使用的 `comic_catalog_v1`；任一作品完成来源及域名规则验证后即可进入线上目录。
 - 搜索源：搜索引擎（Bing/DuckDuckGo/Google/Yandex）+ HTML 规则源 + API 源（Internet Archive/Wikimedia/Open Library/Library of Congress/Pepper）。
 - 内置规则：`GeneratedSourceRules.ets` 包含 22 条自动审计生成的规则，通过 `domainApplicabilityList` 匹配 URL。
-- 数据持久化：书架/历史/主题/语言通过 `@ohos.data.preferences` 持久化存储。
+- 数据持久化：书架/历史/最近 10 条搜索/主题/语言通过 `@ohos.data.preferences` 持久化存储，书架封面落盘缓存。
 - 合规边界：不托管漫画图片、章节正文、付费内容、账号数据、站点 Logo、字体、SDK 压缩包、签名证书、HAP/APP 发布包或其他第三方受保护资源。
 
 ## 当前 UI 状态

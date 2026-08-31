@@ -25,6 +25,7 @@ import window from '@ohos.window';
 import dataPreferences from '@ohos.data.preferences';
 import util from '@ohos.util';
 import fs from '@ohos.file.fs';
+import inputMethod from '@ohos.inputMethod';
 
 function toArgbColor(color: string): number {
   const normalized = color.trim().startsWith('#') ? color.trim().substring(1) : color.trim();
@@ -42,6 +43,8 @@ struct Index {
   @State private activeTab: string = 'search';
   @State private mode: string = 'home';
   @State private queryText: string = '';
+  @State private recentSearches: string[] = [];
+  @State private searchHistoryVisible: boolean = false;
   @State private searchTitle: string = '';
   @State @Watch('onStatusTextChanged') private statusText: string = '';
   @State private statusMessageVisible: boolean = false;
@@ -59,7 +62,7 @@ struct Index {
   @State private selectedCatalogCategory: string = '';
   @State private catalogItems: CatalogItem[] = [];
   @State private catalogLoading: boolean = false;
-  @State private catalogUpdateStatus: string = '';
+  @State @Watch('onCatalogUpdateStatusChanged') private catalogUpdateStatus: string = '';
   @State private catalogCheckingOnline: boolean = false;
   @State private catalogUpdateAvailable: boolean = false;
   @State private catalogReceivedBytes: number = 0;
@@ -129,6 +132,9 @@ struct Index {
   @State private historyTab: string = 'history';
   @State private historyViewMode: string = 'list';
   @State private historyMenuVisible: boolean = false;
+  @State private lastOpenedSearchUrl: string = '';
+  @State private searchResultsOffset: number = 0;
+  @State private revealedDeleteUrl: string = '';
 
   private preferencesStore: dataPreferences.Preferences | null = null;
   private catalogCachePath: string = '';
@@ -136,6 +142,16 @@ struct Index {
   private pendingCatalogVersion: string = '';
   private pendingCatalogUrl: string = '';
   private chapterScroller: Scroller = new Scroller();
+  private searchResultsScroller: Scroller = new Scroller();
+
+  private returnToSearchResults(): void {
+    this.mode = 'results';
+    this.activeTab = 'search';
+    const savedOffset = this.searchResultsOffset;
+    setTimeout(() => {
+      this.searchResultsScroller.scrollTo({ xOffset: 0, yOffset: savedOffset, animation: { duration: 0 } });
+    }, 0);
+  }
 
   private resetChapterScroll(): void {
     // The chapters builder replaces the result list in the same page. ArkUI
@@ -169,6 +185,8 @@ struct Index {
       if (typeof shelfJson === 'string' && shelfJson.length > 2) {
         this.bookshelf = JSON.parse(shelfJson) as BookshelfItem[];
       }
+      const recentJson = await this.preferencesStore.get('recent_searches', '[]') as string;
+      if (typeof recentJson === 'string' && recentJson.length > 2) this.recentSearches = JSON.parse(recentJson) as string[];
       const appTheme = await this.preferencesStore.get('app_theme', 'light') as string;
       if (typeof appTheme === 'string' && appTheme.length > 0) {
         this.appTheme = appTheme;
@@ -195,6 +213,7 @@ struct Index {
     try {
       await this.preferencesStore.put('reading_history', JSON.stringify(this.history));
       await this.preferencesStore.put('bookshelf', JSON.stringify(this.bookshelf));
+      await this.preferencesStore.put('recent_searches', JSON.stringify(this.recentSearches));
       await this.preferencesStore.put('app_theme', this.appTheme);
       await this.preferencesStore.put('app_language', this.appLanguage);
       await this.preferencesStore.put('debug_keep_screen_on', this.debugKeepScreenOn);
@@ -391,12 +410,15 @@ struct Index {
     }
     if (this.mode === 'reader') {
       this.applyReaderFullscreen(false);
-      this.mode = this.chapters.length > 0 ? 'chapters' : (this.results.length > 0 ? 'results' : 'home');
+      if (this.chapters.length > 0) this.mode = 'chapters';
+      else if (this.results.length > 0) this.returnToSearchResults();
+      else this.mode = 'home';
       this.activeTab = 'search';
       return true;
     }
     if (this.mode === 'chapters') {
-      this.mode = this.results.length > 0 ? 'results' : 'home';
+      if (this.results.length > 0) this.returnToSearchResults();
+      else this.mode = 'home';
       this.activeTab = 'search';
       return true;
     }
@@ -818,6 +840,9 @@ struct Index {
   private searchActionColor(): string {
     return this.colorfulValue('search-' + this.activeTab + '-' + this.mode + '-' + this.selectedEngineIndex);
   }
+  private messageColor(): string { return this.colorfulValue('message-' + this.statusText); }
+  private messageBackground(): string { return '#28' + this.messageColor().substring(1); }
+  private messageBorder(): string { return '#88' + this.messageColor().substring(1); }
   private iconColorModeDisplay(): string { return this.t('icon_color_' + this.iconColorMode); }
   private tabIconKey(name: string): string {
     if (name === 'search') return 'ic_search';
@@ -992,6 +1017,9 @@ struct Index {
       return;
     }
     if (this.isLoading) return;
+    inputMethod.getController().hideTextInput().catch(() => {});
+    this.rememberSearch(keyword);
+    this.searchHistoryVisible = false;
     if (looksLikeUrl(keyword)) {
       this.resetSearchState(keyword);
       this.isLoading = true;
@@ -1000,6 +1028,53 @@ struct Index {
       return;
     }
     await this.searchKeyword(keyword);
+  }
+
+  private rememberSearch(keyword: string): void {
+    const next: string[] = [keyword];
+    for (let i = 0; i < this.recentSearches.length && next.length < 10; i++) {
+      if (this.recentSearches[i] !== keyword) next.push(this.recentSearches[i]);
+    }
+    this.recentSearches = next;
+    this.persistData();
+  }
+
+  private repeatSearch(keyword: string): void {
+    this.queryText = keyword;
+    this.searchHistoryVisible = false;
+    this.startSearch();
+  }
+
+  private clearRecentSearches(): void {
+    this.recentSearches = [];
+    this.searchHistoryVisible = false;
+    this.persistData();
+  }
+
+  private removeHistoryItem(url: string): void {
+    this.history = this.history.filter((item: ReadingHistoryItem) => item.url !== url);
+    this.persistData();
+  }
+
+  private clearVisibleHistory(): void {
+    if (this.historyTab === 'history') this.history = [];
+    else this.bookshelf = [];
+    this.persistData();
+  }
+
+  private removeBookshelfItem(url: string): void {
+    this.bookshelf = this.bookshelf.filter((item: BookshelfItem) => item.url !== url);
+    this.persistData();
+  }
+
+  private handleRecordSwipe(url: string, isBookshelf: boolean, offsetX: number): void {
+    if (offsetX <= -36) {
+      this.revealedDeleteUrl = url;
+    } else if (offsetX >= 48) {
+      this.revealedDeleteUrl = '';
+      if (isBookshelf) this.removeBookshelfItem(url);
+      else this.removeHistoryItem(url);
+    }
   }
 
   private async searchKeyword(keyword: string): Promise<void> {
@@ -1526,6 +1601,7 @@ struct Index {
   }
 
   private openSearchResult(item: SearchResultItem): void {
+    this.lastOpenedSearchUrl = item.url;
     const rule = this.ruleForItemUrl(item.url, item.sourceId);
     if (item.isChapter) {
       this.currentDetailUrl = '';
@@ -1767,6 +1843,31 @@ struct Index {
     this.updatingCatalog = false;
   }
 
+  private async checkCatalogUpdateOnShelfEntry(): Promise<void> {
+    if (this.catalogCheckingOnline || this.updatingCatalog) return;
+    this.catalogCheckingOnline = true;
+    this.catalogUpdateStatus = this.catalogStage('正在检查书架数据更新…', 'Checking shelf data updates…');
+    try {
+      const update = await CatalogService.fetchCatalogUpdate();
+      if (CatalogService.isNewerVersion(update.version, this.remoteCatalog?.version)) {
+        this.pendingCatalogVersion = update.version;
+        this.pendingCatalogUrl = update.url;
+        this.catalogUpdateAvailable = true;
+        this.catalogUpdateStatus = this.catalogStage('发现目录更新 ' + update.version + '，请在数据更新中确认',
+          'Catalog update ' + update.version + ' is available. Confirm in Data Update.');
+      } else {
+        this.catalogUpdateAvailable = false;
+        this.catalogUpdateStatus = this.catalogStage('书架数据已是最新，继续使用缓存',
+          'Shelf data is current. Using cache.');
+      }
+    } catch (err) {
+      this.catalogUpdateStatus = this.catalogStage('书架数据检查失败，继续使用现有缓存',
+        'Shelf data check failed. Using existing cache.');
+    } finally {
+      this.catalogCheckingOnline = false;
+    }
+  }
+
   private async updateAll(): Promise<void> {
     await Promise.all([this.updateRemoteRules(), this.updateCatalog()]);
   }
@@ -1781,14 +1882,18 @@ struct Index {
     }, 3000) as number;
   }
 
+  private onCatalogUpdateStatusChanged(): void {
+    if (this.catalogUpdateStatus.trim().length > 0) this.statusText = this.catalogUpdateStatus;
+  }
+
   @Builder
   private StatusMessageOverlay() {
     Text(this.statusText)
-      .fontSize(12).fontColor(this.warnText()).lineHeight(16).maxLines(2)
+      .fontSize(12).fontColor(this.messageColor()).lineHeight(16).maxLines(2)
       .padding({ left: 13, right: 13, top: 7, bottom: 7 })
-      .backgroundColor(this.isDark() ? '#B82A2210' : '#D8FFF7E8')
+      .backgroundColor(this.messageBackground())
       .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
-      .border({ width: 1, color: this.isDark() ? '#55F0C060' : '#558A5A12' })
+      .border({ width: 1, color: this.messageBorder() })
       .borderRadius(15).margin({ left: 36, right: 36 })
   }
 
@@ -1901,6 +2006,24 @@ struct Index {
     }
   }
 
+  @Builder
+  private RecentSearchPanel() {
+    if (this.searchHistoryVisible && this.recentSearches.length > 0) {
+      Column() {
+        Row() {
+          Text(this.isEn() ? 'Recent searches' : '最近搜索').fontSize(13).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
+          Text(this.isEn() ? 'Clear' : '清除').fontSize(12).fontColor(this.iconColor('ic_x')).padding(6).onClick(() => this.clearRecentSearches())
+        }.width('100%')
+        ForEach(this.recentSearches, (keyword: string) => {
+          Text(keyword).fontSize(14).fontColor(this.colorfulValue(keyword)).width('100%').maxLines(1)
+            .padding({ top: 8, bottom: 8 }).border({ width: { top: 1 }, color: this.borderSubtle() })
+            .onClick(() => this.repeatSearch(keyword))
+        }, (keyword: string) => keyword)
+      }.width('100%').padding({ left: 14, right: 14, top: 8, bottom: 8 })
+        .backgroundColor(this.glassBg()).borderRadius(14).border({ width: 1, color: this.borderSubtle() })
+    }
+  }
+
   private headerGradientColors(): Array<[string, number]> {
     return this.isDark()
       ? [['#BB111318', 0.0], ['#AA111318', 0.05], ['#99111318', 0.12], ['#88111318', 0.22], ['#77111318', 0.35], ['#66111318', 0.52], ['#55111318', 0.72], ['#33111318', 0.88], ['#00111318', 1.0]] as Array<[string, number]>
@@ -1971,6 +2094,7 @@ struct Index {
               .height(52).fontSize(15).fontColor(this.primaryText()).placeholderColor(this.secondaryText())
               .backgroundColor(Color.Transparent).borderRadius(26).border({ width: 1, color: this.secondaryText() })
               .padding({ left: 18, right: this.queryText.length > 0 ? 44 : 18 })
+              .onFocus(() => { this.searchHistoryVisible = true; })
               .onChange((value: string) => { this.queryText = value; }).onSubmit(() => { this.startSearch(); })
             if (this.queryText.length > 0) {
               Row() {
@@ -1982,6 +2106,7 @@ struct Index {
           }.layoutWeight(1)
           Column() { this.SearchActionButton(52) }.margin({ left: 10 })
         }.width('100%').padding({ left: 22, right: 22 })
+        Column() { this.RecentSearchPanel() }.width('100%').padding({ left: 22, right: 22, top: 8 })
         Blank().layoutWeight(1)
         Blank().height(this.contentBottomInset())
       }.width('100%').height('100%').alignItems(HorizontalAlign.Center)
@@ -2035,6 +2160,8 @@ struct Index {
     .height(124)
     .padding(10)
     .backgroundColor(this.cardBg())
+    .border({ width: item.url === this.lastOpenedSearchUrl ? 2 : 0,
+      color: item.url === this.lastOpenedSearchUrl ? this.colorfulValue('opened-' + item.url) : Color.Transparent })
     .borderRadius(16)
     .margin({ bottom: 10 })
     .onClick(() => this.openSearchResult(item))
@@ -2042,7 +2169,7 @@ struct Index {
 
   @Builder
   private ResultsPage() {
-    Scroll() {
+    Scroll(this.searchResultsScroller) {
       Column() {
         Blank().height(this.contentTopInset())
         if (this.results.length === 0) {
@@ -2060,6 +2187,7 @@ struct Index {
       }.width('100%').padding({ left: 14, right: 14 })
     }
     .layoutWeight(1)
+    .onScroll((_xOffset: number, yOffset: number) => { this.searchResultsOffset = yOffset; })
     .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     .backgroundColor(this.appBg())
   }
@@ -2106,7 +2234,7 @@ struct Index {
         Blank().height(this.avoidStatusBarHeight)
         Row() {
           Column() { Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back'))) }
-            .padding({ left: 12, right: 8, top: 6, bottom: 6 }).onClick(() => { this.mode = 'results'; })
+            .padding({ left: 12, right: 8, top: 6, bottom: 6 }).onClick(() => this.returnToSearchResults())
           Text(this.currentTitle.length > 0 ? this.currentTitle : this.t('chapter_list'))
             .fontSize(19).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
             .margin({ left: 6 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -2385,7 +2513,7 @@ struct Index {
     Stack() {
       Scroll() {
         Column() {
-          Blank().height(this.contentTopInset())
+          Blank().height(this.compactContentTopInset())
 
           this.SectionLabel(this.t('basic_settings'))
           Column({ space: 0 }) {
@@ -2437,7 +2565,7 @@ struct Index {
             }.width('100%').height(50)
           }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
           Blank().height(this.contentBottomInset())
-        }.width('100%').padding(14)
+        }.width('100%').constraintSize({ minHeight: '100%' }).padding(14)
       }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       if (this.settingsDialog.length > 0) this.SettingsDialog()
       if (this.themeDialogVisible) this.ThemeDialog()
@@ -2715,24 +2843,7 @@ struct Index {
   private ShelfPage() {
     Scroll() {
       Column() {
-        Blank().height(this.contentTopInset())
-
-        if (this.catalogUpdateStatus.length > 0) {
-          Row({ space: 8 }) {
-            if (this.catalogCheckingOnline || this.catalogLoading || this.updatingCatalog) {
-              LoadingProgress().width(18).height(18).color(this.accent())
-            }
-            Text(this.updatingCatalog ? this.catalogProgressText() : this.catalogUpdateStatus)
-              .fontSize(12)
-              .fontColor(this.secondaryText())
-              .layoutWeight(1)
-          }
-          .width('100%')
-          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-          .margin({ left: 10, right: 10, bottom: 8 })
-          .backgroundColor(this.cardBg())
-          .borderRadius(12)
-        }
+        Blank().height(this.compactContentTopInset())
 
         if (this.catalogLoading) {
           Column() {
@@ -2792,7 +2903,7 @@ struct Index {
           }
         }
         Blank().height(this.contentBottomInset())
-      }.width('100%').padding({ left: 10, right: 10 }).alignItems(HorizontalAlign.Start)
+      }.width('100%').constraintSize({ minHeight: '100%' }).padding({ left: 10, right: 10 }).alignItems(HorizontalAlign.Start)
     }
     .layoutWeight(1)
     .scrollable(ScrollDirection.Vertical)
@@ -2827,7 +2938,7 @@ struct Index {
   private HistoryPage() {
     Scroll() {
       Column() {
-        Blank().height(this.contentTopInset())
+        Blank().height(this.compactContentTopInset())
         if (this.historyTab === 'history') {
           if (this.history.length === 0) {
             Text(this.t('history_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
@@ -2840,16 +2951,30 @@ struct Index {
                   } else {
                     Column() { Text(this.t('no_cover')).fontSize(11).fontColor(this.secondaryText()) }.width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).justifyContent(FlexAlign.Center).backgroundColor(this.cardBg())
                   }
-                  Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 4 })
+                  Row() {
+                    Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                    if (this.revealedDeleteUrl === item.url) {
+                      Image($rawfile('ic_x.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
+                        .padding({ left: 6, right: 6 }).onClick(() => this.removeHistoryItem(item.url))
+                    }
+                  }.width('100%').padding({ left: 6, top: 4 })
                   Text(item.chapterTitle).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
                 }.width('31.5%').margin({ bottom: 10 }).backgroundColor(this.cardBg()).borderRadius(12)
                   .onClick(() => this.openHistoryItem(item))
+                  .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 10 })
+                    .onActionEnd((event: PanGestureEvent) => this.handleRecordSwipe(item.url, false, event.offsetX)))
               }, (item: ReadingHistoryItem) => item.url)
             }.width('100%')
           } else {
             ForEach(this.history, (item: ReadingHistoryItem) => {
-              Column() { this.SettingCard(item.title, item.chapterTitle + ' · ' + item.lastReadAt, item.imageCount + this.t('images_unit')) }
-                .onClick(() => this.openHistoryItem(item))
+              Row() {
+                Column() { this.SettingCard(item.title, item.chapterTitle + ' · ' + item.lastReadAt, item.imageCount + this.t('images_unit')) }.layoutWeight(1).onClick(() => this.openHistoryItem(item))
+                if (this.revealedDeleteUrl === item.url) {
+                  Image($rawfile('ic_x.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
+                    .padding(14).onClick(() => this.removeHistoryItem(item.url))
+                }
+              }.width('100%').gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 10 })
+                .onActionEnd((event: PanGestureEvent) => this.handleRecordSwipe(item.url, false, event.offsetX)))
             }, (item: ReadingHistoryItem) => item.url)
           }
         } else {
@@ -2864,21 +2989,35 @@ struct Index {
                   } else {
                     Column() { Text(this.t('no_cover')).fontSize(11).fontColor(this.secondaryText()) }.width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).justifyContent(FlexAlign.Center).backgroundColor(this.cardBg())
                   }
-                  Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 4 })
+                  Row() {
+                    Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                    if (this.revealedDeleteUrl === item.url) {
+                      Image($rawfile('ic_x.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
+                        .padding({ left: 6, right: 6 }).onClick(() => this.removeBookshelfItem(item.url))
+                    }
+                  }.width('100%').padding({ left: 6, top: 4 })
                   Text(item.sourceName).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
                 }.width('31.5%').margin({ bottom: 10 }).backgroundColor(this.cardBg()).borderRadius(12)
                   .onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
+                  .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 10 })
+                    .onActionEnd((event: PanGestureEvent) => this.handleRecordSwipe(item.url, true, event.offsetX)))
               }, (item: BookshelfItem) => item.url)
             }.width('100%')
           } else {
             ForEach(this.bookshelf, (item: BookshelfItem) => {
-              Column() { this.SettingCard(item.title, item.sourceName + ' · ' + item.lastReadAt, item.progressPercent + '%') }
-                .onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
+              Row() {
+                Column() { this.SettingCard(item.title, item.sourceName + ' · ' + item.lastReadAt, item.progressPercent + '%') }.layoutWeight(1).onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
+                if (this.revealedDeleteUrl === item.url) {
+                  Image($rawfile('ic_x.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
+                    .padding(14).onClick(() => this.removeBookshelfItem(item.url))
+                }
+              }.width('100%').gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 10 })
+                .onActionEnd((event: PanGestureEvent) => this.handleRecordSwipe(item.url, true, event.offsetX)))
             }, (item: BookshelfItem) => item.url)
           }
         }
         Blank().height(this.contentBottomInset())
-      }.width('100%').padding({ left: 14, right: 14 })
+      }.width('100%').constraintSize({ minHeight: '100%' }).padding({ left: 14, right: 14 })
     }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true }).backgroundColor(this.appBg())
   }
 
@@ -2908,6 +3047,7 @@ struct Index {
     .padding({ top: 4, bottom: 4 })
     .onClick(() => {
       this.activeTab = tab;
+      if (tab === 'shelf') this.checkCatalogUpdateOnShelfEntry();
       if (tab === 'search' && this.mode === 'reader') this.mode = this.results.length > 0 ? 'results' : 'home';
     })
   }
@@ -2937,6 +3077,13 @@ struct Index {
     return this.headerOverlayHeight();
   }
 
+  private compactContentTopInset(): number {
+    // The page is drawn under the translucent header. Reserve exactly the
+    // measured status-bar + header height so the first card touches the logo
+    // region without being covered by it on devices with different insets.
+    return this.headerOverlayHeight();
+  }
+
   private contentBottomInset(): number {
     return 80 + this.bottomSafeInset;
   }
@@ -2957,6 +3104,7 @@ struct Index {
               .borderRadius(22)
               .border({ width: 1, color: this.secondaryText() })
               .padding({ left: 18, right: this.queryText.length > 0 ? 44 : 18 })
+              .onFocus(() => { this.searchHistoryVisible = true; })
               .onChange((value: string) => { this.queryText = value; })
               .onSubmit(() => { this.startSearch(); })
             if (this.queryText.length > 0) {
@@ -3030,6 +3178,10 @@ struct Index {
                   Image($rawfile('ic_shelf.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shelf')))
                   Text(this.t('grid_view')).fontSize(14).fontColor(this.historyViewMode === 'grid' ? this.accent() : this.primaryText())
                 }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.historyViewMode = 'grid'; this.historyMenuVisible = false; })
+                Row({ space: 8 }) {
+                  Image($rawfile('ic_x.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
+                  Text(this.isEn() ? 'Clear all' : '全部清除').fontSize(14).fontColor(this.iconColor('ic_x'))
+                }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.clearVisibleHistory(); this.historyMenuVisible = false; })
               }
               .width(140)
               .backgroundColor(this.cardBg())
@@ -3115,8 +3267,14 @@ struct Index {
           Column() { this.StatusMessageOverlay() }
             .width('100%').height('100%')
             .justifyContent(FlexAlign.End)
-            .padding({ bottom: this.contentBottomInset() + 16 })
+            .padding({ bottom: this.bottomSafeInset + 61 })
             .hitTestBehavior(HitTestMode.Transparent)
+        }
+
+        if (this.activeTab === 'search' && this.mode === 'results' && this.searchHistoryVisible && this.recentSearches.length > 0) {
+          Column() { this.RecentSearchPanel() }
+            .width('100%').padding({ left: 14, right: 14 })
+            .position({ x: 0, y: this.headerOverlayHeight() })
         }
       }, (item: string, index: number) => `${item}_${index}`)
     }

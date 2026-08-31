@@ -24,6 +24,8 @@
 
 当前事实以 [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) 为准。该文件记录工程类型、分支/备份策略、当前 GitHub Actions 和文档维护规则。
 
+2026-08-31 全会话新增需求、实现状态和下一轮设备验收顺序见 [`docs/SESSION_REQUIREMENTS_2026-08-31.md`](docs/SESSION_REQUIREMENTS_2026-08-31.md)。
+
 ## 文档入口
 
 所有长期文档统一放入：
@@ -35,6 +37,7 @@ docs/
 文档中心：
 
 - [当前仓库状态](docs/CURRENT_STATUS.md)
+- [2026-08-31 全会话需求与验收基线](docs/SESSION_REQUIREMENTS_2026-08-31.md)
 - [文档中心](docs/README.md)
 - [构建说明](docs/build/BUILDING.md)
 - [线上构建说明](docs/build/线上构建说明.md)
