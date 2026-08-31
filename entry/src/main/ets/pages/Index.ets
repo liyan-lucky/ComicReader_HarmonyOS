@@ -50,6 +50,8 @@ struct Index {
   @State private statusMessageVisible: boolean = false;
   private statusMessageTimerId: number = -1;
   @State private rules: ComicSourceRule[] = DEFAULT_SOURCES;
+  @State private onlineRules: ComicSourceRule[] = [];
+  @State private advancedRules: ComicSourceRule[] = [];
   @State private searchEngines: SearchEngineConfig[] = DEFAULT_SEARCH_ENGINES;
   @State private selectedEngineIndex: number = 0;
   @State private results: SearchResultItem[] = [];
@@ -189,6 +191,12 @@ struct Index {
       if (typeof shelfJson === 'string' && shelfJson.length > 2) {
         this.bookshelf = JSON.parse(shelfJson) as BookshelfItem[];
       }
+      const advancedJson = await this.preferencesStore.get('advanced_rules', '[]') as string;
+      if (typeof advancedJson === 'string' && advancedJson.length > 0) {
+        this.advancedRules = JSON.parse(advancedJson) as ComicSourceRule[];
+        this.customRuleText = JSON.stringify(this.advancedRules, null, 2);
+        this.rebuildEffectiveRules();
+      }
       const recentJson = await this.preferencesStore.get('recent_searches', '[]') as string;
       if (typeof recentJson === 'string' && recentJson.length > 2) this.recentSearches = JSON.parse(recentJson) as string[];
       const appTheme = await this.preferencesStore.get('app_theme', 'light') as string;
@@ -225,6 +233,7 @@ struct Index {
       await this.preferencesStore.put('chapter_reversed', this.chapterReversed);
       await this.preferencesStore.put('fullscreen_reader', this.fullscreenReader);
       await this.preferencesStore.put('floating_reader_controls', this.floatingReaderControls);
+      await this.preferencesStore.put('advanced_rules', JSON.stringify(this.advancedRules));
       await this.preferencesStore.flush();
     } catch (e) {
     }
@@ -337,9 +346,9 @@ struct Index {
     try {
       if (this.ruleCachePath.length === 0 || !fs.accessSync(this.ruleCachePath)) return;
       const cached = JSON.parse(fs.readTextSync(this.ruleCachePath)) as ComicSourceRule[];
-      const merged = RemoteRuleService.mergeRules(DEFAULT_SOURCES, cached);
-      if (merged.length > DEFAULT_SOURCES.length) {
-        this.rules = merged;
+      if (cached.length > 0) {
+        this.onlineRules = cached;
+        this.rebuildEffectiveRules();
         this.remoteRuleCount = cached.length;
         this.remoteRuleStatus = this.catalogStage('正在使用已缓存的线上规则', 'Using cached online rules');
       }
@@ -592,6 +601,8 @@ struct Index {
       if (key === 'site_hint') return 'Site hint site:example.com';
       if (key === 'html_rules') return 'HTML Rules';
       if (key === 'remote_rules') return 'Remote Rules';
+      if (key === 'built_in_rules') return 'Built-in Rules';
+      if (key === 'online_rule_changes') return 'Online Changes';
       if (key === 'auto_cover') return 'Auto Cover';
       if (key === 'show_page_num') return 'Page Numbers';
       if (key === 'reading_bg') return 'Reading BG';
@@ -735,6 +746,8 @@ struct Index {
     if (key === 'site_hint') return '站点提示 site:example.com';
     if (key === 'html_rules') return 'HTML规则源';
     if (key === 'remote_rules') return '远程规则';
+    if (key === 'built_in_rules') return '手机内置规则';
+    if (key === 'online_rule_changes') return '在线规则变化';
     if (key === 'auto_cover') return '自动补封面';
     if (key === 'show_page_num') return '显示页码';
     if (key === 'reading_bg') return '阅读背景';
@@ -1881,16 +1894,15 @@ struct Index {
 
   private applyCustomRule(): void {
     try {
-      const parsed = JSON.parse(this.customRuleText) as ComicSourceRule;
-      if (parsed.id !== undefined && parsed.id.length > 0 && parsed.readerImageRegex !== undefined && parsed.readerImageRegex.length > 0) {
-        const exists = this.rules.findIndex((item: ComicSourceRule) => item.id === parsed.id);
-        if (exists >= 0) {
-          const next = [...this.rules];
-          next[exists] = parsed;
-          this.rules = next;
-        } else {
-          this.rules = [parsed, ...this.rules];
-        }
+      const value = JSON.parse(this.customRuleText) as ComicSourceRule | ComicSourceRule[];
+      const parsed = Array.isArray(value) ? value : [value as ComicSourceRule];
+      const valid = parsed.filter((item: ComicSourceRule) => item.id !== undefined && item.id.length > 0 &&
+        item.readerImageRegex !== undefined && item.readerImageRegex.length > 0);
+      if (valid.length === parsed.length) {
+        this.advancedRules = valid;
+        this.customRuleText = JSON.stringify(valid, null, 2);
+        this.rebuildEffectiveRules();
+        this.persistData();
         this.statusText = this.t('added_shelf');
       } else {
         this.statusText = this.t('chapter_failed');
@@ -1898,6 +1910,19 @@ struct Index {
     } catch (err) {
       this.statusText = this.t('chapter_failed');
     }
+  }
+
+  private rebuildEffectiveRules(): void {
+    const withAdvanced = RemoteRuleService.mergeRules(DEFAULT_SOURCES, this.advancedRules);
+    this.rules = RemoteRuleService.mergeRules(withAdvanced, this.onlineRules);
+  }
+
+  private jsonLineColor(line: string): string {
+    const value = line.trim();
+    if (value.startsWith('"') && value.indexOf(':') > 0) return this.iconColor('ic_rule');
+    if (value.indexOf('true') >= 0 || value.indexOf('false') >= 0 || value.indexOf('null') >= 0) return '#E06C75';
+    if (/^-?\d/.test(value)) return '#D19A66';
+    return this.secondaryText();
   }
 
   private toggleTheme(): void {
@@ -1913,10 +1938,24 @@ struct Index {
     try {
       const loaded = await RemoteRuleService.fetchRemoteRules(this.remoteRuleUrl);
       if (loaded.length > 0) {
-        this.rules = RemoteRuleService.mergeRules(DEFAULT_SOURCES, loaded);
+        let added = 0;
+        let changed = 0;
+        let removed = 0;
+        for (let i = 0; i < loaded.length; i++) {
+          const old = this.onlineRules.find((item: ComicSourceRule) => item.id === loaded[i].id);
+          if (!old) added++;
+          else if (JSON.stringify(old) !== JSON.stringify(loaded[i])) changed++;
+        }
+        for (let i = 0; i < this.onlineRules.length; i++) {
+          if (!loaded.some((item: ComicSourceRule) => item.id === this.onlineRules[i].id)) removed++;
+        }
+        this.onlineRules = loaded;
+        this.rebuildEffectiveRules();
         this.saveRuleCache(loaded);
         this.remoteRuleCount = loaded.length;
-        this.remoteRuleStatus = this.t('remote_updated') + loaded.length + this.t('rules_unit');
+        this.remoteRuleStatus = this.t('remote_updated') + loaded.length + this.t('rules_unit') +
+          (this.isEn() ? ' (added ' + added + ', changed ' + changed + ', removed ' + removed + ')' :
+            '（新增 ' + added + '，变更 ' + changed + '，移除 ' + removed + '）');
       } else {
         this.remoteRuleStatus = this.t('remote_empty');
       }
@@ -2653,7 +2692,6 @@ struct Index {
             Column() { this.LinkRow('ic_reading', this.t('display_reading'), this.t('reading_settings'), true) }.onClick(() => { this.settingsDialog = 'reader'; })
             Column() { this.LinkRow('ic_engine', this.t('search_engine'), this.selectedEngine().name, true) }.onClick(() => { this.settingsDialog = 'engines'; })
             Column() { this.LinkRow('ic_rule', this.t('rule_settings'), this.remoteRuleCount + this.t('rules_unit'), true) }.onClick(() => { this.settingsDialog = 'rules'; })
-            Column() { this.LinkRow('ic_code', this.t('advanced_rules'), this.rules.length + this.t('sources_unit'), true) }.onClick(() => { this.settingsDialog = 'advanced'; })
           }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
 
           this.SectionLabel(this.t('data_update'))
@@ -2747,7 +2785,7 @@ struct Index {
             Column() { this.DialogLinkRow(this.t('current_engine'), this.selectedEngine().name, true) }.onClick(() => this.cycleEngine())
             Column() { this.DialogToggleRow(this.t('all_engines'), this.searchAllEngines, true) }.onClick(() => { this.searchAllEngines = !this.searchAllEngines; })
             Column() { this.DialogLinkRow(this.t('language_pref'), this.languageModeDisplay(), true) }.onClick(() => this.nextLanguageMode())
-          }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
+          }.width('100%').padding({ left: 4, right: 4 })
           TextInput({ placeholder: this.t('extra_terms'), text: this.extraSearchTerms }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.extraSearchTerms = value; })
           TextInput({ placeholder: this.t('site_hint'), text: this.siteHint }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.siteHint = value; })
         } else if (this.settingsDialog === 'sources') {
@@ -2756,7 +2794,7 @@ struct Index {
             Column() { this.DialogToggleRow(this.t('search_engine'), this.enableSearchEngines, false) }.onClick(() => { this.enableSearchEngines = !this.enableSearchEngines; })
             Column() { this.DialogToggleRow(this.t('html_rules'), this.enableHtmlRules, true) }.onClick(() => { this.enableHtmlRules = !this.enableHtmlRules; })
             Column() { this.DialogLinkRow(this.t('remote_rules'), this.remoteRuleCount + this.t('rules_unit'), true) }.onClick(() => this.updateRemoteRules())
-          }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
+          }.width('100%').padding({ left: 4, right: 4 })
           Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
         } else if (this.settingsDialog === 'icons') {
           this.DialogHeader(this.t('icon_color'))
@@ -2771,7 +2809,7 @@ struct Index {
             this.IconColorOptionRow('indigo', true)
             this.IconColorOptionRow('violet', true)
             this.IconColorOptionRow('magenta', true)
-          }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
+          }.width('100%').padding({ left: 4, right: 4 })
         } else if (this.settingsDialog === 'reader') {
           this.DialogHeader(this.t('display_reading'))
           Column({ space: 0 }) {
@@ -2782,7 +2820,7 @@ struct Index {
               this.maxSearchResults = this.maxSearchResults === 40 ? 80 : (this.maxSearchResults === 80 ? 160 : 40);
             })
             Column() { this.DialogLinkRow(this.t('chapter_pages'), this.maxReaderPages + this.t('pages_unit'), true) }.onClick(() => { this.maxReaderPages = this.maxReaderPages === 30 ? 50 : 30; })
-          }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
+          }.width('100%').padding({ left: 4, right: 4 })
         } else if (this.settingsDialog === 'engines') {
           this.DialogHeader(this.t('search_engine'))
           Column({ space: 0 }) {
@@ -2790,17 +2828,33 @@ struct Index {
             ForEach(this.searchEngines, (engine: SearchEngineConfig, index: number) => {
               Column() { this.DialogToggleRow(engine.name, engine.enabled, index > 0 || true) }.onClick(() => { engine.enabled = !engine.enabled; })
             }, (engine: SearchEngineConfig) => engine.id)
-          }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
+          }.width('100%').padding({ left: 4, right: 4 })
         } else if (this.settingsDialog === 'rules') {
           this.DialogHeader(this.t('rule_settings'))
           Column({ space: 0 }) {
-            Column() { this.DialogLinkRow(this.t('remote_count'), this.remoteRuleCount + this.t('rules_unit'), false) }.onClick(() => this.updateRemoteRules())
-          }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
+            Column() { this.DialogLinkRow(this.t('built_in_rules'), DEFAULT_SOURCES.length + this.t('rules_unit'), false) }
+            Column() { this.DialogLinkRow(this.t('advanced_rules'), this.advancedRules.length + this.t('rules_unit'), true) }.onClick(() => { this.settingsDialog = 'advanced'; })
+            Column() { this.DialogLinkRow(this.t('remote_rules'), this.onlineRules.length + this.t('rules_unit'), true) }.onClick(() => this.updateRemoteRules())
+          }.width('100%').padding({ left: 4, right: 4 })
           TextInput({ placeholder: this.t('remote_url'), text: this.remoteRuleUrl }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.remoteRuleUrl = value; })
+          Text(this.t('online_rule_changes')).fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').margin({ top: 8 })
           Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
         } else {
           this.DialogHeader(this.t('advanced_rules'))
-          TextInput({ placeholder: this.t('custom_json'), text: this.customRuleText }).height(120).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding(10).onChange((value: string) => { this.customRuleText = value; })
+          TextArea({ placeholder: this.t('custom_json'), text: this.customRuleText })
+            .height(300).fontSize(13).fontFamily('monospace').fontColor(this.primaryText())
+            .placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding(10)
+            .onChange((value: string) => { this.customRuleText = value; })
+          Text(this.isEn() ? 'Syntax highlighted preview' : '语法高亮预览')
+            .fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%')
+          Scroll() {
+            Column() {
+              ForEach(this.customRuleText.split('\n'), (line: string, index: number) => {
+                Text((index + 1) + '  ' + line).fontSize(11).fontFamily('monospace')
+                  .fontColor(this.jsonLineColor(line)).width('100%').maxLines(1)
+              }, (line: string, index: number) => index + '_' + line)
+            }.width('100%').alignItems(HorizontalAlign.Start)
+          }.height(140).width('100%').backgroundColor(this.inputBg()).borderRadius(12).padding(8)
           Button(this.t('enabled'))
             .width('100%')
             .height(42)
@@ -2812,16 +2866,18 @@ struct Index {
             .onClick(() => this.applyCustomRule())
         }
       }
-      .width('85%')
-      .padding(24)
-      .backgroundColor(this.appBg())
+      .width(this.settingsDialog === 'advanced' ? '94%' : '72%')
+      .padding(14)
+      .backgroundColor(this.cardBg())
       .borderRadius(16)
       .shadow({ radius: 20, color: '#18000000', offsetX: 0, offsetY: 4 })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.dialogOverlay())
-    .justifyContent(FlexAlign.Center)
+    .backgroundColor(Color.Transparent)
+    .justifyContent(FlexAlign.Start)
+    .alignItems(HorizontalAlign.End)
+    .padding({ top: this.headerOverlayHeight() + 72, right: 14 })
     .onClick(() => { this.settingsDialog = ''; })
   }
 
@@ -2843,16 +2899,18 @@ struct Index {
           this.ThemeOptionRow('system', this.t('follow_system'), true)
         }.width('100%')
       }
-      .width('85%')
-      .padding(24)
+      .width('58%')
+      .padding(14)
       .backgroundColor(this.cardBg())
       .borderRadius(16)
       .shadow({ radius: 20, color: '#18000000', offsetX: 0, offsetY: 4 })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.dialogOverlay())
-    .justifyContent(FlexAlign.Center)
+    .backgroundColor(Color.Transparent)
+    .justifyContent(FlexAlign.Start)
+    .alignItems(HorizontalAlign.End)
+    .padding({ top: this.headerOverlayHeight() + 20, right: 14 })
     .onClick(() => { this.themeDialogVisible = false; })
   }
 
@@ -2874,16 +2932,18 @@ struct Index {
           this.LanguageOptionRow('en', this.t('lang_en'), true)
         }.width('100%')
       }
-      .width('85%')
-      .padding(24)
+      .width('58%')
+      .padding(14)
       .backgroundColor(this.cardBg())
       .borderRadius(16)
       .shadow({ radius: 20, color: '#18000000', offsetX: 0, offsetY: 4 })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.dialogOverlay())
-    .justifyContent(FlexAlign.Center)
+    .backgroundColor(Color.Transparent)
+    .justifyContent(FlexAlign.Start)
+    .alignItems(HorizontalAlign.End)
+    .padding({ top: this.headerOverlayHeight() + 70, right: 14 })
     .onClick(() => { this.languageDialogVisible = false; })
   }
 
