@@ -159,3 +159,24 @@ export interface BookshelfItem {
   progressPercent: number;
   readCount?: number;
 }
+
+export interface CoverAccuracyEntry {
+  workId: string;
+  title: string;
+  titleKey: string;
+  language: string;
+  coverUrl: string;
+  detailUrl: string;
+  domain: string;
+  sourceRank: number;
+  verifiedChapterCount: number;
+  confidence: string;
+}
+
+export interface CoverAccuracyIndex {
+  schema: string;
+  version: string;
+  updatedAt: string;
+  count: number;
+  entries: CoverAccuracyEntry[];
+}

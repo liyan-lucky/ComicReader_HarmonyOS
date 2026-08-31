@@ -1,4 +1,4 @@
-import { ComicSourceRule, SearchResultItem, ChapterItem, ReaderImageItem, ReadingHistoryItem, BookshelfItem, SearchEngineConfig, RemoteCatalog, CatalogCategory, CatalogItem, CatalogSource } from '../model/ComicModels';
+import { ComicSourceRule, SearchResultItem, ChapterItem, ReaderImageItem, ReadingHistoryItem, BookshelfItem, SearchEngineConfig, RemoteCatalog, CatalogCategory, CatalogItem, CatalogSource, CoverAccuracyIndex, CoverAccuracyEntry } from '../model/ComicModels';
 import { DEFAULT_SOURCES, RULE_TEMPLATE, ruleForPublicUrl } from '../common/SourceRules';
 import { HttpClient } from '../common/HttpClient';
 import { parseSearchResults, parseChapters, parseChaptersFallback, parseImages, parseNextPageUrl } from '../common/HtmlParser';
@@ -74,6 +74,8 @@ struct Index {
   @State private currentUrl: string = '';
   @State private currentDetailUrl: string = '';
   @State private currentChapterTitle: string = '';
+  @State private currentCatalogItemId: string = '';
+  @State private currentCatalogSourceIndex: number = -1;
   @State private currentCover: string = '';
   @State private currentSourceId: string = '';
   @State private currentSourceName: string = '';
@@ -121,6 +123,9 @@ struct Index {
   @State private remoteRuleUrl: string = DEFAULT_REMOTE_RULE_URL;
   @State private remoteRuleStatus: string = '';
   @State private remoteRuleCount: number = 0;
+  @State private coverAccuracyIndex: CoverAccuracyIndex | null = null;
+  @State private coverAccuracyStatus: string = '';
+  @State private updatingCoverAccuracy: boolean = false;
   @State private updatingCatalog: boolean = false;
   @State private updatingRules: boolean = false;
   @State private updateDialogVisible: boolean = false;
@@ -142,6 +147,7 @@ struct Index {
   private catalogCachePath: string = '';
   private ruleCachePath: string = '';
   private coverCacheDir: string = '';
+  private coverAccuracyCachePath: string = '';
   private pendingCatalogVersion: string = '';
   private pendingCatalogUrl: string = '';
   private chapterScroller: Scroller = new Scroller();
@@ -170,10 +176,12 @@ struct Index {
       const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
       this.coverCacheDir = context.filesDir + '/bookshelf_covers';
       this.ruleCachePath = context.filesDir + '/rules.zh-Hans.cache.json';
+      this.coverAccuracyCachePath = context.filesDir + '/cover-accuracy.zh-Hans.cache.json';
       try { fs.mkdirSync(this.coverCacheDir, true); } catch (e) {}
       this.preferencesStore = await dataPreferences.getPreferences(context, 'comic_reader_store');
       await this.loadPersistedData();
       this.loadCachedRules();
+      this.loadCachedCoverAccuracy();
       this.cacheExistingBookshelfCovers();
     } catch (e) {
     }
@@ -193,9 +201,17 @@ struct Index {
       }
       const advancedJson = await this.preferencesStore.get('advanced_rules', '[]') as string;
       if (typeof advancedJson === 'string' && advancedJson.length > 0) {
-        this.advancedRules = JSON.parse(advancedJson) as ComicSourceRule[];
-        this.customRuleText = JSON.stringify(this.advancedRules, null, 2);
-        this.rebuildEffectiveRules();
+        try {
+          const savedAdvanced = JSON.parse(advancedJson) as ComicSourceRule[];
+          if (Array.isArray(savedAdvanced)) {
+            this.advancedRules = savedAdvanced;
+            this.customRuleText = JSON.stringify(this.advancedRules, null, 2);
+            this.rebuildEffectiveRules();
+          }
+        } catch (advancedError) {
+          this.advancedRules = [];
+          this.customRuleText = '[]';
+        }
       }
       const recentJson = await this.preferencesStore.get('recent_searches', '[]') as string;
       if (typeof recentJson === 'string' && recentJson.length > 2) this.recentSearches = JSON.parse(recentJson) as string[];
@@ -354,7 +370,8 @@ struct Index {
       }
     } catch (e) {
       // A damaged cache must never replace the built-in fallback rules.
-      this.rules = DEFAULT_SOURCES;
+      this.onlineRules = [];
+      this.rebuildEffectiveRules();
     }
   }
 
@@ -377,6 +394,93 @@ struct Index {
       } catch (ignored) {
       }
     }
+  }
+
+  private loadCachedCoverAccuracy(): void {
+    try {
+      if (this.coverAccuracyCachePath.length === 0 || !fs.accessSync(this.coverAccuracyCachePath)) return;
+      const cached = JSON.parse(fs.readTextSync(this.coverAccuracyCachePath)) as CoverAccuracyIndex;
+      if (cached.schema === 'comic_cover_accuracy_index_v1' && Array.isArray(cached.entries) &&
+        cached.entries.length === cached.count) {
+        this.coverAccuracyIndex = cached;
+        this.coverAccuracyStatus = this.isEn() ? 'Cached verified covers: ' + cached.count :
+          '已缓存准确封面：' + cached.count + ' 条';
+        this.applyCoverAccuracy();
+      }
+    } catch (e) {
+      this.coverAccuracyIndex = null;
+    }
+  }
+
+  private saveCoverAccuracyCache(index: CoverAccuracyIndex): void {
+    if (this.coverAccuracyCachePath.length === 0) return;
+    const temp = this.coverAccuracyCachePath + '.tmp';
+    try {
+      const output = fs.openSync(temp, fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      try { fs.writeSync(output.fd, JSON.stringify(index)); } finally { fs.closeSync(output); }
+      if (fs.accessSync(this.coverAccuracyCachePath)) fs.unlinkSync(this.coverAccuracyCachePath);
+      fs.renameSync(temp, this.coverAccuracyCachePath);
+    } catch (e) {
+      try { if (fs.accessSync(temp)) fs.unlinkSync(temp); } catch (ignored) {}
+    }
+  }
+
+  private coverTitleKey(value: string): string {
+    return this.cleanTitle(value).toLowerCase().replace(/\s+/g, '')
+      .replace(/[·:：,，。！？!?《》【】()\[\]_-]/g, '');
+  }
+
+  private verifiedCoverForTitle(title: string): CoverAccuracyEntry | null {
+    if (this.coverAccuracyIndex === null) return null;
+    const key = this.coverTitleKey(title);
+    const found = this.coverAccuracyIndex.entries.find((entry: CoverAccuracyEntry) =>
+      entry.titleKey === key && entry.confidence === 'verified-title-bound-cover' &&
+      entry.coverUrl.startsWith('https://'));
+    return found ? found : null;
+  }
+
+  private applyCoverAccuracy(): void {
+    if (this.coverAccuracyIndex === null) return;
+    this.results = this.results.map((item: SearchResultItem): SearchResultItem => {
+      const verified = this.verifiedCoverForTitle(item.title);
+      if (verified) item.cover = verified.coverUrl;
+      return item;
+    });
+    this.history = this.history.map((item: ReadingHistoryItem): ReadingHistoryItem => {
+      const verified = this.verifiedCoverForTitle(item.title);
+      if (verified) item.cover = verified.coverUrl;
+      return item;
+    });
+    const coversToCache: string[][] = [];
+    this.bookshelf = this.bookshelf.map((item: BookshelfItem): BookshelfItem => {
+      const verified = this.verifiedCoverForTitle(item.title);
+      if (!verified) return item;
+      coversToCache.push([item.url, verified.coverUrl]);
+      item.cover = verified.coverUrl;
+      item.remoteCover = verified.coverUrl;
+      return item;
+    });
+    this.persistData();
+    for (let i = 0; i < coversToCache.length; i++) {
+      this.cacheBookshelfCover(coversToCache[i][0], coversToCache[i][1]);
+    }
+  }
+
+  private async updateCoverAccuracy(): Promise<void> {
+    if (this.updatingCoverAccuracy) return;
+    this.updatingCoverAccuracy = true;
+    this.coverAccuracyStatus = this.isEn() ? 'Updating cover accuracy index...' : '正在更新封面准确性索引…';
+    try {
+      const index = await RemoteRuleService.fetchCoverAccuracyIndex(this.remoteRuleUrl);
+      this.coverAccuracyIndex = index;
+      this.saveCoverAccuracyCache(index);
+      this.applyCoverAccuracy();
+      this.coverAccuracyStatus = this.isEn() ? 'Verified covers updated: ' + index.count :
+        '准确封面已更新：' + index.count + ' 条';
+    } catch (e) {
+      this.coverAccuracyStatus = this.isEn() ? 'Cover accuracy update failed.' : '封面准确性更新失败。';
+    }
+    this.updatingCoverAccuracy = false;
   }
 
   private catalogStage(zh: string, en: string): string {
@@ -603,6 +707,7 @@ struct Index {
       if (key === 'remote_rules') return 'Remote Rules';
       if (key === 'built_in_rules') return 'Built-in Rules';
       if (key === 'online_rule_changes') return 'Online Changes';
+      if (key === 'cover_accuracy') return 'Cover Accuracy Check';
       if (key === 'auto_cover') return 'Auto Cover';
       if (key === 'show_page_num') return 'Page Numbers';
       if (key === 'reading_bg') return 'Reading BG';
@@ -748,6 +853,7 @@ struct Index {
     if (key === 'remote_rules') return '远程规则';
     if (key === 'built_in_rules') return '手机内置规则';
     if (key === 'online_rule_changes') return '在线规则变化';
+    if (key === 'cover_accuracy') return '封面准确性校验';
     if (key === 'auto_cover') return '自动补封面';
     if (key === 'show_page_num') return '显示页码';
     if (key === 'reading_bg') return '阅读背景';
@@ -1146,6 +1252,7 @@ struct Index {
         if (this.appLanguage === 'en') await this.searchApiSources(keyword);
       }
       if (this.autoCoverEnabled) await this.enrichResultCovers(8);
+      this.applyCoverAccuracy();
     } finally {
       this.isLoading = false;
       this.statusText = this.results.length > 0 ? this.t('search_complete') + this.results.length + this.t('results_suffix') : this.t('no_comic_results');
@@ -1166,7 +1273,7 @@ struct Index {
         const item = items[j];
         // Search must never advertise legacy entries that were accepted by the
         // old decorative-image heuristic.
-        if (item.validationPolicy !== 'readability-v4') continue;
+        if (item.validationPolicy !== 'readability-v5') continue;
         const titleMatched = item.title.toLowerCase().replace(/\s+/g, '').indexOf(expected) >= 0;
         if (!titleMatched && !categoryMatched) continue;
         const source = this.preferredCatalogSource(item);
@@ -1345,6 +1452,12 @@ struct Index {
     this.detailLoading = true;
     this.detailReceivedBytes = 0;
     this.detailTotalBytes = 0;
+    const matchingCatalogItem = this.catalogItemForSourceUrl(url);
+    if (matchingCatalogItem !== null) {
+      this.currentCatalogItemId = matchingCatalogItem.id;
+      this.currentCatalogSourceIndex = this.catalogSourcesByChapterCount(matchingCatalogItem)
+        .findIndex((source: CatalogSource) => source.detailUrl === url);
+    }
     try {
       // The release pipeline already replayed every published chapter URL.
       // Prefer that exact manifest over parsing the site again with a generic
@@ -1530,6 +1643,7 @@ struct Index {
     this.statusText = this.t('generating_scroll');
     try {
       const parsedImages = await this.fetchReaderImagesWithPagination(chapter.url, rule);
+      if (parsedImages.length === 0 && await this.tryNextCatalogSource(chapter)) return;
       this.images = parsedImages;
       this.statusText = parsedImages.length > 0 ? this.t('scroll_complete') + parsedImages.length + this.t('images_unit_full') + '.' : this.t('no_images');
       this.addHistory(chapter, parsedImages.length);
@@ -1543,6 +1657,51 @@ struct Index {
 
   private displayedReaderImages(): ReaderImageItem[] {
     return this.images.slice(0, Math.min(this.images.length, this.readerRenderLimit));
+  }
+
+  private catalogSourcesByChapterCount(item: CatalogItem): CatalogSource[] {
+    const sources = [...item.sources];
+    sources.sort((left: CatalogSource, right: CatalogSource): number =>
+      (right.chapters ? right.chapters.length : 0) - (left.chapters ? left.chapters.length : 0));
+    return sources;
+  }
+
+  private catalogItemForSourceUrl(url: string): CatalogItem | null {
+    if (this.remoteCatalog === null) return null;
+    const items = CatalogService.getAllItems(this.remoteCatalog);
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].sources.some((source: CatalogSource) => source.detailUrl === url)) return items[i];
+    }
+    return null;
+  }
+
+  private async tryNextCatalogSource(failedChapter: ChapterItem): Promise<boolean> {
+    if (this.remoteCatalog === null || this.currentCatalogItemId.length === 0) return false;
+    const item = CatalogService.getAllItems(this.remoteCatalog)
+      .find((candidate: CatalogItem) => candidate.id === this.currentCatalogItemId);
+    if (!item) return false;
+    const sources = this.catalogSourcesByChapterCount(item);
+    for (let index = this.currentCatalogSourceIndex + 1; index < sources.length; index++) {
+      const source = sources[index];
+      if (!source.detailUrl || !source.chapters || source.chapters.length === 0) continue;
+      const chapterIndex = Math.max(0, failedChapter.index - 1);
+      const target = source.chapters.find((candidate) => candidate.title === failedChapter.title) ??
+        source.chapters[Math.min(chapterIndex, source.chapters.length - 1)];
+      if (!target) continue;
+      this.currentCatalogSourceIndex = index;
+      this.currentDetailUrl = source.detailUrl;
+      this.currentCover = source.coverUrl ? source.coverUrl : this.currentCover;
+      this.chapters = source.chapters.map((chapter, sourceIndex: number): ChapterItem => ({
+        title: chapter.title, url: chapter.url, index: sourceIndex + 1,
+        sourceId: this.findRuleByUrl(source.detailUrl!).id, sourceName: source.domain
+      }));
+      this.statusText = this.isEn() ? 'Trying fallback source ' + source.domain : '正在切换备用来源：' + source.domain;
+      await this.loadChapter({ title: target.title, url: target.url, index: chapterIndex + 1,
+        sourceId: this.findRuleByUrl(source.detailUrl).id, sourceName: source.domain },
+        this.findRuleByUrl(source.detailUrl));
+      return true;
+    }
+    return false;
   }
 
   private chapterNumber(title: string): number {
@@ -2247,7 +2406,7 @@ struct Index {
   private SearchHome() {
     Scroll() {
       Column() {
-        Blank().height(this.contentTopInset())
+        Column() {}.width('100%').height(this.contentTopInset())
         Blank().layoutWeight(1)
         Image($r('app.media.app_icon')).width(220).height(180).objectFit(ImageFit.Contain).margin({ bottom: 24 })
         Row() {
@@ -2333,7 +2492,7 @@ struct Index {
   private ResultsPage() {
     Scroll(this.searchResultsScroller) {
       Column() {
-        Blank().height(this.contentTopInset())
+        Column() {}.width('100%').height(this.contentTopInset())
         if (this.results.length === 0) {
           Text(this.isLoading ? this.t('searching_sources') : this.t('no_results'))
             .fontSize(14)
@@ -2674,7 +2833,7 @@ struct Index {
     Stack() {
       Scroll() {
         Column() {
-          Blank().height(this.compactContentTopInset())
+          Column() {}.width('100%').height(this.compactContentTopInset())
 
           this.SectionLabel(this.t('basic_settings'))
           Column({ space: 0 }) {
@@ -2835,10 +2994,12 @@ struct Index {
             Column() { this.DialogLinkRow(this.t('built_in_rules'), DEFAULT_SOURCES.length + this.t('rules_unit'), false) }
             Column() { this.DialogLinkRow(this.t('advanced_rules'), this.advancedRules.length + this.t('rules_unit'), true) }.onClick(() => { this.settingsDialog = 'advanced'; })
             Column() { this.DialogLinkRow(this.t('remote_rules'), this.onlineRules.length + this.t('rules_unit'), true) }.onClick(() => this.updateRemoteRules())
+            Column() { this.DialogLinkRow(this.t('cover_accuracy'), this.coverAccuracyIndex === null ? '0' : this.coverAccuracyIndex.count.toString(), true) }.onClick(() => this.updateCoverAccuracy())
           }.width('100%').padding({ left: 4, right: 4 })
           TextInput({ placeholder: this.t('remote_url'), text: this.remoteRuleUrl }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.remoteRuleUrl = value; })
           Text(this.t('online_rule_changes')).fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').margin({ top: 8 })
           Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
+          Text(this.coverAccuracyStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
         } else {
           this.DialogHeader(this.t('advanced_rules'))
           TextArea({ placeholder: this.t('custom_json'), text: this.customRuleText })
@@ -3025,7 +3186,7 @@ struct Index {
   private ShelfPage() {
     Scroll() {
       Column() {
-        Blank().height(this.compactContentTopInset())
+        Column() {}.width('100%').height(this.compactContentTopInset())
 
         if (this.catalogLoading) {
           Column() {
@@ -3104,23 +3265,24 @@ struct Index {
   }
 
   private preferredCatalogSource(item: CatalogItem): CatalogSource | null {
+    const ordered = this.catalogSourcesByChapterCount(item);
     let fallback: CatalogSource | null = null;
-    for (let i = 0; i < item.sources.length; i++) {
-      const source = item.sources[i];
+    for (let i = 0; i < ordered.length; i++) {
+      const source = ordered[i];
       if (source.detailUrl && source.detailUrl.length > 0) {
         if (fallback === null) fallback = source;
         if (this.findRuleByUrl(source.detailUrl).id !== this.genericRule().id) return source;
       }
     }
     if (fallback !== null) return fallback;
-    return item.sources.length > 0 ? item.sources[0] : null;
+    return ordered.length > 0 ? ordered[0] : null;
   }
 
   @Builder
   private HistoryPage() {
     Scroll() {
       Column() {
-        Blank().height(this.compactContentTopInset())
+        Column() {}.width('100%').height(this.compactContentTopInset())
         if (this.historyTab === 'history') {
           if (this.history.length === 0) {
             Text(this.t('history_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
@@ -3429,6 +3591,7 @@ struct Index {
           .height(this.headerOverlayHeight())
           .justifyContent(FlexAlign.Start)
           .backgroundColor(Color.Transparent)
+          .position({ x: 0, y: 0 })
         }
 
         if (this.mode !== 'reader' && this.mode !== 'chapters') {
