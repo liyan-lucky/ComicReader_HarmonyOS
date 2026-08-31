@@ -130,7 +130,7 @@ struct Index {
   @State private bottomSafeInset: number = 28;
   @State private debugKeepScreenOn: boolean = true;
   @State private historyTab: string = 'history';
-  @State private historyViewMode: string = 'list';
+  @State private historyViewMode: string = 'grid';
   @State private historyMenuVisible: boolean = false;
   @State private lastOpenedSearchUrl: string = '';
   @State private searchResultsOffset: number = 0;
@@ -151,7 +151,7 @@ struct Index {
     const savedOffset = this.searchResultsOffset;
     setTimeout(() => {
       this.searchResultsScroller.scrollTo({ xOffset: 0, yOffset: savedOffset, animation: { duration: 0 } });
-    }, 0);
+    }, 80);
   }
 
   private resetChapterScroll(): void {
@@ -183,6 +183,7 @@ struct Index {
       const historyJson = await this.preferencesStore.get('reading_history', '[]') as string;
       if (typeof historyJson === 'string' && historyJson.length > 2) {
         this.history = JSON.parse(historyJson) as ReadingHistoryItem[];
+        this.history = this.latestHistoryPerBook(this.history);
       }
       const shelfJson = await this.preferencesStore.get('bookshelf', '[]') as string;
       if (typeof shelfJson === 'string' && shelfJson.length > 2) {
@@ -1473,7 +1474,8 @@ struct Index {
     return next;
   }
 
-  private async fetchReaderImagesWithPagination(firstUrl: string, rule: ComicSourceRule): Promise<ReaderImageItem[]> {
+  private async fetchReaderImagesWithPagination(firstUrl: string, rule: ComicSourceRule,
+    publishProgress: boolean = true): Promise<ReaderImageItem[]> {
     let pageUrl = firstUrl;
     let allImages: ReaderImageItem[] = [];
     const visited: string[] = [];
@@ -1487,7 +1489,7 @@ struct Index {
       allImages = this.mergeReaderImages(allImages, pageImages);
       // Render each successfully parsed page immediately. Long chapters should
       // not remain black while the following pagination requests are running.
-      this.images = allImages;
+      if (publishProgress) this.images = allImages;
       const nextUrl = parseNextPageUrl(html, rule, pageUrl);
       if (nextUrl.length === 0 || nextUrl === pageUrl) break;
       pageUrl = nextUrl;
@@ -1518,6 +1520,7 @@ struct Index {
       this.images = parsedImages;
       this.statusText = parsedImages.length > 0 ? this.t('scroll_complete') + parsedImages.length + this.t('images_unit_full') + '.' : this.t('no_images');
       this.addHistory(chapter, parsedImages.length);
+      this.updateFavoriteReadingPosition();
     } catch (err) {
       this.statusText = this.t('scroll_failed');
     } finally {
@@ -1568,7 +1571,23 @@ struct Index {
     const nextChapter = ordered[currentIndex + 1];
     this.readerChangingChapter = true;
     try {
-      await this.loadChapter(nextChapter, this.findRule(nextChapter.sourceId));
+      const oldLength = this.images.length;
+      const nextImages = await this.fetchReaderImagesWithPagination(nextChapter.url,
+        this.findRule(nextChapter.sourceId), false);
+      if (nextImages.length === 0) return;
+      const appended: ReaderImageItem[] = [...this.images];
+      for (let i = 0; i < nextImages.length; i++) {
+        appended.push({ url: nextImages[i].url, index: oldLength + i + 1, status: 'waiting' });
+      }
+      this.currentChapterTitle = nextChapter.title;
+      this.currentUrl = nextChapter.url;
+      this.currentSourceId = nextChapter.sourceId;
+      this.currentSourceName = nextChapter.sourceName;
+      this.images = appended;
+      this.readerRenderLimit = Math.min(appended.length, oldLength + 6);
+      this.addHistory(nextChapter, nextImages.length);
+      this.updateFavoriteReadingPosition();
+      this.statusText = this.isEn() ? 'Continued to ' + nextChapter.title : '已连续加载 ' + nextChapter.title;
     } finally {
       this.readerChangingChapter = false;
     }
@@ -1641,6 +1660,7 @@ struct Index {
   }
 
   private openSearchResult(item: SearchResultItem): void {
+    this.searchResultsOffset = this.searchResultsScroller.currentOffset().yOffset;
     this.lastOpenedSearchUrl = item.url;
     const rule = this.ruleForItemUrl(item.url, item.sourceId);
     if (item.isChapter) {
@@ -1665,10 +1685,29 @@ struct Index {
     };
     const next = [item];
     for (let i = 0; i < this.history.length && next.length < 40; i++) {
-      if (this.history[i].url !== item.url) next.push(this.history[i]);
+      const old = this.history[i];
+      const sameBook = item.detailUrl && item.detailUrl.length > 0 && old.detailUrl && old.detailUrl.length > 0
+        ? old.detailUrl === item.detailUrl
+        : old.title === item.title && old.sourceId === item.sourceId;
+      if (!sameBook) next.push(old);
     }
     this.history = next;
     this.persistData();
+  }
+
+  private latestHistoryPerBook(items: ReadingHistoryItem[]): ReadingHistoryItem[] {
+    const latest: ReadingHistoryItem[] = [];
+    for (let i = 0; i < items.length && latest.length < 40; i++) {
+      const item = items[i];
+      const duplicate = latest.some((old: ReadingHistoryItem) => {
+        if (item.detailUrl && item.detailUrl.length > 0 && old.detailUrl && old.detailUrl.length > 0) {
+          return old.detailUrl === item.detailUrl;
+        }
+        return old.title === item.title && old.sourceId === item.sourceId;
+      });
+      if (!duplicate) latest.push(item);
+    }
+    return latest;
   }
 
   private async openHistoryItem(item: ReadingHistoryItem): Promise<void> {
@@ -1763,6 +1802,49 @@ struct Index {
     this.statusText = this.t('added_shelf');
     this.persistData();
     this.cacheBookshelfCover(item.url, this.currentCover);
+  }
+
+  private updateFavoriteReadingPosition(): void {
+    if (this.currentUrl.length === 0) return;
+    const detailUrl = this.currentDetailUrl.length > 0 ? this.currentDetailUrl : this.currentUrl;
+    let changed = false;
+    const next: BookshelfItem[] = [];
+    for (let i = 0; i < this.bookshelf.length; i++) {
+      const old = this.bookshelf[i];
+      if (old.url === detailUrl || (old.title === this.currentTitle && old.sourceId === this.currentSourceId)) {
+        next.push({
+          title: old.title, url: old.url, cover: old.cover, remoteCover: old.remoteCover,
+          sourceId: old.sourceId, sourceName: old.sourceName,
+          lastChapterTitle: this.currentChapterTitle, lastChapterUrl: this.currentUrl,
+          addedAt: old.addedAt, lastReadAt: this.nowText(), imageCount: this.images.length,
+          progressPercent: this.images.length > 0 ? 100 : 0, readCount: old.readCount
+        });
+        changed = true;
+      } else next.push(old);
+    }
+    if (changed) {
+      this.bookshelf = next;
+      this.persistData();
+    }
+  }
+
+  private async openBookshelfItem(item: BookshelfItem): Promise<void> {
+    const rule = this.findRule(item.sourceId);
+    if (item.lastChapterUrl.length > 0) {
+      this.currentDetailUrl = item.url;
+      this.currentTitle = item.title;
+      this.currentCover = item.cover;
+      await this.loadDetail(item.url, item.title, rule);
+      const chapter = this.chapters.find((candidate: ChapterItem) => candidate.url === item.lastChapterUrl);
+      if (chapter) {
+        await this.loadChapter(chapter, this.findRule(chapter.sourceId));
+        return;
+      }
+      await this.loadChapter({ title: item.lastChapterTitle, url: item.lastChapterUrl, index: 1,
+        sourceId: item.sourceId, sourceName: item.sourceName }, rule);
+      return;
+    }
+    await this.loadDetail(item.url, item.title, rule);
   }
 
   private isCurrentFavorite(): boolean {
@@ -2228,7 +2310,6 @@ struct Index {
       }.width('100%').padding({ left: 14, right: 14 })
     }
     .layoutWeight(1)
-    .onScroll((_xOffset: number, yOffset: number) => { this.searchResultsOffset = yOffset; })
     .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     .backgroundColor(this.appBg())
   }
@@ -2939,7 +3020,7 @@ struct Index {
           } else {
             ForEach(this.bookshelf, (item: BookshelfItem) => {
               Column() { this.SettingCard(item.title, item.sourceName + ' · ' + item.lastReadAt, item.progressPercent + '%') }
-                .onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
+                .onClick(() => this.openBookshelfItem(item))
             }, (item: BookshelfItem) => item.url)
           }
         }
@@ -3039,7 +3120,7 @@ struct Index {
                   }.width('100%').padding({ left: 6, top: 4 })
                   Text(item.sourceName).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
                 }.width('31.5%').margin({ bottom: 10 }).backgroundColor(this.cardBg()).borderRadius(12)
-                  .onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
+                  .onClick(() => this.openBookshelfItem(item))
                   .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 10 })
                     .onActionEnd((event: PanGestureEvent) => this.handleRecordSwipe(item.url, true, event.offsetX)))
               }, (item: BookshelfItem) => item.url)
@@ -3047,7 +3128,7 @@ struct Index {
           } else {
             ForEach(this.bookshelf, (item: BookshelfItem) => {
               Row() {
-                Column() { this.SettingCard(item.title, item.sourceName + ' · ' + item.lastReadAt, item.progressPercent + '%') }.layoutWeight(1).onClick(() => this.loadDetail(item.url, item.title, this.findRule(item.sourceId)))
+                Column() { this.SettingCard(item.title, item.sourceName + ' · ' + item.lastReadAt, item.progressPercent + '%') }.layoutWeight(1).onClick(() => this.openBookshelfItem(item))
                 if (this.revealedDeleteUrl === item.url) {
                   Image($rawfile('ic_x.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
                     .padding(14).onClick(() => this.removeBookshelfItem(item.url))
@@ -3285,10 +3366,9 @@ struct Index {
             this.HeaderOverlay()
           }
           .width('100%')
-          .height('100%')
+          .height(this.headerOverlayHeight())
           .justifyContent(FlexAlign.Start)
           .backgroundColor(Color.Transparent)
-          .hitTestBehavior(HitTestMode.Transparent)
         }
 
         if (this.mode !== 'reader' && this.mode !== 'chapters') {
