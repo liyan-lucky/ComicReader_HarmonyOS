@@ -65,6 +65,7 @@ struct Index {
   @State private catalogProgressPercent: number = 0;
   @State private currentTitle: string = '';
   @State private currentUrl: string = '';
+  @State private currentDetailUrl: string = '';
   @State private currentChapterTitle: string = '';
   @State private currentCover: string = '';
   @State private currentSourceId: string = '';
@@ -971,6 +972,7 @@ struct Index {
     this.searchTitle = keyword;
     this.currentTitle = '';
     this.currentUrl = '';
+    this.currentDetailUrl = '';
     this.currentChapterTitle = '';
     this.currentCover = '';
     this.currentSourceId = '';
@@ -1200,6 +1202,7 @@ struct Index {
   private async loadDetail(url: string, title: string, rule: ComicSourceRule): Promise<void> {
     this.activeTab = 'search';
     this.currentUrl = url;
+    this.currentDetailUrl = url;
     this.currentTitle = this.cleanTitle(title);
     this.currentSourceId = rule.id;
     this.currentSourceName = rule.name;
@@ -1494,6 +1497,14 @@ struct Index {
     return displayed;
   }
 
+  private readerPanelChapters(): ChapterItem[] {
+    const displayed = this.displayedChapters();
+    if (displayed.length > 0) return displayed;
+    if (this.currentUrl.length === 0) return [];
+    return [{ title: this.currentChapterTitle, url: this.currentUrl, index: 1,
+      sourceId: this.currentSourceId, sourceName: this.currentSourceName }];
+  }
+
   private markImage(index: number, status: string): void {
     let changed = false;
     const next: ReaderImageItem[] = [];
@@ -1514,7 +1525,10 @@ struct Index {
 
   private openSearchResult(item: SearchResultItem): void {
     const rule = this.ruleForItemUrl(item.url, item.sourceId);
-    if (item.isChapter) this.loadChapter({ title: item.title, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, rule);
+    if (item.isChapter) {
+      this.currentDetailUrl = '';
+      this.loadChapter({ title: item.title, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, rule);
+    }
     else this.loadDetail(item.url, item.title, rule);
   }
 
@@ -1522,6 +1536,7 @@ struct Index {
     const item: ReadingHistoryItem = {
       title: this.currentTitle.length > 0 ? this.currentTitle : chapter.title,
       url: chapter.url,
+      detailUrl: this.currentDetailUrl,
       chapterTitle: chapter.title,
       sourceId: chapter.sourceId,
       sourceName: chapter.sourceName,
@@ -1536,6 +1551,20 @@ struct Index {
     }
     this.history = next;
     this.persistData();
+  }
+
+  private async openHistoryItem(item: ReadingHistoryItem): Promise<void> {
+    if (item.detailUrl && item.detailUrl.length > 0 && item.detailUrl !== item.url) {
+      await this.loadDetail(item.detailUrl, item.title, this.findRule(item.sourceId));
+      const chapter = this.chapters.find((candidate: ChapterItem) => candidate.url === item.url);
+      if (chapter) {
+        await this.loadChapter(chapter, this.findRule(chapter.sourceId));
+        return;
+      }
+    }
+    this.chapters = [{ title: item.chapterTitle, url: item.url, index: 1,
+      sourceId: item.sourceId, sourceName: item.sourceName }];
+    await this.loadChapter(this.chapters[0], this.findRule(item.sourceId));
   }
 
   private coverCacheName(url: string): string {
@@ -1596,7 +1625,7 @@ struct Index {
     if (this.currentUrl.length === 0) return;
     const item: BookshelfItem = {
       title: this.currentTitle.length > 0 ? this.currentTitle : this.t('unnamed_comic'),
-      url: this.currentUrl,
+      url: this.currentDetailUrl.length > 0 ? this.currentDetailUrl : this.currentUrl,
       sourceId: this.currentSourceId,
       sourceName: this.currentSourceName,
       cover: this.currentCover,
@@ -2115,6 +2144,14 @@ struct Index {
         if (this.floatingReaderControls) this.readerToolsVisible = !this.readerToolsVisible;
       })
 
+      if (!this.fullscreenReader) {
+        Column() {}
+          .width('100%').height(this.avoidStatusBarHeight + 58)
+          .position({ x: 0, y: 0 })
+          .linearGradient({ angle: 180, colors: this.headerGradientColors() })
+          .hitTestBehavior(HitTestMode.Transparent)
+      }
+
       if (this.readerToolsVisible && this.floatingReaderControls) {
         Column() {
           Row() {
@@ -2136,7 +2173,7 @@ struct Index {
               .border({ width: 1, color: this.borderSubtle() })
               .onClick(() => this.applyReaderFullscreen(!this.fullscreenReader))
           }
-          .width('100%').padding({ left: 10, right: 10, top: 8 })
+          .width('100%').padding({ left: 10, right: 10, top: this.avoidStatusBarHeight + 8 })
 
           Blank()
 
@@ -2157,7 +2194,7 @@ struct Index {
                 Text(this.t('chapter_list')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
                 Text('×').fontSize(26).fontColor(this.iconColor('ic_close')).padding(8).onClick(() => { this.readerChapterPanelVisible = false; })
               }.width('100%')
-              ForEach(this.displayedChapters(), (chapter: ChapterItem) => {
+              ForEach(this.readerPanelChapters(), (chapter: ChapterItem) => {
                 Text(chapter.title.trim().length > 0 ? chapter.title : this.t('chapter_list') + ' ' + chapter.index)
                   .fontSize(14)
                   .fontColor(chapter.url === this.currentUrl ? this.iconColor('ic_reader') : this.primaryText())
@@ -2168,7 +2205,7 @@ struct Index {
             }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 24 })
           }
           .width('38%').height('100%')
-          .backgroundColor(this.isDark() ? '#B81E232F' : '#C8FFFFFF')
+          .backgroundColor(this.isDark() ? '#701E232F' : '#78FFFFFF')
           .backgroundBlurStyle(BlurStyle.Thick, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
           Blank().layoutWeight(1).height('100%').onClick(() => { this.readerChapterPanelVisible = false; })
         }.width('100%').height('100%')
@@ -2794,13 +2831,13 @@ struct Index {
                   Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 4 })
                   Text(item.chapterTitle).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
                 }.width('31.5%').margin({ bottom: 10 }).backgroundColor(this.cardBg()).borderRadius(12)
-                  .onClick(() => this.loadChapter({ title: item.chapterTitle, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, this.findRule(item.sourceId)))
+                  .onClick(() => this.openHistoryItem(item))
               }, (item: ReadingHistoryItem) => item.url)
             }.width('100%')
           } else {
             ForEach(this.history, (item: ReadingHistoryItem) => {
               Column() { this.SettingCard(item.title, item.chapterTitle + ' · ' + item.lastReadAt, item.imageCount + this.t('images_unit')) }
-                .onClick(() => this.loadChapter({ title: item.chapterTitle, url: item.url, index: 1, sourceId: item.sourceId, sourceName: item.sourceName }, this.findRule(item.sourceId)))
+                .onClick(() => this.openHistoryItem(item))
             }, (item: ReadingHistoryItem) => item.url)
           }
         } else {

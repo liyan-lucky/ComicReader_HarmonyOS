@@ -90,6 +90,7 @@ export interface ReadingHistoryItem {
   title: string;
   chapterTitle: string;
   url: string;
+  detailUrl?: string;
   sourceId: string;
   sourceName: string;
   cover: string;
