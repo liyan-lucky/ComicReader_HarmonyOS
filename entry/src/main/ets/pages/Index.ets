@@ -735,6 +735,27 @@ struct Index {
   private accent(): string { return '#34C759'; }
   private primaryText(): string { return this.isDark() ? '#E8ECF4' : '#111827'; }
   private secondaryText(): string { return this.isDark() ? '#B6BFCC' : '#667085'; }
+  private iconColor(icon: string): string {
+    if (icon === 'ic_search' || icon === 'ic_globe' || icon === 'ic_web') return '#0A84FF';
+    if (icon === 'ic_shelf' || icon === 'ic_book' || icon === 'ic_add_shelf') return '#FF9500';
+    if (icon === 'ic_history' || icon === 'ic_clock') return '#AF52DE';
+    if (icon === 'ic_settings' || icon === 'ic_tune') return '#34C759';
+    if (icon === 'ic_refresh' || icon === 'ic_engine') return '#00C7BE';
+    if (icon === 'ic_rule' || icon === 'ic_code') return '#5856D6';
+    if (icon === 'ic_language' || icon === 'ic_filter') return '#F5C400';
+    if (icon === 'ic_reader' || icon === 'ic_reading' || icon === 'ic_layout' || icon === 'ic_fullscreen') return '#FF2D92';
+    return '#FF3B30';
+  }
+  private iconSurface(icon: string): string {
+    const color = this.iconColor(icon);
+    return this.isDark() ? '#26' + color.substring(1) : '#18' + color.substring(1);
+  }
+  private tabIconKey(name: string): string {
+    if (name === 'search') return 'ic_search';
+    if (name === 'shelf') return 'ic_shelf';
+    if (name === 'history') return 'ic_history';
+    return 'ic_settings';
+  }
   private actionBg(): string { return '#167A36'; }
   private warnBg(): string { return this.isDark() ? '#2A2210' : '#FFF7E8'; }
   private warnText(): string { return this.isDark() ? '#F0C060' : '#8A5A12'; }
@@ -1768,7 +1789,7 @@ struct Index {
             if (this.queryText.length > 0) {
               Row() {
                 Column() {
-                  Image($rawfile('ic_x.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+                  Image($rawfile('ic_x.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
                 }.width(32).height(32).justifyContent(FlexAlign.Center).margin({ right: 6 })
                   .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
               }.width('100%').justifyContent(FlexAlign.End)
@@ -1813,7 +1834,7 @@ struct Index {
           if (this.queryText.length > 0) {
             Row() {
               Column() {
-                Image($rawfile('ic_x.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+                Image($rawfile('ic_x.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
               }.width(36).height(36).justifyContent(FlexAlign.Center).margin({ right: 8 })
                 .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
             }.width('100%').justifyContent(FlexAlign.End)
@@ -1912,7 +1933,7 @@ struct Index {
       Blank().height(this.avoidStatusBarHeight)
       Row() {
         Column() {
-          Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.primaryText()))
+          Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back')))
         }.padding({ left: 12, right: 8, top: 6, bottom: 6 }).onClick(() => { this.mode = 'results'; })
         Text(this.currentTitle.length > 0 ? this.currentTitle : this.t('chapter_list'))
           .fontSize(19)
@@ -1933,7 +1954,7 @@ struct Index {
             this.persistData();
           })
         Column() {
-          Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent()))
+          Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_add_shelf')))
         }.padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
       }.width('100%').padding({ left: 4, right: 4, top: 10, bottom: 8 })
       Column() { this.StatusCard() }.padding({ left: 14, right: 14 })
@@ -1981,11 +2002,11 @@ struct Index {
       if (this.readerToolsVisible) {
         Row() {
           Column() {
-            Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.primaryText()))
+            Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back')))
           }.padding({ left: 12, right: 8, top: 6, bottom: 6 }).onClick(() => { this.mode = this.chapters.length > 0 ? 'chapters' : 'results'; })
           Text(this.currentChapterTitle.length > 0 ? this.currentChapterTitle : this.currentTitle).fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1).margin({ left: 6 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           Column() {
-            Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent()))
+            Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_add_shelf')))
           }.padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
         }.width('100%').padding(10).backgroundColor(this.readerBarBg())
       }
@@ -2040,22 +2061,29 @@ struct Index {
   @Builder
   private LinkRow(icon: string, label: string, value: string, showTopBorder: boolean) {
     Row({ space: 12 }) {
-      Image($rawfile(icon + '.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+      Stack() {
+        Image($rawfile(icon + '.svg')).width(20).height(20)
+          .colorFilter(createStrokeIconColorFilter(this.iconColor(icon)))
+      }.width(34).height(34).borderRadius(10).backgroundColor(this.iconSurface(icon))
       Column({ space: 4 }) {
         Text(label).fontSize(16).fontColor(this.primaryText()).width('100%')
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       Text(value).fontSize(13).fontColor(this.secondaryText()).textAlign(TextAlign.End)
-      Image($rawfile('ic_more.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+      Image($rawfile('ic_more.svg')).width(16).height(16)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_more')))
     }
     .width('100%')
-    .height(50)
+    .height(56)
     .border(showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
   }
 
   @Builder
   private ToggleSettingRow(icon: string, label: string, isOn: boolean, showTopBorder: boolean) {
     Row({ space: 12 }) {
-      Image($rawfile(icon + '.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+      Stack() {
+        Image($rawfile(icon + '.svg')).width(20).height(20)
+          .colorFilter(createStrokeIconColorFilter(this.iconColor(icon)))
+      }.width(34).height(34).borderRadius(10).backgroundColor(this.iconSurface(icon))
       Text(label).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: isOn })
         .selectedColor(this.accent())
@@ -2063,7 +2091,7 @@ struct Index {
         .constraintSize({ maxHeight: 32 })
     }
     .width('100%')
-    .height(50)
+    .height(56)
     .border(showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
   }
 
@@ -2174,7 +2202,8 @@ struct Index {
           this.SectionLabel(this.t('about'))
           Column({ space: 0 }) {
             Row({ space: 12 }) {
-              Image($rawfile('ic_eye.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              Image($rawfile('ic_eye.svg')).width(20).height(20)
+                .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_eye')))
               Text(this.t('debug_keep_screen_on')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
               Toggle({ type: ToggleType.Switch, isOn: this.debugKeepScreenOn })
                 .selectedColor(this.accent())
@@ -2182,13 +2211,15 @@ struct Index {
             }.width('100%').height(50).onClick(() => { this.toggleDebugKeepScreenOn(); })
             Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
             Row({ space: 12 }) {
-              Image($rawfile('ic_info.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              Image($rawfile('ic_info.svg')).width(20).height(20)
+                .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_info')))
               Text(this.t('version')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
               Text(APP_VERSION).fontSize(13).fontColor(this.secondaryText())
             }.width('100%').height(50)
             Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
             Row({ space: 12 }) {
-              Image($rawfile('ic_clock.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              Image($rawfile('ic_clock.svg')).width(20).height(20)
+                .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_clock')))
               Text(this.t('build_time')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
               Text(APP_BUILD_TIME).fontSize(13).fontColor(this.secondaryText())
             }.width('100%').height(50)
@@ -2208,7 +2239,8 @@ struct Index {
     Row() {
       Text(label).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
       Text(value).fontSize(13).fontColor(this.secondaryText())
-      Image($rawfile('ic_more.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.secondaryText())).margin({ left: 4 })
+      Image($rawfile('ic_more.svg')).width(16).height(16)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_more'))).margin({ left: 4 })
     }
     .width('100%')
     .height(50)
@@ -2237,7 +2269,8 @@ struct Index {
         .fontWeight(FontWeight.Bold)
         .fontColor(this.primaryText())
         .layoutWeight(1)
-      Image($rawfile('ic_close.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.secondaryText())).onClick(() => { this.settingsDialog = ''; })
+      Image($rawfile('ic_close.svg')).width(20).height(20)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close'))).onClick(() => { this.settingsDialog = ''; })
     }.width('100%').margin({ bottom: 8 })
   }
 
@@ -2324,7 +2357,7 @@ struct Index {
             .fontWeight(FontWeight.Bold)
             .fontColor(this.primaryText())
           Blank()
-          Image($rawfile('ic_close.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.primaryText())).onClick(() => { this.themeDialogVisible = false; })
+          Image($rawfile('ic_close.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close'))).onClick(() => { this.themeDialogVisible = false; })
         }.width('100%')
         Column({ space: 0 }) {
           this.ThemeOptionRow('light', this.t('light'), false)
@@ -2355,7 +2388,7 @@ struct Index {
             .fontWeight(FontWeight.Bold)
             .fontColor(this.primaryText())
           Blank()
-          Image($rawfile('ic_close.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.primaryText())).onClick(() => { this.languageDialogVisible = false; })
+          Image($rawfile('ic_close.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close'))).onClick(() => { this.languageDialogVisible = false; })
         }.width('100%')
         Column({ space: 0 }) {
           this.LanguageOptionRow('system', this.t('follow_system'), false)
@@ -2386,11 +2419,11 @@ struct Index {
             .fontWeight(FontWeight.Bold)
             .fontColor(this.primaryText())
           Blank()
-          Image($rawfile('ic_close.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.primaryText())).onClick(() => { this.updateDialogVisible = false; })
+          Image($rawfile('ic_close.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close'))).onClick(() => { this.updateDialogVisible = false; })
         }.width('100%')
         Column({ space: 0 }) {
           Row() {
-            Image($rawfile('ic_refresh.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 10 })
+            Image($rawfile('ic_refresh.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_refresh'))).margin({ right: 10 })
             Text(this.t('update_all')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.updatingRules || this.updatingCatalog) {
               LoadingProgress().width(18).height(18).color(this.accent())
@@ -2398,7 +2431,7 @@ struct Index {
           }.width('100%').height(50).onClick(() => { this.updateAll(); })
           Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
           Row() {
-            Image($rawfile('ic_rule.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 10 })
+            Image($rawfile('ic_rule.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_rule'))).margin({ right: 10 })
             Text(this.t('update_rules')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.updatingRules) {
               LoadingProgress().width(18).height(18).color(this.accent())
@@ -2408,7 +2441,7 @@ struct Index {
           }.width('100%').height(50).onClick(() => { this.updateRemoteRules(); })
           Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
           Row() {
-            Image($rawfile('ic_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 10 })
+            Image($rawfile('ic_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shelf'))).margin({ right: 10 })
             Text(this.t('update_catalog')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.updatingCatalog) {
               LoadingProgress().width(18).height(18).color(this.accent())
@@ -2622,10 +2655,11 @@ struct Index {
 
   @Builder
   private UiIcon(name: string, size: number) {
-    Image($rawfile(name === 'search' ? 'ic_search.svg' : name === 'shelf' ? 'ic_shelf.svg' : name === 'history' ? 'ic_history.svg' : 'ic_settings.svg'))
+    Image($rawfile(this.tabIconKey(name) + '.svg'))
       .width(size)
       .height(size)
-      .colorFilter(createStrokeIconColorFilter(this.activeTab === name ? this.accent() : this.secondaryText()))
+      .colorFilter(createStrokeIconColorFilter(this.iconColor(this.tabIconKey(name))))
+      .opacity(this.activeTab === name ? 1 : 0.68)
   }
 
   @Builder
@@ -2699,7 +2733,7 @@ struct Index {
             if (this.queryText.length > 0) {
               Row() {
                 Column() {
-                  Image($rawfile('ic_x.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+                  Image($rawfile('ic_x.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
                 }.width(32).height(32).justifyContent(FlexAlign.Center).margin({ right: 6 })
                   .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
               }.width('100%').justifyContent(FlexAlign.End)
@@ -2755,16 +2789,16 @@ struct Index {
               .onClick(() => { this.historyTab = 'favorites'; })
           }.layoutWeight(1)
           Stack() {
-            Image($rawfile('ic_more.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+            Image($rawfile('ic_more.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_more')))
               .onClick(() => { this.historyMenuVisible = !this.historyMenuVisible; })
             if (this.historyMenuVisible) {
               Column() {
                 Row({ space: 8 }) {
-                  Image($rawfile('ic_layout.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.historyViewMode === 'list' ? this.accent() : this.secondaryText()))
+                  Image($rawfile('ic_layout.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_layout')))
                   Text(this.t('list_view')).fontSize(14).fontColor(this.historyViewMode === 'list' ? this.accent() : this.primaryText())
                 }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.historyViewMode = 'list'; this.historyMenuVisible = false; })
                 Row({ space: 8 }) {
-                  Image($rawfile('ic_shelf.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.historyViewMode === 'grid' ? this.accent() : this.secondaryText()))
+                  Image($rawfile('ic_shelf.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shelf')))
                   Text(this.t('grid_view')).fontSize(14).fontColor(this.historyViewMode === 'grid' ? this.accent() : this.primaryText())
                 }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.historyViewMode = 'grid'; this.historyMenuVisible = false; })
               }
@@ -2781,7 +2815,7 @@ struct Index {
         .padding({ left: 14, right: 14, top: 8, bottom: 8 })
       } else if (this.activeTab === 'settings') {
         Row() {
-          Image($rawfile('ic_settings.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.accent())).margin({ right: 8 })
+          Image($rawfile('ic_settings.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_settings'))).margin({ right: 8 })
           Text(this.t('settings')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
         }
         .width('100%')
