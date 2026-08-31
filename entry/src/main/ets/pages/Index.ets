@@ -43,7 +43,9 @@ struct Index {
   @State private mode: string = 'home';
   @State private queryText: string = '';
   @State private searchTitle: string = '';
-  @State private statusText: string = '';
+  @State @Watch('onStatusTextChanged') private statusText: string = '';
+  @State private statusMessageVisible: boolean = false;
+  private statusMessageTimerId: number = -1;
   @State private rules: ComicSourceRule[] = DEFAULT_SOURCES;
   @State private searchEngines: SearchEngineConfig[] = DEFAULT_SEARCH_ENGINES;
   @State private selectedEngineIndex: number = 0;
@@ -1769,17 +1771,25 @@ struct Index {
     await Promise.all([this.updateRemoteRules(), this.updateCatalog()]);
   }
 
+  private onStatusTextChanged(): void {
+    if (this.statusMessageTimerId !== -1) clearTimeout(this.statusMessageTimerId);
+    this.statusMessageVisible = this.statusText.trim().length > 0;
+    if (!this.statusMessageVisible) return;
+    this.statusMessageTimerId = setTimeout(() => {
+      this.statusMessageVisible = false;
+      this.statusMessageTimerId = -1;
+    }, 3000) as number;
+  }
+
   @Builder
-  private StatusCard() {
+  private StatusMessageOverlay() {
     Text(this.statusText)
-      .fontSize(13)
-      .fontColor(this.warnText())
-      .lineHeight(19)
-      .width('100%')
-      .padding(10)
-      .backgroundColor(this.warnBg())
-      .borderRadius(14)
-      .margin({ bottom: 12 })
+      .fontSize(13).fontColor(this.warnText()).lineHeight(19).maxLines(3)
+      .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+      .backgroundColor(this.isDark() ? '#B82A2210' : '#D8FFF7E8')
+      .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+      .border({ width: 1, color: this.isDark() ? '#55F0C060' : '#558A5A12' })
+      .borderRadius(20).margin({ left: 24, right: 24 })
   }
 
   private onLoadingChanged(): void {
@@ -2023,7 +2033,6 @@ struct Index {
     Scroll() {
       Column() {
         Blank().height(this.contentTopInset())
-        this.StatusCard()
         if (this.results.length === 0) {
           Text(this.isLoading ? this.t('searching_sources') : this.t('no_results'))
             .fontSize(14)
@@ -2046,8 +2055,9 @@ struct Index {
   @Builder
   private ChaptersPage() {
     Column() {
-      Blank().height(this.avoidStatusBarHeight)
-      Row() {
+      Column() {
+        Blank().height(this.avoidStatusBarHeight)
+        Row() {
         Column() {
           Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back')))
         }.padding({ left: 12, right: 8, top: 6, bottom: 6 }).onClick(() => { this.mode = 'results'; })
@@ -2072,8 +2082,8 @@ struct Index {
         Column() {
           Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_add_shelf')))
         }.padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
-      }.width('100%').padding({ left: 4, right: 4, top: 10, bottom: 8 })
-      Column() { this.StatusCard() }.padding({ left: 14, right: 14 })
+        }.width('100%').padding({ left: 4, right: 4, top: 10, bottom: 8 })
+      }.width('100%').linearGradient({ angle: 180, colors: this.headerGradientColors() })
       if (this.detailLoading) {
         Column({ space: 6 }) {
           Progress({ value: this.detailTotalBytes > 0
@@ -2118,7 +2128,6 @@ struct Index {
     Stack() {
       Scroll() {
         Column() {
-          this.StatusCard()
           ForEach(this.displayedReaderImages(), (item: ReaderImageItem) => {
             Column() {
               if (this.showImageIndex && item.status === 'error') {
@@ -2135,7 +2144,7 @@ struct Index {
                 .onError(() => this.markImage(item.index, 'error'))
             }.width('100%')
           }, (item: ReaderImageItem) => item.url + item.index)
-        }.width('100%').padding(10)
+        }.width('100%')
       }
       .layoutWeight(1)
       .backgroundColor(this.readerDarkMode ? '#050505' : this.appBg())
@@ -2373,7 +2382,6 @@ struct Index {
       Scroll() {
         Column() {
           Blank().height(this.contentTopInset())
-          this.StatusCard()
 
           this.SectionLabel(this.t('basic_settings'))
           Column({ space: 0 }) {
@@ -3097,6 +3105,13 @@ struct Index {
           .padding({ left: 10, right: 10, bottom: Math.max(0, this.bottomSafeInset - 2) })
           .backgroundColor(Color.Transparent)
           .hitTestBehavior(HitTestMode.Transparent)
+        }
+
+        if (this.statusMessageVisible) {
+          Column() { this.StatusMessageOverlay() }
+            .width('100%')
+            .position({ x: 0, y: this.avoidStatusBarHeight + 72 })
+            .hitTestBehavior(HitTestMode.Transparent)
         }
       }, (item: string, index: number) => `${item}_${index}`)
     }
