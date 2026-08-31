@@ -203,12 +203,37 @@ function isBlockedSearchResult(title: string, url: string, desc: string): boolea
 
 function isUsefulUrl(url: string): boolean {
   const lower = url.toLowerCase();
+  const host = hostOf(url);
   if (!(lower.startsWith('http://') || lower.startsWith('https://'))) return false;
   if (lower.indexOf('google.') >= 0 && (lower.indexOf('/search') >= 0 || lower.indexOf('/preferences') >= 0 || lower.indexOf('/policies') >= 0)) return false;
   if (lower.indexOf('bing.com/search') >= 0 || lower.indexOf('duckduckgo.com') >= 0 || lower.indexOf('yandex.com/search') >= 0) return false;
+  // Search-result redirect pages are not comic sources. Keeping them makes a
+  // click parse another search page as a comic detail page, and relative
+  // chapter/image links are then resolved against the wrong host.
+  if (host === 'm.so.com' || host === 'so.com' || host === 'www.so.com' ||
+    host === 'sogou.com' || host === 'www.sogou.com' || host === 'm.sogou.com') return false;
   if (lower.indexOf('javascript:') >= 0 || lower.indexOf('mailto:') >= 0 || lower.indexOf('tel:') >= 0) return false;
   if (lower.indexOf('/aclick?') >= 0 || lower.indexOf('/ads/') >= 0 || lower.indexOf('doubleclick.net') >= 0) return false;
   return true;
+}
+
+function canonicalSearchTitle(raw: string, keyword: string): string {
+  let title = cleanHtmlText(decodeEntities(raw)).replace(/\s+/g, ' ').trim();
+  const quoted = /《\s*([^》]{1,80})\s*》/.exec(title);
+  if (quoted && quoted.length > 1) title = quoted[1].trim();
+  title = title
+    .replace(/\s*(?:[-_|—–·]\s*)?(?:漫画)?(?:全集)?(?:免费)?(?:在线)?阅读.*$/i, '')
+    .replace(/\s*第\s*[0-9一二三四五六七八九十百千零〇两]+\s*(?:话|章|回|卷).*$/i, '')
+    .replace(/\s*(?:腾讯动漫|快看漫画|哔哩哔哩漫画|漫画岛|看漫画)(?:官网)?\s*.*$/i, '')
+    .replace(/\s+/g, ' ').trim();
+  if (title.length === 0) return '';
+  // A search provider sometimes puts the whole result container into the
+  // anchor match. Do not expose a paragraph as a book name.
+  if (title.length > 96) return '';
+  const compact = title.replace(/[\s·:：\-_|]/g, '').toLowerCase();
+  const compactKeyword = keyword.replace(/[\s·:：\-_|]/g, '').toLowerCase();
+  if (compact === compactKeyword || compact === compactKeyword + '漫画' || compact === compactKeyword + '漫画大全') return '';
+  return title;
 }
 
 function looksComicRelated(title: string, url: string, desc: string, keyword: string): boolean {
@@ -219,7 +244,7 @@ function looksComicRelated(title: string, url: string, desc: string, keyword: st
 }
 
 function makeSearchItem(title: string, url: string, engine: SearchEngineConfig, keyword: string, desc: string, strict: boolean): SearchResultItem | null {
-  const cleanTitle = cleanHtmlText(decodeEntities(title));
+  const cleanTitle = canonicalSearchTitle(title, keyword);
   const cleanDesc = cleanHtmlText(decodeEntities(desc));
   const cleanUrl = stripRedirect(url);
   if (cleanTitle.length === 0 || !isUsefulUrl(cleanUrl)) return null;
