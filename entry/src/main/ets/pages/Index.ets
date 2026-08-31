@@ -79,7 +79,7 @@ struct Index {
   private canvasCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.canvasSettings);
 
   @State private searchMode: string = 'mixed';
-  @State private searchAllEngines: boolean = false;
+  @State private searchAllEngines: boolean = true;
   @State private languageMode: string = 'chinese';
   @State private extraSearchTerms: string = '漫画 在线 阅读 章节 manhua manga read chapter';
   @State private siteHint: string = '';
@@ -786,10 +786,6 @@ struct Index {
     return this.accent();
   }
   private iconColorModeDisplay(): string { return this.t('icon_color_' + this.iconColorMode); }
-  private iconSurface(icon: string): string {
-    const color = this.iconColor(icon);
-    return this.isDark() ? '#26' + color.substring(1) : '#18' + color.substring(1);
-  }
   private tabIconKey(name: string): string {
     if (name === 'search') return 'ic_search';
     if (name === 'shelf') return 'ic_shelf';
@@ -1043,18 +1039,32 @@ struct Index {
     } else if (this.selectedEngine().enabled) {
       engines.push(this.selectedEngine());
     }
+    const pending: Promise<SearchResultItem[]>[] = [];
     for (let i = 0; i < engines.length; i++) {
-      const engine = engines[i];
-      if (!isEngineConfigured(engine, this.braveApiKey, this.googleApiKey, this.googleCx)) continue;
-      try {
-        const url = buildSearchEngineUrl(engine, query, this.braveApiKey, this.googleApiKey, this.googleCx);
-        const body = await HttpClient.getTextWithHeaders(url, searchEngineUserAgent(), '', engineHeaders(engine, this.braveApiKey));
-        const parsed = parseSearchEngineResults(body, engine, keyword, url);
-        this.appendResults(parsed);
-        this.statusText = engine.name + this.t('engine_returned') + parsed.length + this.t('engine_current') + this.results.length + this.t('items_unit');
-      } catch (err) {
-        this.statusText = engine.name + this.t('engine_failed');
+      if (isEngineConfigured(engines[i], this.braveApiKey, this.googleApiKey, this.googleCx)) {
+        pending.push(this.fetchSearchEngineResults(engines[i], keyword, query));
       }
+    }
+    // HTML search providers frequently block or time out independently. Run
+    // enabled engines concurrently so a failed DuckDuckGo request neither
+    // produces a false zero-result search nor forces the user to wait through
+    // several serial 20-second timeouts.
+    const batches = await Promise.all(pending);
+    for (let i = 0; i < batches.length; i++) {
+      this.appendResults(batches[i]);
+    }
+    this.statusText = this.t('engine_returned') + this.results.length + this.t('items_unit');
+  }
+
+  private async fetchSearchEngineResults(engine: SearchEngineConfig, keyword: string,
+    query: string): Promise<SearchResultItem[]> {
+    try {
+      const url = buildSearchEngineUrl(engine, query, this.braveApiKey, this.googleApiKey, this.googleCx);
+      const body = await HttpClient.getTextWithHeaders(url, searchEngineUserAgent(), '',
+        engineHeaders(engine, this.braveApiKey));
+      return parseSearchEngineResults(body, engine, keyword, url);
+    } catch (err) {
+      return [];
     }
   }
 
@@ -1853,7 +1863,7 @@ struct Index {
     Column() {
       Blank().height(this.contentTopInset())
       Blank().layoutWeight(1)
-      Image($r('app.media.search_home_illustration_light'))
+      Image($r('app.media.app_icon'))
         .width(220)
         .height(180)
         .objectFit(ImageFit.Contain)
@@ -2104,7 +2114,7 @@ struct Index {
       Stack() {
         Image($rawfile(icon + '.svg')).width(20).height(20)
           .colorFilter(createStrokeIconColorFilter(this.iconColor(icon)))
-      }.width(34).height(34).borderRadius(10).backgroundColor(this.iconSurface(icon))
+      }.width(34).height(34)
       Column({ space: 4 }) {
         Text(label).fontSize(16).fontColor(this.primaryText()).width('100%')
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
@@ -2123,7 +2133,7 @@ struct Index {
       Stack() {
         Image($rawfile(icon + '.svg')).width(20).height(20)
           .colorFilter(createStrokeIconColorFilter(this.iconColor(icon)))
-      }.width(34).height(34).borderRadius(10).backgroundColor(this.iconSurface(icon))
+      }.width(34).height(34)
       Text(label).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: isOn })
         .selectedColor(this.accent())

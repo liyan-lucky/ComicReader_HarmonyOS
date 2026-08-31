@@ -1155,6 +1155,47 @@ export const GENERATED_SOURCES: ComicSourceRule[] = [
         "sourceType":  "verified-public-domain-rule"
     },
     {
+        "id":  "guazimanhua_com",
+        "name":  "guazimanhua.com 已验证公开源",
+        "description":  "由 3 部作品首/中/末章回放验证；每域一条规则。",
+        "homepage":  "https://guazimanhua.com",
+        "searchUrl":  "",
+        "searchMethod":  "url-only",
+        "searchItemRegex":  "\u003ca[^\u003e]+href=[\"\\\u0027]([^\"\\\u0027]+)[\"\\\u0027][^\u003e]*\u003e([\\s\\S]{1,240}?)\u003c\\/a\u003e",
+        "searchTitleGroups":  [
+                                  2
+                              ],
+        "searchUrlGroups":  [
+                                1
+                            ],
+        "searchCoverGroups":  [
+
+                              ],
+        "searchResultIsChapter":  false,
+        "searchFilterByKeyword":  true,
+        "detailChapterRegex":  "\u003ca[^\u003e]+href=[\"\\\u0027]([^\"\\\u0027]+)[\"\\\u0027][^\u003e]*\u003e([\\s\\S]{0,180}?(?:第\\s*\\d+|第[一二三四五六七八九十百千零〇两]+|话|章|回|Chapter|Episode)[\\s\\S]{0,100}?)\u003c\\/a\u003e",
+        "detailChapterTitleGroups":  [
+                                         2
+                                     ],
+        "detailChapterUrlGroups":  [
+                                       1
+                                   ],
+        "detailChapterFilter":  true,
+        "readerImageRegex":  "\u003cimg[^\u003e]+(?:data-original|data-src|data-lazy-src|data-url|src|srcset)=[\"\\\u0027]([^\"\\\u0027]+)[\"\\\u0027][^\u003e]*\u003e|[\"\\\u0027]((?:https?:)?\\/\\/[^\"\\\u0027]+\\.(?:jpg|jpeg|png|webp|avif)(?:\\?[^\"\\\u0027]*)?)[\"\\\u0027]",
+        "readerImageGroups":  [
+                                  1,
+                                  2
+                              ],
+        "userAgent":  "Mozilla/5.0 (Linux; HarmonyOS; Mobile) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36 ComicReader",
+        "referer":  "https://guazimanhua.com/",
+        "domainApplicabilityList":  [
+                                        "guazimanhua.com"
+                                    ],
+        "maxReaderPages":  12,
+        "license":  "MIT",
+        "sourceType":  "verified-public-domain-rule"
+    },
+    {
         "id":  "guazixs_cn",
         "name":  "guazixs.cn 已验证公开源",
         "description":  "由 1 部作品首/中/末章回放验证；每域一条规则。",
@@ -1854,7 +1895,7 @@ export const GENERATED_SOURCES: ComicSourceRule[] = [
     {
         "id":  "m_bikamanhua_com",
         "name":  "m.bikamanhua.com 已验证公开源",
-        "description":  "由 2 部作品首/中/末章回放验证；每域一条规则。",
+        "description":  "由 1 部作品首/中/末章回放验证；每域一条规则。",
         "homepage":  "https://m.bikamanhua.com",
         "searchUrl":  "",
         "searchMethod":  "url-only",
@@ -2961,7 +3002,7 @@ export const GENERATED_SOURCES: ComicSourceRule[] = [
     {
         "id":  "pdbgds_com",
         "name":  "pdbgds.com 已验证公开源",
-        "description":  "由 2 部作品首/中/末章回放验证；每域一条规则。",
+        "description":  "由 1 部作品首/中/末章回放验证；每域一条规则。",
         "homepage":  "https://pdbgds.com",
         "searchUrl":  "",
         "searchMethod":  "url-only",
