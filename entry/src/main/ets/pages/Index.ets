@@ -99,6 +99,7 @@ struct Index {
   @State private readerDarkMode: boolean = true;
   @State private fullscreenReader: boolean = true;
   @State private floatingReaderControls: boolean = true;
+  @State private iconColorMode: string = 'colorful';
   @State private readerToolsVisible: boolean = false;
   @State private appTheme: string = 'light';
   @State private appLanguage: string = 'zh';
@@ -172,6 +173,8 @@ struct Index {
         this.refreshCatalogLanguageFilter();
       }
       this.debugKeepScreenOn = await this.preferencesStore.get('debug_keep_screen_on', true) as boolean;
+      const savedIconMode = await this.preferencesStore.get('icon_color_mode', 'colorful') as string;
+      this.iconColorMode = typeof savedIconMode === 'string' && savedIconMode.length > 0 ? savedIconMode : 'colorful';
       this.chapterReversed = await this.preferencesStore.get('chapter_reversed', true) as boolean;
       this.applyKeepScreenOn();
     } catch (e) {
@@ -186,6 +189,7 @@ struct Index {
       await this.preferencesStore.put('app_theme', this.appTheme);
       await this.preferencesStore.put('app_language', this.appLanguage);
       await this.preferencesStore.put('debug_keep_screen_on', this.debugKeepScreenOn);
+      await this.preferencesStore.put('icon_color_mode', this.iconColorMode);
       await this.preferencesStore.put('chapter_reversed', this.chapterReversed);
       await this.preferencesStore.flush();
     } catch (e) {
@@ -474,6 +478,17 @@ struct Index {
       if (key === 'follow_system') return 'System';
       if (key === 'reader_fullscreen') return 'Fullscreen Reader';
       if (key === 'floating_controls') return 'Floating Controls';
+      if (key === 'icon_color') return 'Icon Color';
+      if (key === 'icon_color_colorful') return 'Colorful';
+      if (key === 'icon_color_red') return 'Red';
+      if (key === 'icon_color_orange') return 'Orange';
+      if (key === 'icon_color_yellow') return 'Yellow';
+      if (key === 'icon_color_green') return 'Green';
+      if (key === 'icon_color_cyan') return 'Cyan';
+      if (key === 'icon_color_blue') return 'Blue';
+      if (key === 'icon_color_indigo') return 'Indigo';
+      if (key === 'icon_color_violet') return 'Violet';
+      if (key === 'icon_color_magenta') return 'Magenta';
       if (key === 'search_menu') return 'Search Menu';
       if (key === 'source_switch') return 'Source Toggle';
       if (key === 'display_reading') return 'Display & Reading';
@@ -606,6 +621,17 @@ struct Index {
     if (key === 'follow_system') return '跟随系统';
     if (key === 'reader_fullscreen') return '阅读页全屏';
     if (key === 'floating_controls') return '悬浮控制';
+    if (key === 'icon_color') return '图标颜色';
+    if (key === 'icon_color_colorful') return '多彩';
+    if (key === 'icon_color_red') return '红色';
+    if (key === 'icon_color_orange') return '橙色';
+    if (key === 'icon_color_yellow') return '黄色';
+    if (key === 'icon_color_green') return '绿色';
+    if (key === 'icon_color_cyan') return '青色';
+    if (key === 'icon_color_blue') return '蓝色';
+    if (key === 'icon_color_indigo') return '靛色';
+    if (key === 'icon_color_violet') return '紫色';
+    if (key === 'icon_color_magenta') return '洋红';
     if (key === 'search_menu') return '搜索菜单';
     if (key === 'source_switch') return '源开关';
     if (key === 'display_reading') return '显示与阅读';
@@ -736,6 +762,7 @@ struct Index {
   private primaryText(): string { return this.isDark() ? '#E8ECF4' : '#111827'; }
   private secondaryText(): string { return this.isDark() ? '#B6BFCC' : '#667085'; }
   private iconColor(icon: string): string {
+    if (this.iconColorMode !== 'colorful') return this.iconModeColor(this.iconColorMode);
     if (icon === 'ic_search' || icon === 'ic_globe' || icon === 'ic_web') return '#0A84FF';
     if (icon === 'ic_shelf' || icon === 'ic_book' || icon === 'ic_add_shelf') return '#FF9500';
     if (icon === 'ic_history' || icon === 'ic_clock') return '#AF52DE';
@@ -746,6 +773,19 @@ struct Index {
     if (icon === 'ic_reader' || icon === 'ic_reading' || icon === 'ic_layout' || icon === 'ic_fullscreen') return '#FF2D92';
     return '#FF3B30';
   }
+  private iconModeColor(mode: string): string {
+    if (mode === 'red') return '#FF3B30';
+    if (mode === 'orange') return '#FF9500';
+    if (mode === 'yellow') return '#F5C400';
+    if (mode === 'green') return '#34C759';
+    if (mode === 'cyan') return '#00C7BE';
+    if (mode === 'blue') return '#0A84FF';
+    if (mode === 'indigo') return '#5856D6';
+    if (mode === 'violet') return '#AF52DE';
+    if (mode === 'magenta') return '#FF2D92';
+    return this.accent();
+  }
+  private iconColorModeDisplay(): string { return this.t('icon_color_' + this.iconColorMode); }
   private iconSurface(icon: string): string {
     const color = this.iconColor(icon);
     return this.isDark() ? '#26' + color.substring(1) : '#18' + color.substring(1);
@@ -2122,6 +2162,38 @@ struct Index {
   }
 
   @Builder
+  private IconColorOptionRow(mode: string, showTopBorder: boolean) {
+    Row({ space: 10 }) {
+      if (mode === 'colorful') {
+        Row({ space: 1 }) {
+          Circle().width(5).height(18).fill('#FF3B30')
+          Circle().width(5).height(18).fill('#F5C400')
+          Circle().width(5).height(18).fill('#00C7BE')
+          Circle().width(5).height(18).fill('#5856D6')
+          Circle().width(5).height(18).fill('#FF2D92')
+        }.width(30).height(20)
+      } else {
+        Circle().width(20).height(20).fill(this.iconModeColor(mode)).margin({ left: 5, right: 5 })
+      }
+      Text(this.t('icon_color_' + mode)).fontSize(16)
+        .fontColor(this.iconColorMode === mode ? this.accent() : this.primaryText()).layoutWeight(1)
+      if (this.iconColorMode === mode) {
+        Image($rawfile('ic_check.svg')).width(18).height(18)
+          .colorFilter(createStrokeIconColorFilter(this.accent()))
+      }
+    }
+    .width('100%')
+    .height(46)
+    .border(showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
+    .onClick(() => {
+      this.iconColorMode = mode;
+      AppStorage.setOrCreate<number>('uiVersion', Date.now());
+      this.persistData();
+      this.settingsDialog = '';
+    })
+  }
+
+  @Builder
   private LanguageOptionRow(mode: string, label: string, showTopBorder: boolean) {
     Row({ space: 10 }) {
       Stack() {
@@ -2182,6 +2254,7 @@ struct Index {
             Column() { this.LinkRow('ic_language', this.t('language'), this.languageDisplay(), true) }.onClick(() => { this.languageDialogVisible = true; })
             Column() { this.ToggleSettingRow('ic_fullscreen', this.t('reader_fullscreen'), this.fullscreenReader, true) }.onClick(() => { this.fullscreenReader = !this.fullscreenReader; })
             Column() { this.ToggleSettingRow('ic_layout', this.t('floating_controls'), this.floatingReaderControls, true) }.onClick(() => { this.floatingReaderControls = !this.floatingReaderControls; })
+            Column() { this.LinkRow('ic_theme', this.t('icon_color'), this.iconColorModeDisplay(), true) }.onClick(() => { this.settingsDialog = 'icons'; })
           }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
 
           this.SectionLabel(this.t('app_settings'))
@@ -2296,6 +2369,20 @@ struct Index {
             Column() { this.DialogLinkRow(this.t('remote_rules'), this.remoteRuleCount + this.t('rules_unit'), true) }.onClick(() => this.updateRemoteRules())
           }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
           Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
+        } else if (this.settingsDialog === 'icons') {
+          this.DialogHeader(this.t('icon_color'))
+          Column({ space: 0 }) {
+            this.IconColorOptionRow('colorful', false)
+            this.IconColorOptionRow('red', true)
+            this.IconColorOptionRow('orange', true)
+            this.IconColorOptionRow('yellow', true)
+            this.IconColorOptionRow('green', true)
+            this.IconColorOptionRow('cyan', true)
+            this.IconColorOptionRow('blue', true)
+            this.IconColorOptionRow('indigo', true)
+            this.IconColorOptionRow('violet', true)
+            this.IconColorOptionRow('magenta', true)
+          }.width('100%').padding({ left: 4, right: 4 }).backgroundColor(this.cardBg()).borderRadius(18)
         } else if (this.settingsDialog === 'reader') {
           this.DialogHeader(this.t('display_reading'))
           Column({ space: 0 }) {

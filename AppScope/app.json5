@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "com.nw.cleansite.novel.hm",
     "vendor": "liyan_lucky",
-    "versionCode": 1089,
-    "versionName": "0.1.89",
+    "versionCode": 1090,
+    "versionName": "0.1.90",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }
