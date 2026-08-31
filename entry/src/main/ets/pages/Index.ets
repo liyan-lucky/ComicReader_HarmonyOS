@@ -2118,8 +2118,8 @@ struct Index {
             .padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
         }.width('100%').padding({ left: 4, right: 4, top: 10, bottom: 8 })
       }.width('100%').height(this.headerOverlayHeight())
+        .position({ x: 0, y: 0 })
         .linearGradient({ angle: 180, colors: this.headerGradientColors() })
-        .hitTestBehavior(HitTestMode.Transparent)
     }
     .width('100%').height('100%')
     .backgroundColor(this.appBg())
@@ -2169,6 +2169,7 @@ struct Index {
             Column() {
               Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back')))
             }.width(42).height(42).justifyContent(FlexAlign.Center).borderRadius(21)
+              .hitTestBehavior(HitTestMode.Block)
               .backgroundColor(this.isDark() ? '#481E232F' : '#5AFFFFFF')
               .linearGradient({ angle: 145, colors: this.readerControlGradient() })
               .border({ width: 1, color: this.borderSubtle() })
@@ -2180,6 +2181,7 @@ struct Index {
             Column() {
               Image($rawfile('ic_fullscreen.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_fullscreen')))
             }.width(42).height(42).justifyContent(FlexAlign.Center).borderRadius(21)
+              .hitTestBehavior(HitTestMode.Block)
               .backgroundColor(this.isDark() ? '#481E232F' : '#5AFFFFFF')
               .linearGradient({ angle: 145, colors: this.readerControlGradient() })
               .border({ width: 1, color: this.borderSubtle() })
