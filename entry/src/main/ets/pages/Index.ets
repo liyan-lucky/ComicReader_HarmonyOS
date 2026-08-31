@@ -1784,12 +1784,12 @@ struct Index {
   @Builder
   private StatusMessageOverlay() {
     Text(this.statusText)
-      .fontSize(13).fontColor(this.warnText()).lineHeight(19).maxLines(3)
-      .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+      .fontSize(12).fontColor(this.warnText()).lineHeight(16).maxLines(2)
+      .padding({ left: 13, right: 13, top: 7, bottom: 7 })
       .backgroundColor(this.isDark() ? '#B82A2210' : '#D8FFF7E8')
       .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
       .border({ width: 1, color: this.isDark() ? '#55F0C060' : '#558A5A12' })
-      .borderRadius(20).margin({ left: 24, right: 24 })
+      .borderRadius(15).margin({ left: 36, right: 36 })
   }
 
   private onLoadingChanged(): void {
@@ -2205,10 +2205,6 @@ struct Index {
         Row() {
           Scroll() {
             Column() {
-              Row() {
-                Text(this.t('chapter_list')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
-                Text('×').fontSize(26).fontColor(this.iconColor('ic_close')).padding(8).onClick(() => { this.readerChapterPanelVisible = false; })
-              }.width('100%')
               ForEach(this.readerPanelChapters(), (chapter: ChapterItem) => {
                 Text(chapter.title.trim().length > 0 ? chapter.title : this.t('chapter_list') + ' ' + chapter.index)
                   .fontSize(14)
@@ -2217,7 +2213,7 @@ struct Index {
                   .border({ width: { bottom: 1 }, color: this.borderSubtle() })
                   .onClick(() => { this.readerChapterPanelVisible = false; this.loadChapter(chapter, this.findRule(chapter.sourceId)); })
               }, (chapter: ChapterItem) => chapter.url)
-            }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 24 })
+            }.width('100%').padding({ left: 16, right: 16, top: this.avoidStatusBarHeight + 12, bottom: 24 })
           }
           .width('38%').height('100%')
           .backgroundColor(this.isDark() ? '#701E232F' : '#78FFFFFF')
@@ -3117,8 +3113,9 @@ struct Index {
 
         if (this.statusMessageVisible) {
           Column() { this.StatusMessageOverlay() }
-            .width('100%')
-            .position({ x: 0, y: this.avoidStatusBarHeight + 72 })
+            .width('100%').height('100%')
+            .justifyContent(FlexAlign.End)
+            .padding({ bottom: this.contentBottomInset() + 16 })
             .hitTestBehavior(HitTestMode.Transparent)
         }
       }, (item: string, index: number) => `${item}_${index}`)
