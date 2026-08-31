@@ -1907,6 +1907,18 @@ struct Index {
       : [['#C0F6F8FA', 0.0], ['#B0F6F8FA', 0.05], ['#A0F6F8FA', 0.12], ['#90F6F8FA', 0.22], ['#80F6F8FA', 0.35], ['#70F6F8FA', 0.52], ['#50F6F8FA', 0.72], ['#30F6F8FA', 0.88], ['#00F6F8FA', 1.0]] as Array<[string, number]>;
   }
 
+  private readerControlGradient(): Array<[string, number]> {
+    return this.isDark()
+      ? [['#681E232F', 0.0], ['#401E232F', 0.55], ['#24111318', 1.0]] as Array<[string, number]>
+      : [['#82FFFFFF', 0.0], ['#52FFFFFF', 0.55], ['#28F6F8FA', 1.0]] as Array<[string, number]>;
+  }
+
+  private readerPanelGradient(): Array<[string, number]> {
+    return this.isDark()
+      ? [['#881E232F', 0.0], ['#601E232F', 0.45], ['#28111318', 1.0]] as Array<[string, number]>
+      : [['#A8FFFFFF', 0.0], ['#78FFFFFF', 0.45], ['#38F6F8FA', 1.0]] as Array<[string, number]>;
+  }
+
   @Builder
   private SearchHeader() {
     Column() {
@@ -2054,47 +2066,18 @@ struct Index {
 
   @Builder
   private ChaptersPage() {
-    Column() {
-      Column() {
-        Blank().height(this.avoidStatusBarHeight)
-        Row() {
-        Column() {
-          Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back')))
-        }.padding({ left: 12, right: 8, top: 6, bottom: 6 }).onClick(() => { this.mode = 'results'; })
-        Text(this.currentTitle.length > 0 ? this.currentTitle : this.t('chapter_list'))
-          .fontSize(19)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.primaryText())
-          .layoutWeight(1)
-          .margin({ left: 6 })
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(this.chapterReversed ? this.t('chapter_ascending') : this.t('chapter_descending'))
-          .fontSize(13)
-          .fontColor(this.accent())
-          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-          .border({ width: 1, color: this.accent() })
-          .borderRadius(14)
-          .onClick(() => {
-            this.chapterReversed = !this.chapterReversed;
-            this.persistData();
-          })
-        Column() {
-          Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_add_shelf')))
-        }.padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
-        }.width('100%').padding({ left: 4, right: 4, top: 10, bottom: 8 })
-      }.width('100%').linearGradient({ angle: 180, colors: this.headerGradientColors() })
-      if (this.detailLoading) {
-        Column({ space: 6 }) {
-          Progress({ value: this.detailTotalBytes > 0
-            ? Math.min(100, Math.floor(this.detailReceivedBytes * 100 / this.detailTotalBytes)) : 0,
-            total: 100, type: ProgressType.Linear })
-            .width('100%').height(6).color(this.accent())
-          Text(this.detailProgressText()).fontSize(12).fontColor(this.secondaryText()).width('100%')
-        }.width('100%').padding({ left: 14, right: 14, bottom: 10 })
-      }
+    Stack() {
       Scroll(this.chapterScroller) {
         Column() {
+          Blank().height(this.headerOverlayHeight())
+          if (this.detailLoading) {
+            Column({ space: 6 }) {
+              Progress({ value: this.detailTotalBytes > 0
+                ? Math.min(100, Math.floor(this.detailReceivedBytes * 100 / this.detailTotalBytes)) : 0,
+                total: 100, type: ProgressType.Linear }).width('100%').height(6).color(this.accent())
+              Text(this.detailProgressText()).fontSize(12).fontColor(this.secondaryText()).width('100%')
+            }.width('100%').padding({ left: 14, right: 14, bottom: 10 })
+          }
           if (this.chapters.length === 0) {
             Text(this.t('no_chapters')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(12).backgroundColor(this.cardBg()).borderRadius(10)
           } else {
@@ -2117,9 +2100,28 @@ struct Index {
             }, (chapter: ChapterItem) => chapter.url)
           }
         }.width('100%').padding({ left: 14, right: 14, bottom: 14 })
-      }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+      }.width('100%').height('100%').edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+
+      Column() {
+        Blank().height(this.avoidStatusBarHeight)
+        Row() {
+          Column() { Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back'))) }
+            .padding({ left: 12, right: 8, top: 6, bottom: 6 }).onClick(() => { this.mode = 'results'; })
+          Text(this.currentTitle.length > 0 ? this.currentTitle : this.t('chapter_list'))
+            .fontSize(19).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
+            .margin({ left: 6 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(this.chapterReversed ? this.t('chapter_ascending') : this.t('chapter_descending'))
+            .fontSize(13).fontColor(this.accent()).padding({ left: 10, right: 10, top: 6, bottom: 6 })
+            .border({ width: 1, color: this.accent() }).borderRadius(14)
+            .onClick(() => { this.chapterReversed = !this.chapterReversed; this.persistData(); })
+          Column() { Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_add_shelf'))) }
+            .padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
+        }.width('100%').padding({ left: 4, right: 4, top: 10, bottom: 8 })
+      }.width('100%').height(this.headerOverlayHeight())
+        .linearGradient({ angle: 180, colors: this.headerGradientColors() })
+        .hitTestBehavior(HitTestMode.Transparent)
     }
-    .layoutWeight(1)
+    .width('100%').height('100%')
     .backgroundColor(this.appBg())
   }
 
@@ -2168,8 +2170,9 @@ struct Index {
               Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back')))
             }.width(42).height(42).justifyContent(FlexAlign.Center).borderRadius(21)
               .backgroundColor(this.isDark() ? '#481E232F' : '#5AFFFFFF')
-              .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+              .linearGradient({ angle: 145, colors: this.readerControlGradient() })
               .border({ width: 1, color: this.borderSubtle() })
+              .shadow({ radius: 8, color: '#28000000', offsetY: 3 })
               .onClick(() => { this.applyReaderFullscreen(false); this.mode = this.chapters.length > 0 ? 'chapters' : 'results'; })
             Text(this.currentChapterTitle.length > 0 ? this.currentChapterTitle : this.currentTitle)
               .fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
@@ -2178,8 +2181,9 @@ struct Index {
               Image($rawfile('ic_fullscreen.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_fullscreen')))
             }.width(42).height(42).justifyContent(FlexAlign.Center).borderRadius(21)
               .backgroundColor(this.isDark() ? '#481E232F' : '#5AFFFFFF')
-              .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+              .linearGradient({ angle: 145, colors: this.readerControlGradient() })
               .border({ width: 1, color: this.borderSubtle() })
+              .shadow({ radius: 8, color: '#28000000', offsetY: 3 })
               .onClick(() => this.applyReaderFullscreen(!this.fullscreenReader))
           }
           .width('100%').padding({ left: 10, right: 10, top: this.avoidStatusBarHeight + 8 })
@@ -2187,10 +2191,10 @@ struct Index {
           Blank()
 
           Row({ space: 8 }) {
-            Text(this.t('previous_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(-1) ? this.iconColor('ic_back') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.hasRelativeChapter(-1) ? this.iconColor('ic_back') : this.borderSubtle() }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').backgroundBlurStyle(BlurStyle.Thin).onClick(() => this.loadRelativeChapter(-1))
-            Text(this.t('chapter_list')).fontSize(13).fontColor(this.iconColor('ic_layout')).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.iconColor('ic_layout') }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').backgroundBlurStyle(BlurStyle.Thin).onClick(() => { this.readerChapterPanelVisible = true; })
-            Text(this.isCurrentFavorite() ? '♥' : '♡').fontSize(27).fontColor(this.iconColor('ic_add_shelf')).width(48).height(42).textAlign(TextAlign.Center).borderRadius(21).border({ width: 1, color: this.iconColor('ic_add_shelf') }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').backgroundBlurStyle(BlurStyle.Thin).onClick(() => this.toggleCurrentFavorite())
-            Text(this.t('next_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(1) ? this.iconColor('ic_reader') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.hasRelativeChapter(1) ? this.iconColor('ic_reader') : this.borderSubtle() }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').backgroundBlurStyle(BlurStyle.Thin).onClick(() => this.loadRelativeChapter(1))
+            Text(this.t('previous_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(-1) ? this.iconColor('ic_back') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.hasRelativeChapter(-1) ? this.iconColor('ic_back') : this.borderSubtle() }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').linearGradient({ angle: 145, colors: this.readerControlGradient() }).shadow({ radius: 7, color: '#22000000', offsetY: 2 }).onClick(() => this.loadRelativeChapter(-1))
+            Text(this.t('chapter_list')).fontSize(13).fontColor(this.iconColor('ic_layout')).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.iconColor('ic_layout') }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').linearGradient({ angle: 145, colors: this.readerControlGradient() }).shadow({ radius: 7, color: '#22000000', offsetY: 2 }).onClick(() => { this.readerChapterPanelVisible = true; })
+            Text(this.isCurrentFavorite() ? '♥' : '♡').fontSize(27).fontColor(this.iconColor('ic_add_shelf')).width(48).height(42).textAlign(TextAlign.Center).borderRadius(21).border({ width: 1, color: this.iconColor('ic_add_shelf') }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').linearGradient({ angle: 145, colors: this.readerControlGradient() }).shadow({ radius: 7, color: '#22000000', offsetY: 2 }).onClick(() => this.toggleCurrentFavorite())
+            Text(this.t('next_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(1) ? this.iconColor('ic_reader') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.hasRelativeChapter(1) ? this.iconColor('ic_reader') : this.borderSubtle() }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').linearGradient({ angle: 145, colors: this.readerControlGradient() }).shadow({ radius: 7, color: '#22000000', offsetY: 2 }).onClick(() => this.loadRelativeChapter(1))
           }.width('100%').padding({ left: 10, right: 10, bottom: 10 })
         }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)
       }
@@ -2215,7 +2219,9 @@ struct Index {
           }
           .width('38%').height('100%')
           .backgroundColor(this.isDark() ? '#701E232F' : '#78FFFFFF')
-          .backgroundBlurStyle(BlurStyle.Thick, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+          .linearGradient({ angle: 125, colors: this.readerPanelGradient() })
+          .border({ width: { right: 1 }, color: this.borderSubtle() })
+          .shadow({ radius: 14, color: '#30000000', offsetX: 4 })
           Blank().layoutWeight(1).height('100%').onClick(() => { this.readerChapterPanelVisible = false; })
         }.width('100%').height('100%')
       }
