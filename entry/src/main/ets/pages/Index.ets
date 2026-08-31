@@ -2118,30 +2118,34 @@ struct Index {
       if (this.readerToolsVisible && this.floatingReaderControls) {
         Column() {
           Row() {
-            Text('‹').fontSize(32).fontColor(this.iconColor('ic_back')).width(42).textAlign(TextAlign.Center)
+            Column() {
+              Image($rawfile('ic_back.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back')))
+            }.width(42).height(42).justifyContent(FlexAlign.Center).borderRadius(21)
+              .backgroundColor(this.isDark() ? '#481E232F' : '#5AFFFFFF')
+              .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+              .border({ width: 1, color: this.borderSubtle() })
               .onClick(() => { this.applyReaderFullscreen(false); this.mode = this.chapters.length > 0 ? 'chapters' : 'results'; })
             Text(this.currentChapterTitle.length > 0 ? this.currentChapterTitle : this.currentTitle)
               .fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
-              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text(this.fullscreenReader ? (this.isEn() ? 'Exit fullscreen' : '退出全屏') : (this.isEn() ? 'Fullscreen' : '全屏'))
-              .fontSize(13).fontColor(this.iconColor('ic_fullscreen')).padding({ left: 10, right: 8, top: 10, bottom: 10 })
+              .margin({ left: 10, right: 10 }).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+            Column() {
+              Image($rawfile('ic_fullscreen.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_fullscreen')))
+            }.width(42).height(42).justifyContent(FlexAlign.Center).borderRadius(21)
+              .backgroundColor(this.isDark() ? '#481E232F' : '#5AFFFFFF')
+              .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+              .border({ width: 1, color: this.borderSubtle() })
               .onClick(() => this.applyReaderFullscreen(!this.fullscreenReader))
           }
-          .width('100%').padding({ left: 8, right: 8 })
-          .backgroundColor(this.glassBg())
-          .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+          .width('100%').padding({ left: 10, right: 10, top: 8 })
 
           Blank()
 
-          Row() {
-            Text(this.t('previous_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(-1) ? this.iconColor('ic_back') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => this.loadRelativeChapter(-1))
-            Text(this.t('chapter_list')).fontSize(13).fontColor(this.iconColor('ic_layout')).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => { this.readerChapterPanelVisible = true; })
-            Text(this.isCurrentFavorite() ? '♥' : '♡').fontSize(28).fontColor(this.iconColor('ic_add_shelf')).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 7, bottom: 7 }).onClick(() => this.toggleCurrentFavorite())
-            Text(this.t('next_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(1) ? this.iconColor('ic_reader') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding(14).onClick(() => this.loadRelativeChapter(1))
-          }
-          .width('100%')
-          .backgroundColor(this.glassBg())
-          .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
+          Row({ space: 8 }) {
+            Text(this.t('previous_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(-1) ? this.iconColor('ic_back') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.hasRelativeChapter(-1) ? this.iconColor('ic_back') : this.borderSubtle() }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').backgroundBlurStyle(BlurStyle.Thin).onClick(() => this.loadRelativeChapter(-1))
+            Text(this.t('chapter_list')).fontSize(13).fontColor(this.iconColor('ic_layout')).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.iconColor('ic_layout') }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').backgroundBlurStyle(BlurStyle.Thin).onClick(() => { this.readerChapterPanelVisible = true; })
+            Text(this.isCurrentFavorite() ? '♥' : '♡').fontSize(27).fontColor(this.iconColor('ic_add_shelf')).width(48).height(42).textAlign(TextAlign.Center).borderRadius(21).border({ width: 1, color: this.iconColor('ic_add_shelf') }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').backgroundBlurStyle(BlurStyle.Thin).onClick(() => this.toggleCurrentFavorite())
+            Text(this.t('next_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(1) ? this.iconColor('ic_reader') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.hasRelativeChapter(1) ? this.iconColor('ic_reader') : this.borderSubtle() }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').backgroundBlurStyle(BlurStyle.Thin).onClick(() => this.loadRelativeChapter(1))
+          }.width('100%').padding({ left: 10, right: 10, bottom: 10 })
         }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)
       }
 
@@ -2163,8 +2167,8 @@ struct Index {
               }, (chapter: ChapterItem) => chapter.url)
             }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 24 })
           }
-          .width('76%').height('100%')
-          .backgroundColor(this.glassBg())
+          .width('38%').height('100%')
+          .backgroundColor(this.isDark() ? '#B81E232F' : '#C8FFFFFF')
           .backgroundBlurStyle(BlurStyle.Thick, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
           Blank().layoutWeight(1).height('100%').onClick(() => { this.readerChapterPanelVisible = false; })
         }.width('100%').height('100%')
@@ -3010,7 +3014,6 @@ struct Index {
     }
     .width('100%')
     .height(this.headerOverlayHeight())
-    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT, adaptiveColor: AdaptiveColor.AVERAGE })
     .linearGradient({ angle: 180, colors: this.headerGradientColors() })
   }
 
