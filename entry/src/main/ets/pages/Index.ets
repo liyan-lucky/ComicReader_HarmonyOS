@@ -1909,47 +1909,34 @@ struct Index {
 
   @Builder
   private SearchHome() {
-    Column() {
-      Blank().height(this.contentTopInset())
-      Blank().layoutWeight(1)
-      Image($r('app.media.app_icon'))
-        .width(220)
-        .height(180)
-        .objectFit(ImageFit.Contain)
-        .margin({ bottom: 24 })
-      Row() {
-        Stack() {
-          TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
-            .height(52)
-            .fontSize(15)
-            .fontColor(this.primaryText())
-            .placeholderColor(this.secondaryText())
-            .backgroundColor(Color.Transparent)
-            .borderRadius(26)
-            .border({ width: 1, color: this.secondaryText() })
-            .padding({ left: 18, right: this.queryText.length > 0 ? 44 : 18 })
-            .onChange((value: string) => { this.queryText = value; })
-            .onSubmit(() => { this.startSearch(); })
-          if (this.queryText.length > 0) {
-            Row() {
-              Column() {
-                Image($rawfile('ic_x.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
-              }.width(36).height(36).justifyContent(FlexAlign.Center).margin({ right: 8 })
-                .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
-            }.width('100%').justifyContent(FlexAlign.End)
-          }
-        }.layoutWeight(1)
-        Column() { this.SearchActionButton(52) }
-          .margin({ left: 10 })
-      }
-      .width('100%')
-      .padding({ left: 22, right: 22 })
-      Blank().layoutWeight(1)
-      Blank().height(this.contentBottomInset())
+    Scroll() {
+      Column() {
+        Blank().height(this.contentTopInset())
+        Blank().layoutWeight(1)
+        Image($r('app.media.app_icon')).width(220).height(180).objectFit(ImageFit.Contain).margin({ bottom: 24 })
+        Row() {
+          Stack() {
+            TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
+              .height(52).fontSize(15).fontColor(this.primaryText()).placeholderColor(this.secondaryText())
+              .backgroundColor(Color.Transparent).borderRadius(26).border({ width: 1, color: this.secondaryText() })
+              .padding({ left: 18, right: this.queryText.length > 0 ? 44 : 18 })
+              .onChange((value: string) => { this.queryText = value; }).onSubmit(() => { this.startSearch(); })
+            if (this.queryText.length > 0) {
+              Row() {
+                Column() { Image($rawfile('ic_x.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x'))) }
+                  .width(36).height(36).justifyContent(FlexAlign.Center).margin({ right: 8 })
+                  .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
+              }.width('100%').justifyContent(FlexAlign.End)
+            }
+          }.layoutWeight(1)
+          Column() { this.SearchActionButton(52) }.margin({ left: 10 })
+        }.width('100%').padding({ left: 22, right: 22 })
+        Blank().layoutWeight(1)
+        Blank().height(this.contentBottomInset())
+      }.width('100%').height('100%').alignItems(HorizontalAlign.Center)
     }
-    .width('100%')
     .layoutWeight(1)
-    .alignItems(HorizontalAlign.Center)
+    .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     .backgroundColor(this.appBg())
   }
 
@@ -2023,6 +2010,7 @@ struct Index {
       }.width('100%').padding({ left: 14, right: 14 })
     }
     .layoutWeight(1)
+    .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     .backgroundColor(this.appBg())
   }
 
@@ -2090,7 +2078,7 @@ struct Index {
             }, (chapter: ChapterItem) => chapter.url)
           }
         }.width('100%').padding({ left: 14, right: 14, bottom: 14 })
-      }.layoutWeight(1)
+      }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     }
     .layoutWeight(1)
     .backgroundColor(this.appBg())
@@ -2397,7 +2385,7 @@ struct Index {
           }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
           Blank().height(this.contentBottomInset())
         }.width('100%').padding(14)
-      }.layoutWeight(1)
+      }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       if (this.settingsDialog.length > 0) this.SettingsDialog()
       if (this.themeDialogVisible) this.ThemeDialog()
       if (this.languageDialogVisible) this.LanguageDialog()
@@ -2751,11 +2739,12 @@ struct Index {
           }
         }
         Blank().height(this.contentBottomInset())
-      }.width('100%').padding({ left: 10, right: 10 })
+      }.width('100%').padding({ left: 10, right: 10 }).alignItems(HorizontalAlign.Start)
     }
     .layoutWeight(1)
     .scrollable(ScrollDirection.Vertical)
     .scrollBar(BarState.Auto)
+    .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     .backgroundColor(this.appBg())
   }
 
@@ -2837,7 +2826,7 @@ struct Index {
         }
         Blank().height(this.contentBottomInset())
       }.width('100%').padding({ left: 14, right: 14 })
-    }.layoutWeight(1).backgroundColor(this.appBg())
+    }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true }).backgroundColor(this.appBg())
   }
 
   @Builder
@@ -3021,6 +3010,7 @@ struct Index {
     }
     .width('100%')
     .height(this.headerOverlayHeight())
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: this.isDark() ? ThemeColorMode.DARK : ThemeColorMode.LIGHT, adaptiveColor: AdaptiveColor.AVERAGE })
     .linearGradient({ angle: 180, colors: this.headerGradientColors() })
   }
 
