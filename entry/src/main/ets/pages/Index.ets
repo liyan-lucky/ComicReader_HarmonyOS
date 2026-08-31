@@ -138,6 +138,7 @@ struct Index {
 
   private preferencesStore: dataPreferences.Preferences | null = null;
   private catalogCachePath: string = '';
+  private ruleCachePath: string = '';
   private coverCacheDir: string = '';
   private pendingCatalogVersion: string = '';
   private pendingCatalogUrl: string = '';
@@ -166,9 +167,11 @@ struct Index {
     try {
       const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
       this.coverCacheDir = context.filesDir + '/bookshelf_covers';
+      this.ruleCachePath = context.filesDir + '/rules.zh-Hans.cache.json';
       try { fs.mkdirSync(this.coverCacheDir, true); } catch (e) {}
       this.preferencesStore = await dataPreferences.getPreferences(context, 'comic_reader_store');
       await this.loadPersistedData();
+      this.loadCachedRules();
       this.cacheExistingBookshelfCovers();
     } catch (e) {
     }
@@ -321,6 +324,43 @@ struct Index {
       }
       if (fs.accessSync(this.catalogCachePath)) fs.unlinkSync(this.catalogCachePath);
       fs.renameSync(tempPath, this.catalogCachePath);
+    } catch (e) {
+      try {
+        if (fs.accessSync(tempPath)) fs.unlinkSync(tempPath);
+      } catch (ignored) {
+      }
+    }
+  }
+
+  private loadCachedRules(): void {
+    try {
+      if (this.ruleCachePath.length === 0 || !fs.accessSync(this.ruleCachePath)) return;
+      const cached = JSON.parse(fs.readTextSync(this.ruleCachePath)) as ComicSourceRule[];
+      const merged = RemoteRuleService.mergeRules(DEFAULT_SOURCES, cached);
+      if (merged.length > DEFAULT_SOURCES.length) {
+        this.rules = merged;
+        this.remoteRuleCount = cached.length;
+        this.remoteRuleStatus = this.catalogStage('正在使用已缓存的线上规则', 'Using cached online rules');
+      }
+    } catch (e) {
+      // A damaged cache must never replace the built-in fallback rules.
+      this.rules = DEFAULT_SOURCES;
+    }
+  }
+
+  private saveRuleCache(rules: ComicSourceRule[]): void {
+    if (this.ruleCachePath.length === 0) return;
+    const tempPath = this.ruleCachePath + '.tmp';
+    try {
+      const output: fs.File = fs.openSync(tempPath,
+        fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      try {
+        fs.writeSync(output.fd, JSON.stringify(rules));
+      } finally {
+        fs.closeSync(output);
+      }
+      if (fs.accessSync(this.ruleCachePath)) fs.unlinkSync(this.ruleCachePath);
+      fs.renameSync(tempPath, this.ruleCachePath);
     } catch (e) {
       try {
         if (fs.accessSync(tempPath)) fs.unlinkSync(tempPath);
@@ -1792,6 +1832,7 @@ struct Index {
       const loaded = await RemoteRuleService.fetchRemoteRules(this.remoteRuleUrl);
       if (loaded.length > 0) {
         this.rules = RemoteRuleService.mergeRules(DEFAULT_SOURCES, loaded);
+        this.saveRuleCache(loaded);
         this.remoteRuleCount = loaded.length;
         this.remoteRuleStatus = this.t('remote_updated') + loaded.length + this.t('rules_unit');
       } else {
@@ -2808,7 +2849,7 @@ struct Index {
                 .fontSize(13)
                 .fontColor(this.catalogUpdateAvailable ? this.warnText() : this.secondaryText())
             }
-          }.width('100%').height(50).onClick(() => { this.updateCatalog(); })
+          }.width('100%').height(50).onClick(() => { this.updateAll(); })
           if (this.updatingCatalog || this.catalogProgressPercent > 0) {
             Column({ space: 6 }) {
               Progress({ value: this.catalogProgressPercent, total: 100, type: ProgressType.Linear })
