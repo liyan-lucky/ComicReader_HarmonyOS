@@ -230,9 +230,6 @@ function canonicalSearchTitle(raw: string, keyword: string): string {
   // A search provider sometimes puts the whole result container into the
   // anchor match. Do not expose a paragraph as a book name.
   if (title.length > 96) return '';
-  const compact = title.replace(/[\s·:：\-_|]/g, '').toLowerCase();
-  const compactKeyword = keyword.replace(/[\s·:：\-_|]/g, '').toLowerCase();
-  if (compact === compactKeyword || compact === compactKeyword + '漫画' || compact === compactKeyword + '漫画大全') return '';
   return title;
 }
 
@@ -257,14 +254,14 @@ export function buildEngineQuery(keyword: string, extraTerms: string, languageMo
   let query = keyword.trim();
   if (query === '斗罗') query = '斗罗大陆 OR "Soul Land" OR "Douluo Dalu"';
   if (extraTerms.trim().length > 0) query += ' ' + extraTerms.trim();
-  if (languageMode === 'chinese' || languageMode === '中文') query += ' 漫画 在线 阅读 章节';
+  if (languageMode === 'chinese' || languageMode === '中文') query += ' 漫画';
   else if (languageMode === 'english' || languageMode === '英文') query += ' comic manga read online chapter';
   else if (languageMode === 'japanese' || languageMode === '日文') query += ' manga webcomic chapter';
   else if (languageMode === 'korean' || languageMode === '韩文') query += ' manhwa webtoon episode';
   // Keep the query compact. Long exclusion chains made HTML search providers
   // return empty/challenge pages and also removed official Bilibili Manga.
   // Non-comic domains and words are filtered after parsing instead.
-  query += ' -短视频 -百科 -小说';
+  query += ' -短视频 -百科';
   if (siteHint.trim().length > 0) query += ' ' + siteHint.trim();
   return query.replace(/\s+/g, ' ').trim();
 }

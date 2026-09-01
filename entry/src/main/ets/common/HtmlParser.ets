@@ -28,7 +28,11 @@ function extractImageUrlsFromText(text: string, pageUrl: string): string[] {
   const patterns: RegExp[] = [
     /(?:https?:)?\\\/\\\/[^"'\s\]\\]+\.(?:jpg|jpeg|png|webp|gif|avif)(?:\?[^"'\s\]\\]*)?/gim,
     /(?:https?:)?\/\/[^"'\s\]\\]+\.(?:jpg|jpeg|png|webp|gif|avif)(?:\?[^"'\s\]\\]*)?/gim,
-    /\/(?:[^"'\s\]\\]+\/)+[^"'\s\]\\]+\.(?:jpg|jpeg|png|webp|gif|avif)(?:\?[^"'\s\]\\]*)?/gim
+    // Keep this expression linear. The former nested `(.../)+...` form could
+    // backtrack exponentially on script-heavy pages containing many slash
+    // paths but no image extension, freezing ArkTS' main thread long enough
+    // for HarmonyOS to terminate the application.
+    /\/[^"'\s\]\\]{1,600}\.(?:jpg|jpeg|png|webp|gif|avif)(?:\?[^"'\s\]\\]{0,300})?/gim
   ];
   for (let p = 0; p < patterns.length; p++) {
     let match = patterns[p].exec(text);
@@ -89,7 +93,7 @@ function looksLikeChapter(title: string, url: string): boolean {
     return false;
   }
   const cleanTitle = title.replace(/\s+/g, ' ').trim();
-  if (cleanTitle.length > 48 || /^(首页|分类|排行|排行榜|榜单|榜单中心|更新|历史|登录|注册|收藏|书架|恋爱|校园|霸总|都市|搜索|查看全部|查看更多)$/i.test(cleanTitle) ||
+  if (cleanTitle.length > 48 || /^(首页|分类|排行|排行榜|榜单|榜单中心|更新|历史|登录|注册|收藏|书架|恋爱|校园|霸总|都市|搜索|查看全部|查看更多|章节列表|章节目录|目录|内地|港台|日韩|欧美|其他)$/i.test(cleanTitle) ||
     /(阅读顺序|建议从|作品速览|相似(?:漫画|作品)?|相关推荐|全部章节|章节总数|更新信息|更多作品)/i.test(cleanTitle)) {
     return false;
   }
@@ -145,7 +149,11 @@ function extractCoverFromBlock(block: string, pageUrl: string): string {
     const match = patterns[i].exec(block);
     if (match && match.length > 1) {
       const url = resolveUrl(match[1], pageUrl);
-      if (url.length > 0 && looksLikeReaderImage(url)) {
+      // Search/list covers commonly contain cover/thumb in their path. The
+      // reader-image filter intentionally rejects those, so cover extraction
+      // needs its own decorative-image check.
+      if (url.length > 0 && looksLikeImage(url) &&
+        !/(?:^|[\/_\-.])(logo|icon|avatar|banner|advert|ads?|loading|placeholder|spinner|emoji|favicon)(?:[\/_\-.]|$)/i.test(url)) {
         return url;
       }
     }
@@ -192,6 +200,40 @@ export function parseSearchResults(html: string, rule: ComicSourceRule, pageUrl:
     if (match.index === regex.lastIndex) {
       regex.lastIndex++;
     }
+    match = regex.exec(html);
+  }
+  return items;
+}
+
+/** Expand a discovered genre/ranking page into concrete comic details. */
+export function parseComicListingResults(html: string, rule: ComicSourceRule, pageUrl: string): SearchResultItem[] {
+  const items: SearchResultItem[] = [];
+  const regex = /<a\b([^>]*href=["']([^"']+)["'][^>]*)>([\s\S]{0,1000}?)<\/a>/gim;
+  let match = regex.exec(html);
+  while (match !== null && items.length < 80) {
+    const url = resolveUrl(match[2], pageUrl);
+    const titleAttr = /\btitle=["']([^"']+)["']/i.exec(match[1]);
+    const altAttr = /<img[^>]+\balt=["']([^"']+)["']/i.exec(match[3]);
+    let title = titleAttr ? cleanHtmlText(titleAttr[1]) :
+      (altAttr ? cleanHtmlText(altAttr[1]) : cleanHtmlText(match[3]));
+    title = title.replace(/^(?:完结|连载|已完结|更新中)\s*/i, '')
+      .replace(/\s*(?:作\s*者|作者|类\s*别|类别|更新至|更新于)\s*[:：].*$/i, '')
+      .replace(/(?:漫画)?封面\s*$/i, '')
+      .replace(/([\u3400-\u9fff])\s+(?=[\u3400-\u9fff])/g, '$1')
+      .replace(/\s+/g, ' ').trim();
+    const cover = extractCoverFromBlock(match[0], pageUrl);
+    const detailUrl = /\/(comic|manhua|manga|book|detail|work|webtoon|album)\//i.test(url) ||
+      /[?&](id|comic_id|book_id)=\d+/i.test(url);
+    const invalidUrl = /\/(category|classify|genre|tag|rank|list|search)(\/|\?|$)/i.test(url);
+    const invalidTitle = !/[A-Za-z0-9\u3400-\u9fff]/.test(title) ||
+      /^(首页|漫画|更多|查看全部|作品分类|排行榜|热门|最新|完结|连载)$/i.test(title) ||
+      /(漫画大全|漫画分类|漫画排行榜|官方漫画|免费在线观看|查看更多|版本更新中|原创大赛|征稿|活动专区)/i.test(title);
+    if (isHttpUrl(url) && title.length >= 2 && title.length <= 64 && !invalidUrl && !invalidTitle &&
+      (cover.length > 0 || detailUrl) && !items.some((item: SearchResultItem) => item.url === url)) {
+      items.push({ title: title, url: url, cover: cover, sourceId: rule.id, sourceName: rule.name,
+        isChapter: false, resultType: 'html-rule', groupName: title, description: '从分类页展开的具体作品' });
+    }
+    if (match.index === regex.lastIndex) regex.lastIndex++;
     match = regex.exec(html);
   }
   return items;
