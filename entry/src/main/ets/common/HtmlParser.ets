@@ -1,6 +1,233 @@
 import { ComicSourceRule, SearchResultItem, ChapterItem, ReaderImageItem } from '../model/ComicModels';
 import { resolveUrl, isHttpUrl } from './UrlUtil';
 
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function decodeBase64(input: string): string {
+  const cleanInput = input.replace(/[^A-Za-z0-9+/=]/g, '');
+  const padding = cleanInput.endsWith('==') ? 2 : (cleanInput.endsWith('=') ? 1 : 0);
+  const length = cleanInput.length - padding;
+  const bytes: number[] = [];
+  for (let i = 0; i < length; i += 4) {
+    const c0 = B64_CHARS.indexOf(cleanInput[i]);
+    const c1 = B64_CHARS.indexOf(cleanInput[i + 1]);
+    const c2 = i + 2 < length ? B64_CHARS.indexOf(cleanInput[i + 2]) : 0;
+    const c3 = i + 3 < length ? B64_CHARS.indexOf(cleanInput[i + 3]) : 0;
+    if (c0 < 0 || c1 < 0) break;
+    bytes.push((c0 << 2) | (c1 >> 4));
+    if (i + 2 < length && c2 >= 0) {
+      bytes.push(((c1 & 0x0F) << 4) | (c2 >> 2));
+    }
+    if (i + 3 < length && c3 >= 0) {
+      bytes.push(((c2 & 0x03) << 6) | c3);
+    }
+  }
+  let result = '';
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] < 128) {
+      result += String.fromCharCode(bytes[i]);
+    } else if (bytes[i] < 224) {
+      if (i + 1 < bytes.length) {
+        result += String.fromCharCode(((bytes[i] & 0x1F) << 6) | (bytes[i + 1] & 0x3F));
+        i++;
+      }
+    } else if (bytes[i] < 240) {
+      if (i + 2 < bytes.length) {
+        result += String.fromCharCode(((bytes[i] & 0x0F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F));
+        i += 2;
+      }
+    } else {
+      if (i + 3 < bytes.length) {
+        const codePoint = ((bytes[i] & 0x07) << 18) | ((bytes[i + 1] & 0x3F) << 12) | ((bytes[i + 2] & 0x3F) << 6) | (bytes[i + 3] & 0x3F);
+        const adjusted = codePoint - 0x10000;
+        result += String.fromCharCode(0xD800 + (adjusted >> 10));
+        result += String.fromCharCode(0xDC00 + (adjusted & 0x3FF));
+        i += 3;
+      }
+    }
+  }
+  return result;
+}
+
+function evaluateNonceExpr(expr: string): string {
+  const t = expr.trim();
+  const ternaryMatch = /^(\d+\.?\d*)<=(\d+\.?\d*)\?(\d+\.?\d*):(\d+\.?\d*)$/.exec(t);
+  if (ternaryMatch) {
+    return (parseFloat(ternaryMatch[1]) <= parseFloat(ternaryMatch[2]) ?
+      parseFloat(ternaryMatch[3]) : parseFloat(ternaryMatch[4])).toString();
+  }
+  const parseIntMatch = /^parseInt\((\d+\.?\d*)\/(\d+\.?\d*)\)$/.exec(t);
+  if (parseIntMatch) {
+    return Math.floor(parseFloat(parseIntMatch[1]) / parseFloat(parseIntMatch[2])).toString();
+  }
+  const mathPowMatch = /^Math\.pow\((\d+\.?\d*),(\d+\.?\d*)\)$/.exec(t);
+  if (mathPowMatch) {
+    return Math.pow(parseFloat(mathPowMatch[1]), parseFloat(mathPowMatch[2])).toString();
+  }
+  const mathRoundPlusMatch = /^Math\.round\((\.\d+)\)\s*\+\s*~~(\d+\.?\d*)$/.exec(t);
+  if (mathRoundPlusMatch) {
+    return (Math.round(parseFloat(mathRoundPlusMatch[1])) +
+      Math.floor(parseFloat(mathRoundPlusMatch[2]))).toString();
+  }
+  const mathRoundMatch = /^Math\.round\((.+)\)$/.exec(t);
+  if (mathRoundMatch) {
+    const inner = mathRoundMatch[1];
+    const dotMatch = /^\.(\d+)$/.exec(inner);
+    if (dotMatch) {
+      return Math.round(1.0 / parseFloat(dotMatch[1])).toString();
+    }
+    const numMatch = /^(\d+\.?\d*)$/.exec(inner);
+    if (numMatch) {
+      return Math.round(parseFloat(numMatch[1])).toString();
+    }
+  }
+  const tildeMatch = /^~~(\d+\.?\d*)$/.exec(t);
+  if (tildeMatch) {
+    return Math.floor(parseFloat(tildeMatch[1])).toString();
+  }
+  const doubleNotMatch = /^!!(\d+)$/.exec(t);
+  if (doubleNotMatch) {
+    return (parseFloat(doubleNotMatch[1]) !== 0 ? 1 : 0).toString();
+  }
+  const tripleNotMatch = /^!!!(\d+)$/.exec(t);
+  if (tripleNotMatch) {
+    return (parseFloat(tripleNotMatch[1]) !== 0 ? 0 : 1).toString();
+  }
+  const notMatch = /^!(\d+)$/.exec(t);
+  if (notMatch) {
+    return (parseFloat(notMatch[1]) !== 0 ? 0 : 1).toString();
+  }
+  const doubleNotMulMatch = /^!!(\d+)\*(\d+)$/.exec(t);
+  if (doubleNotMulMatch) {
+    return ((parseFloat(doubleNotMulMatch[1]) !== 0 ? 1 : 0) *
+      parseFloat(doubleNotMulMatch[2])).toString();
+  }
+  const doubleNotPlusNotMatch = /^!!(\d+)\+!(\d+)\+!!(\d+)\+!!(\d+)\+(\d+)$/.exec(t);
+  if (doubleNotPlusNotMatch) {
+    const v = (parseFloat(doubleNotPlusNotMatch[1]) !== 0 ? 1 : 0) +
+      (parseFloat(doubleNotPlusNotMatch[2]) !== 0 ? 0 : 1) +
+      (parseFloat(doubleNotPlusNotMatch[3]) !== 0 ? 1 : 0) +
+      (parseFloat(doubleNotPlusNotMatch[4]) !== 0 ? 1 : 0) +
+      parseFloat(doubleNotPlusNotMatch[5]);
+    return v.toString();
+  }
+  const plusTripleNotMatch = /^(\d+)\s*\+\s*!!!(\d+)$/.exec(t);
+  if (plusTripleNotMatch) {
+    return (parseFloat(plusTripleNotMatch[1]) +
+      (parseFloat(plusTripleNotMatch[2]) !== 0 ? 0 : 1)).toString();
+  }
+  const bitwiseAndMatch = /^(\d+)\s*&\s*(\d+)$/.exec(t);
+  if (bitwiseAndMatch) {
+    return (parseFloat(bitwiseAndMatch[1]) & parseFloat(bitwiseAndMatch[2])).toString();
+  }
+  const charCodeAtMatch = /^'(\d+)'\.charCodeAt\(\)\s*-\s*(\d+)$/.exec(t);
+  if (charCodeAtMatch) {
+    return (charCodeAtMatch[1].charCodeAt(0) - parseFloat(charCodeAtMatch[2])).toString();
+  }
+  const substringMatch = /^'(\d+)'\.substring\((\d+)\)$/.exec(t);
+  if (substringMatch) {
+    return substringMatch[1].substring(parseFloat(substringMatch[2]));
+  }
+  const docGetElementsMatch = /^!!document\.getElementsByTagName\('html'\)$/.exec(t);
+  if (docGetElementsMatch) {
+    return '1';
+  }
+  const mulDivMatch = /^(\d+\.?\d*)\s*\*\s*(\d+\.?\d*)\s*\/\s*(\d+\.?\d*)$/.exec(t);
+  if (mulDivMatch) {
+    return (parseFloat(mulDivMatch[1]) * parseFloat(mulDivMatch[2]) /
+      parseFloat(mulDivMatch[3])).toString();
+  }
+  const divPlusMatch = /^(\d+\.?\d*)\/(\d+\.?\d*)\s*\+\s*(\d+\.?\d*)\/(\d+\.?\d*)$/.exec(t);
+  if (divPlusMatch) {
+    return (parseFloat(divPlusMatch[1]) / parseFloat(divPlusMatch[2]) +
+      parseFloat(divPlusMatch[3]) / parseFloat(divPlusMatch[4])).toString();
+  }
+  const simpleMathMatch = /^(\d+\.?\d*)\s*([+\-*/])\s*(\d+\.?\d*)$/.exec(t);
+  if (simpleMathMatch) {
+    const a = parseFloat(simpleMathMatch[1]);
+    const b = parseFloat(simpleMathMatch[3]);
+    const op = simpleMathMatch[2];
+    if (op === '+') return (a + b).toString();
+    if (op === '-') return (a - b).toString();
+    if (op === '*') return (a * b).toString();
+    if (op === '/') return (a / b).toString();
+  }
+  const numOnly = /^(\d+\.?\d*)$/.exec(t);
+  if (numOnly) {
+    return numOnly[1];
+  }
+  return '0';
+}
+
+function extractNonceFromCode(nonceCode: string): string {
+  const eqIdx = nonceCode.indexOf('=');
+  if (eqIdx < 0) return '';
+  const rightSide = nonceCode.substring(eqIdx + 1).trim();
+  const parts: string[] = [];
+  const regex = /"([^"]*)"|\(\+eval\("([^"]*)"\)\)\.toString\(\)/g;
+  let match = regex.exec(rightSide);
+  while (match !== null) {
+    if (match[1] !== undefined && match[1].length > 0) {
+      parts.push(match[1]);
+    } else if (match[2] !== undefined && match[2].length > 0) {
+      parts.push(evaluateNonceExpr(match[2]));
+    }
+    match = regex.exec(rightSide);
+  }
+  return parts.join('');
+}
+
+function decodeAcQqObfuscatedData(rawData: string, nonce: string): string {
+  const nonceParts = nonce.match(/\d+[a-zA-Z]+/g);
+  if (nonceParts === null || nonceParts.length === 0) {
+    return decodeBase64(rawData);
+  }
+  const chars: string[] = rawData.split('');
+  for (let i = nonceParts.length - 1; i >= 0; i--) {
+    const part = nonceParts[i];
+    const digits = part.replace(/[a-zA-Z]/g, '');
+    const letters = part.replace(/\d/g, '');
+    const pos = parseInt(digits) & 0xFF;
+    const removeLen = letters.length;
+    if (pos >= 0 && pos < chars.length && pos + removeLen <= chars.length) {
+      chars.splice(pos, removeLen);
+    }
+  }
+  return decodeBase64(chars.join(''));
+}
+
+export function parseAcQqAjaxResponse(response: string, pageUrl: string): ReaderImageItem[] {
+  const images: ReaderImageItem[] = [];
+  const lines = response.split('\n');
+  if (lines.length < 2) {
+    return images;
+  }
+  const rawData = lines[0].trim();
+  const nonceCode = lines[1].trim();
+  const nonce = extractNonceFromCode(nonceCode);
+  const jsonStr = decodeAcQqObfuscatedData(rawData, nonce);
+  try {
+    const data = JSON.parse(jsonStr) as Record<string, Object>;
+    const picture = data['picture'] as Object[];
+    if (picture !== null && picture !== undefined) {
+      for (let i = 0; i < picture.length; i++) {
+        const pic = picture[i] as Record<string, string>;
+        const rawUrl = pic['url'];
+        if (rawUrl !== undefined && rawUrl.length > 0) {
+          const cleanedUrl = rawUrl.replace(/\\\//g, '/');
+          const url = resolveUrl(cleanedUrl, pageUrl);
+          if (url.length > 0 && looksLikeImage(url) &&
+            !images.some((item: ReaderImageItem) => item.url === url)) {
+            images.push({ url: url, index: images.length + 1, status: 'waiting' });
+          }
+        }
+      }
+    }
+  } catch (err) {
+  }
+  return images;
+}
+
 function decodeEntities(text: string): string {
   return text
     .replace(/&nbsp;/g, ' ')
@@ -97,12 +324,14 @@ function looksLikeChapter(title: string, url: string): boolean {
     /(阅读顺序|建议从|作品速览|相似(?:漫画|作品)?|相关推荐|全部章节|章节总数|更新信息|更多作品)/i.test(cleanTitle)) {
     return false;
   }
+  if (/(免费观看|在线观看|高清完整|全集|第[0-9一二三四五六七八九十]+\s*季|动画上映|动漫|讲的是什么|是什么|免费版|txt精校版|免费全文阅读|全文阅读|免费阅读|精校版)/i.test(cleanTitle)) {
+    return false;
+  }
   if (/(第\s*\d+|第[一二三四五六七八九十百千零〇两]+|话|章|回|卷|chapter|episode|ep\.?\s*\d+|chap)/i.test(cleanTitle)) {
+    if (/第\s*[0-9一二三四五六七八九十]+\s*季/.test(cleanTitle)) return false;
+    if (/txt|精校|免费全文|全文阅读/.test(cleanTitle)) return false;
     return true;
   }
-  // Search recommendations and cross-promotions often point to a `/read/`
-  // route but are not chapters of the current book. Only numbered chapter
-  // titles may contain this promotional wording.
   if (/(漫画下拉式|免费阅读|我开启了|相关推荐|猜你喜欢)/i.test(cleanTitle) ||
     (cleanTitle.match(/漫画/g) ?? []).length > 1) {
     return false;
@@ -122,7 +351,7 @@ function looksLikeImage(url: string): boolean {
   if (lower.indexOf('base64') >= 0 || lower.indexOf('data:') === 0) {
     return false;
   }
-  if (/(\.jpg|\.jpeg|\.png|\.webp|\.gif|\.avif)(\?|#|$)/i.test(lower)) {
+  if (/(\.jpg|\.jpeg|\.png|\.webp|\.gif|\.avif)(\?|#|\/|$)/i.test(lower)) {
     return true;
   }
   if (lower.indexOf('/iiif/') >= 0 || lower.indexOf('/full/') >= 0) {
@@ -301,6 +530,48 @@ export function parseChaptersFallback(html: string, rule: ComicSourceRule, pageU
   return chapters;
 }
 
+function extractAcQqDataImages(html: string, pageUrl: string): ReaderImageItem[] {
+  const images: ReaderImageItem[] = [];
+  const acimgIdx = html.indexOf('acimg.cn');
+  let dataStart = -1;
+  const patterns = ["data: '", "data:'"];
+  for (let p = 0; p < patterns.length; p++) {
+    const idx = html.indexOf(patterns[p]);
+    if (idx >= 0 && (dataStart < 0 || idx < dataStart)) {
+      dataStart = idx + patterns[p].length;
+    }
+  }
+  if (dataStart < 0) {
+    return images;
+  }
+  const dataEnd = html.indexOf("'", dataStart);
+  if (dataEnd < 0 || dataEnd - dataStart < 20) {
+    return images;
+  }
+  const b64Data = html.substring(dataStart, dataEnd);
+  try {
+    const jsonStr = decodeBase64(b64Data);
+    const picRegex = /"url"\s*:\s*"([^"]+)"/gi;
+    let picMatch = picRegex.exec(jsonStr);
+    let guard = 0;
+    while (picMatch !== null && guard < 200) {
+      guard++;
+      const rawUrl = picMatch[1].replace(/\\\//g, '/');
+      const url = resolveUrl(rawUrl, pageUrl);
+      if (url.length > 0 && looksLikeImage(url) &&
+        !images.some((item: ReaderImageItem) => item.url === url)) {
+        images.push({ url: url, index: images.length + 1, status: 'waiting' });
+      }
+      if (picMatch.index === picRegex.lastIndex) {
+        picRegex.lastIndex++;
+      }
+      picMatch = picRegex.exec(jsonStr);
+    }
+  } catch (err) {
+  }
+  return images;
+}
+
 export function parseImages(html: string, rule: ComicSourceRule, pageUrl: string): ReaderImageItem[] {
   const regex = safeRegExp(rule.readerImageRegex);
   const images: ReaderImageItem[] = [];
@@ -323,8 +594,14 @@ export function parseImages(html: string, rule: ComicSourceRule, pageUrl: string
     }
     match = regex.exec(html);
   }
-  // One or two matches are commonly the page cover and a placeholder. Keep
-  // scanning embedded chapter arrays/scripts before declaring the page done.
+  if (/ac\.qq\.com/i.test(pageUrl)) {
+    const acQqImages = extractAcQqDataImages(html, pageUrl);
+    for (let i = 0; i < acQqImages.length; i++) {
+      if (!images.some((item: ReaderImageItem) => item.url === acQqImages[i].url)) {
+        images.push(acQqImages[i]);
+      }
+    }
+  }
   if (images.length < 3) {
     const extraUrls = extractImageUrlsFromText(html, pageUrl);
     for (let i = 0; i < extraUrls.length; i++) {

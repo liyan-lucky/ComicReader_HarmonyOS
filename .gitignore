@@ -30,9 +30,6 @@ signing-config.json5
 .env.*
 !.env.example
 
-# UI patch local backups
-.ui-backups/
-
 # OS/editor
 .DS_Store
 Thumbs.db
@@ -40,6 +37,18 @@ Thumbs.db
 *.tmp
 *.bak
 .vscode/
+
+# IDE/analysis tool data
+.codegraph/
+.appanalyzer/
+.codeartsdoer/
+.tmp/
+.ui-backups/
+
+# Accidental Windows device-name files
+nul
+0
+10
 
 # Python cache if scripts are added later
 __pycache__/

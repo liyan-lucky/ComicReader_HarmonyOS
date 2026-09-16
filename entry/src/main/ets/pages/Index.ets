@@ -1,5 +1,5 @@
 import { ComicSourceRule, SearchResultItem, ChapterItem, ReaderImageItem, ReadingHistoryItem, BookshelfItem, SearchEngineConfig, RemoteCatalog, CatalogCategory, CatalogItem, CatalogSource, CoverAccuracyIndex, CoverAccuracyEntry } from '../model/ComicModels';
-import { DEFAULT_SOURCES, RULE_TEMPLATE, ruleForPublicUrl } from '../common/SourceRules';
+import { DEFAULT_SOURCES, RULE_TEMPLATE, ruleForPublicUrl, VERIFIED_DOMAIN_COUNT, PUBLIC_ACCESS_DOMAIN_COUNT } from '../common/SourceRules';
 import { HttpClient } from '../common/HttpClient';
 import { parseSearchResults, parseComicListingResults, parseChapters, parseChaptersFallback, parseImages, parseNextPageUrl } from '../common/HtmlParser';
 import { looksLikeUrl, normalizeUserUrl } from '../common/UrlUtil';
@@ -26,6 +26,8 @@ import dataPreferences from '@ohos.data.preferences';
 import util from '@ohos.util';
 import fs from '@ohos.file.fs';
 import inputMethod from '@ohos.inputMethod';
+import { CodeEditorTheme, defaultEditorTheme, highlightJsonLine, HighlightSegment,
+  findSearchMatches, SearchMatch, formatJson, validateJson, LineDataSource } from '../common/CodeEditor';
 
 function toArgbColor(color: string): number {
   const normalized = color.trim().startsWith('#') ? color.trim().substring(1) : color.trim();
@@ -52,6 +54,10 @@ struct Index {
   @State private rules: ComicSourceRule[] = DEFAULT_SOURCES;
   @State private onlineRules: ComicSourceRule[] = [];
   @State private advancedRules: ComicSourceRule[] = [];
+  @State private blockedUrls: string[] = [];
+  @State private editorMode: string = 'advanced';
+  @State private editorScrollY: number = 0;
+  @State private editorEditable: boolean = false;
   @State private searchEngines: SearchEngineConfig[] = DEFAULT_SEARCH_ENGINES;
   @State private selectedEngineIndex: number = 0;
   @State private results: SearchResultItem[] = [];
@@ -70,6 +76,12 @@ struct Index {
   @State private catalogReceivedBytes: number = 0;
   @State private catalogTotalBytes: number = 0;
   @State private catalogProgressPercent: number = 0;
+  @State private shelfPanOffset: number = 0;
+  @State private shelfPanStartX: number = 0;
+  @State private shelfIsPanning: boolean = false;
+  @State private shelfViewportWidth: number = 360;
+  @State private shelfAdjacentItems: CatalogItem[] = [];
+  @State private shelfAdjacentDir: number = 0;
   @State private currentTitle: string = '';
   @State private currentUrl: string = '';
   @State private currentDetailUrl: string = '';
@@ -136,18 +148,100 @@ struct Index {
   @State private updatingRules: boolean = false;
   @State private updateDialogVisible: boolean = false;
   @State private customRuleText: string = RULE_TEMPLATE;
+  @State private ruleViewerText: string = '';
+  @State private ruleViewerTitle: string = '';
+  @State private editorSearchVisible: boolean = false;
+  @State private editorSearchQuery: string = '';
+  @State private editorUseRegex: boolean = false;
+  @State private editorCaseSensitive: boolean = false;
+  @State private editorSearchMatches: SearchMatch[] = [];
+  @State private editorCurrentMatch: number = -1;
+  @State private editorIndentSize: number = 2;
+  @State private editorUseTab: boolean = false;
+  @State private editorShowIndent: boolean = false;
+  @State private editorIsValid: boolean = true;
+  @State private editorError: string = '';
+  @State private editorCursorLine: number = 0;
+  @State private editorThemeCache: CodeEditorTheme = defaultEditorTheme(false);
+  @State private editorLinesCache: string[] = [];
+  @State private editorSelectedLine: number = 0;
+  @State private editorWordWrap: boolean = true;
+  @State private editorCanUndo: boolean = false;
+  @State private editorCanRedo: boolean = false;
+  @State private editorLineNumberWidth: number = 12;
+  @State private editorToolBarVisible: boolean = true;
+  private editorToolBarHiddenByKeyboard: boolean = false;
+  private editorUndoStack: string[] = [];
+  private editorRedoStack: string[] = [];
+  private editorLineDataSource: LineDataSource = new LineDataSource([]);
+  private editorScroller: Scroller = new Scroller();
+  @State private editorFullscreen: boolean = false;
+  @State private editorTitle: string = '';
+  @State private editorReadOnly: boolean = false;
+  @State private editorMenuVisible: boolean = false;
+  @State private editorSeekVisible: boolean = false;
+  @State private editorSeekInput: string = '';
+  @State private editorBookmarks: number[] = [];
+  @State private editorCol: number = 0;
+  @State private editorLinksVisible: boolean = false;
+  @State private editorStatsVisible: boolean = false;
+  @State private editorColorPickerVisible: boolean = false;
+  @State private editorPreviewVisible: boolean = false;
+  @State private editorLinksCache: string[] = [];
+  @State private editorStatsLines: number = 0;
+  @State private editorStatsWords: number = 0;
+  @State private editorStatsChars: number = 0;
   @State private settingsDialog: string = '';
   @State private themeDialogVisible: boolean = false;
   @State private languageDialogVisible: boolean = false;
+  @State private themeExpanded: boolean = false;
+  @State private languageExpanded: boolean = false;
+  @State private iconColorExpanded: boolean = false;
+  @State private searchExpanded: boolean = false;
+  @State private sourcesExpanded: boolean = false;
+  @State private readerExpanded: boolean = false;
+  @State private enginesExpanded: boolean = false;
+  @State private rulesExpanded: boolean = false;
+  @State private dlgSearchModeExpanded: boolean = false;
+  @State private dlgLangExpanded: boolean = false;
+  @State private dlgReaderBgExpanded: boolean = false;
+  @State private dlgMaxResultsExpanded: boolean = false;
+  @State private dlgMaxPagesExpanded: boolean = false;
+  @State private dlgEngineExpanded: boolean = false;
+  @State private themeRowBottom: number = 0;
+  @State private languageRowBottom: number = 0;
+  @State private iconColorRowBottom: number = 0;
+  @State private searchRowBottom: number = 0;
+  @State private sourcesRowBottom: number = 0;
+  @State private readerRowBottom: number = 0;
+  @State private enginesRowBottom: number = 0;
+  @State private rulesRowBottom: number = 0;
+  @State private settingsStackTop: number = 0;
   @State private avoidStatusBarHeight: number = 0;
   @State private bottomSafeInset: number = 28;
-  @State private debugKeepScreenOn: boolean = true;
+  @State private debugKeepScreenOn: boolean = false;
+  @State private showDebugInfo: boolean = false;
   @State private historyTab: string = 'history';
   @State private historyViewMode: string = 'grid';
   @State private historyMenuVisible: boolean = false;
+  @State private shelfMenuVisible: boolean = false;
+  @State private shelfViewMode: string = 'catalog';
+  @State private shelfDisplayMode: string = 'grid';
   @State private lastOpenedSearchUrl: string = '';
   @State private searchResultsOffset: number = 0;
   @State private revealedDeleteUrl: string = '';
+  @State private bookLongPressVisible: boolean = false;
+  @State private bookLongPressTitle: string = '';
+  @State private bookLongPressUrl: string = '';
+  @State private bookLongPressCover: string = '';
+  @State private bookLongPressIsFavorite: boolean = false;
+  @State private bookLongPressSourceName: string = '';
+  @State private bookLongPressX: number = 0;
+  @State private bookLongPressY: number = 0;
+  @State private isLongPressing: boolean = false;
+  @State private historyPanOffset: number = 0;
+  @State private historyPanStartX: number = 0;
+  @State private historyViewportWidth: number = 360;
 
   private preferencesStore: dataPreferences.Preferences | null = null;
   private catalogCachePath: string = '';
@@ -179,12 +273,18 @@ struct Index {
   }
 
   private resetChapterScroll(): void {
-    // The chapters builder replaces the result list in the same page. ArkUI
-    // may otherwise retain the previous Scroll offset, making an ascending
-    // list appear to start halfway through a book.
     setTimeout(() => {
       this.chapterScroller.scrollEdge(Edge.Top);
     }, 0);
+  }
+
+  private scrollToCurrentChapter(): void {
+    const chapters = this.displayedChapters();
+    const currentIndex = chapters.findIndex((chapter: ChapterItem) => chapter.url === this.currentUrl);
+    if (currentIndex < 0) return;
+    setTimeout(() => {
+      this.chapterScroller.scrollToIndex(currentIndex, false, ScrollAlign.CENTER);
+    }, 100);
   }
 
   private async initPreferences(): Promise<void> {
@@ -229,6 +329,15 @@ struct Index {
           this.customRuleText = '[]';
         }
       }
+      const blockedJson = await this.preferencesStore.get('blocked_urls', '[]') as string;
+      if (typeof blockedJson === 'string' && blockedJson.length > 0) {
+        try {
+          const savedBlocked = JSON.parse(blockedJson) as string[];
+          if (Array.isArray(savedBlocked)) this.blockedUrls = savedBlocked;
+        } catch (blockedError) {
+          this.blockedUrls = [];
+        }
+      }
       const recentJson = await this.preferencesStore.get('recent_searches', '[]') as string;
       if (typeof recentJson === 'string' && recentJson.length > 2) this.recentSearches = JSON.parse(recentJson) as string[];
       const appTheme = await this.preferencesStore.get('app_theme', 'light') as string;
@@ -241,12 +350,40 @@ struct Index {
         this.appLanguage = appLanguage;
         this.refreshCatalogLanguageFilter();
       }
-      this.debugKeepScreenOn = await this.preferencesStore.get('debug_keep_screen_on', true) as boolean;
+      this.debugKeepScreenOn = await this.preferencesStore.get('debug_keep_screen_on', false) as boolean;
+      this.showDebugInfo = await this.preferencesStore.get('show_debug_info', false) as boolean;
       const savedIconMode = await this.preferencesStore.get('icon_color_mode', 'colorful') as string;
       this.iconColorMode = typeof savedIconMode === 'string' && savedIconMode.length > 0 ? savedIconMode : 'colorful';
       this.chapterReversed = await this.preferencesStore.get('chapter_reversed', true) as boolean;
       this.fullscreenReader = await this.preferencesStore.get('fullscreen_reader', true) as boolean;
       this.floatingReaderControls = await this.preferencesStore.get('floating_reader_controls', true) as boolean;
+      const savedShelfView = await this.preferencesStore.get('shelf_view_mode', 'catalog') as string;
+      if (typeof savedShelfView === 'string' && savedShelfView.length > 0) this.shelfViewMode = savedShelfView;
+      const savedShelfDisplay = await this.preferencesStore.get('shelf_display_mode', 'grid') as string;
+      if (typeof savedShelfDisplay === 'string' && savedShelfDisplay.length > 0) this.shelfDisplayMode = savedShelfDisplay;
+      const savedBraveKey = await this.preferencesStore.get('brave_api_key', '') as string;
+      if (typeof savedBraveKey === 'string') this.braveApiKey = savedBraveKey;
+      const savedGoogleKey = await this.preferencesStore.get('google_api_key', '') as string;
+      if (typeof savedGoogleKey === 'string') this.googleApiKey = savedGoogleKey;
+      const savedGoogleCx = await this.preferencesStore.get('google_cx', '') as string;
+      if (typeof savedGoogleCx === 'string') this.googleCx = savedGoogleCx;
+      this.autoCoverEnabled = await this.preferencesStore.get('auto_cover_enabled', false) as boolean;
+      const savedSearchMode = await this.preferencesStore.get('search_mode', 'mixed') as string;
+      if (typeof savedSearchMode === 'string' && savedSearchMode.length > 0) this.searchMode = savedSearchMode;
+      this.selectedEngineIndex = await this.preferencesStore.get('selected_engine_index', 0) as number;
+      this.searchAllEngines = await this.preferencesStore.get('search_all_engines', true) as boolean;
+      const savedLangMode = await this.preferencesStore.get('language_mode', 'chinese') as string;
+      if (typeof savedLangMode === 'string' && savedLangMode.length > 0) this.languageMode = savedLangMode;
+      const savedExtraTerms = await this.preferencesStore.get('extra_search_terms', '') as string;
+      if (typeof savedExtraTerms === 'string') this.extraSearchTerms = savedExtraTerms;
+      const savedSiteHint = await this.preferencesStore.get('site_hint', '') as string;
+      if (typeof savedSiteHint === 'string') this.siteHint = savedSiteHint;
+      this.enableSearchEngines = await this.preferencesStore.get('enable_search_engines', true) as boolean;
+      this.enableHtmlRules = await this.preferencesStore.get('enable_html_rules', true) as boolean;
+      this.maxSearchResults = await this.preferencesStore.get('max_search_results', 80) as number;
+      this.maxReaderPages = await this.preferencesStore.get('max_reader_pages', 30) as number;
+      this.showImageIndex = await this.preferencesStore.get('show_image_index', true) as boolean;
+      this.readerDarkMode = await this.preferencesStore.get('reader_dark_mode', true) as boolean;
       this.applyKeepScreenOn();
     } catch (e) {
     }
@@ -261,11 +398,31 @@ struct Index {
       await this.preferencesStore.put('app_theme', this.appTheme);
       await this.preferencesStore.put('app_language', this.appLanguage);
       await this.preferencesStore.put('debug_keep_screen_on', this.debugKeepScreenOn);
+      await this.preferencesStore.put('show_debug_info', this.showDebugInfo);
       await this.preferencesStore.put('icon_color_mode', this.iconColorMode);
       await this.preferencesStore.put('chapter_reversed', this.chapterReversed);
       await this.preferencesStore.put('fullscreen_reader', this.fullscreenReader);
       await this.preferencesStore.put('floating_reader_controls', this.floatingReaderControls);
       await this.preferencesStore.put('advanced_rules', JSON.stringify(this.advancedRules));
+      await this.preferencesStore.put('blocked_urls', JSON.stringify(this.blockedUrls));
+      await this.preferencesStore.put('shelf_view_mode', this.shelfViewMode);
+      await this.preferencesStore.put('shelf_display_mode', this.shelfDisplayMode);
+      await this.preferencesStore.put('brave_api_key', this.braveApiKey);
+      await this.preferencesStore.put('google_api_key', this.googleApiKey);
+      await this.preferencesStore.put('google_cx', this.googleCx);
+      await this.preferencesStore.put('auto_cover_enabled', this.autoCoverEnabled);
+      await this.preferencesStore.put('search_mode', this.searchMode);
+      await this.preferencesStore.put('selected_engine_index', this.selectedEngineIndex);
+      await this.preferencesStore.put('search_all_engines', this.searchAllEngines);
+      await this.preferencesStore.put('language_mode', this.languageMode);
+      await this.preferencesStore.put('extra_search_terms', this.extraSearchTerms);
+      await this.preferencesStore.put('site_hint', this.siteHint);
+      await this.preferencesStore.put('enable_search_engines', this.enableSearchEngines);
+      await this.preferencesStore.put('enable_html_rules', this.enableHtmlRules);
+      await this.preferencesStore.put('max_search_results', this.maxSearchResults);
+      await this.preferencesStore.put('max_reader_pages', this.maxReaderPages);
+      await this.preferencesStore.put('show_image_index', this.showImageIndex);
+      await this.preferencesStore.put('reader_dark_mode', this.readerDarkMode);
       await this.preferencesStore.flush();
     } catch (e) {
     }
@@ -340,6 +497,27 @@ struct Index {
   private refreshCatalogLanguageFilter(): void {
     if (this.remoteCatalog !== null && this.selectedCatalogCategory.length > 0) {
       this.catalogItems = this.filteredCatalogItems(this.remoteCatalog, this.selectedCatalogCategory);
+    }
+  }
+
+  private shelfCategoryIndex(): number {
+    return this.catalogCategories.findIndex((cat: CatalogCategory) => cat.id === this.selectedCatalogCategory);
+  }
+
+  private shelfAdjacentCategory(direction: number): string {
+    const idx = this.shelfCategoryIndex();
+    if (idx < 0) return '';
+    const next = idx + direction;
+    if (next < 0 || next >= this.catalogCategories.length) return '';
+    return this.catalogCategories[next].id;
+  }
+
+  private shelfSwitchCategory(direction: number): void {
+    const nextId = this.shelfAdjacentCategory(direction);
+    if (nextId.length === 0) return;
+    this.selectedCatalogCategory = nextId;
+    if (this.remoteCatalog !== null) {
+      this.catalogItems = this.filteredCatalogItems(this.remoteCatalog, nextId);
     }
   }
 
@@ -509,7 +687,43 @@ struct Index {
     } catch (e) {
       this.coverAccuracyStatus = this.isEn() ? 'Cover accuracy update failed.' : '封面准确性更新失败。';
     }
+    const builtinUpdated = await this.builtinCoverRefreshForMissing();
+    if (builtinUpdated > 0) {
+      this.coverAccuracyStatus += this.isEn() ? '; builtin check updated: ' + builtinUpdated : '；内置校对更新：' + builtinUpdated + ' 本';
+    }
     this.updatingCoverAccuracy = false;
+  }
+
+  private async builtinCoverRefreshForMissing(): Promise<number> {
+    const pending: BookshelfItem[] = [];
+    for (let i = 0; i < this.bookshelf.length; i++) {
+      const item = this.bookshelf[i];
+      const rc = item.remoteCover !== undefined ? item.remoteCover : item.cover;
+      if (/^https?:\/\//i.test(rc)) continue;
+      if (this.verifiedCoverForTitle(item.title) !== null) continue;
+      pending.push(item);
+    }
+    const maxBatch = 10;
+    const batchCount = Math.min(pending.length, maxBatch);
+    let updated = 0;
+    for (let i = 0; i < batchCount; i++) {
+      const item = pending[i];
+      this.statusText = this.isEn()
+        ? 'Builtin cover check (' + (i + 1) + '/' + batchCount + '): ' + item.title
+        : '内置校对封面 (' + (i + 1) + '/' + batchCount + ')：' + item.title;
+      const cover = await this.builtinCoverForTitle(item.title, item.url);
+      if (cover.length > 0 && /^https?:\/\//i.test(cover)) {
+        await this.cacheBookshelfCover(item.url, cover);
+        updated++;
+      }
+    }
+    if (pending.length > 0) {
+      const suffix = pending.length > batchCount ? this.isEn() ? ' (remaining pending)' : '（剩余待下次更新）' : '';
+      this.statusText = this.isEn()
+        ? 'Builtin covers updated: ' + updated + suffix
+        : '内置封面校对完成：更新 ' + updated + ' 本' + suffix;
+    }
+    return updated;
   }
 
   private catalogStage(zh: string, en: string): string {
@@ -591,9 +805,78 @@ struct Index {
       this.settingsDialog = '';
       return true;
     }
+    if (this.themeDialogVisible) {
+      this.themeDialogVisible = false;
+      return true;
+    }
+    if (this.languageDialogVisible) {
+      this.languageDialogVisible = false;
+      return true;
+    }
+    if (this.themeExpanded) {
+      this.themeExpanded = false;
+      return true;
+    }
+    if (this.languageExpanded) {
+      this.languageExpanded = false;
+      return true;
+    }
+    if (this.iconColorExpanded) {
+      this.iconColorExpanded = false;
+      return true;
+    }
+    if (this.searchExpanded) {
+      this.searchExpanded = false;
+      return true;
+    }
+    if (this.sourcesExpanded) {
+      this.sourcesExpanded = false;
+      return true;
+    }
+    if (this.readerExpanded) {
+      this.readerExpanded = false;
+      return true;
+    }
+    if (this.enginesExpanded) {
+      this.enginesExpanded = false;
+      return true;
+    }
+    if (this.rulesExpanded) {
+      this.rulesExpanded = false;
+      return true;
+    }
+    if (this.updateDialogVisible) {
+      this.updateDialogVisible = false;
+      return true;
+    }
+    if (this.historyMenuVisible) {
+      this.historyMenuVisible = false;
+      return true;
+    }
+    if (this.shelfMenuVisible) {
+      this.shelfMenuVisible = false;
+      return true;
+    }
+    if (this.bookLongPressVisible) {
+      this.closeBookLongPressMenu();
+      return true;
+    }
+    if (this.editorMenuVisible) {
+      this.editorMenuVisible = false;
+      return true;
+    }
+    if (this.editorFullscreen) {
+      this.editorFullscreen = false;
+      this.settingsDialog = '';
+      this.applyReaderFullscreen(false);
+      return true;
+    }
     if (this.mode === 'reader') {
       this.applyReaderFullscreen(false);
-      if (this.chapters.length > 0) this.mode = 'chapters';
+      if (this.chapters.length > 0) {
+        this.mode = 'chapters';
+        this.scrollToCurrentChapter();
+      }
       else if (this.results.length > 0) this.returnToSearchResults();
       else this.mode = 'home';
       this.activeTab = 'search';
@@ -637,7 +920,6 @@ struct Index {
   }
 
   private applyReaderFullscreen(enabled: boolean): void {
-    this.fullscreenReader = enabled;
     try {
       const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
       const mainWindow = context.windowStage.getMainWindowSync();
@@ -696,9 +978,10 @@ struct Index {
       if (key === 'chapter_descending') return 'Descending';
       if (key === 'no_chapters') return 'No chapters. This may be a single chapter, or the rule doesn\'t match.';
       if (key === 'basic_settings') return 'Basic';
-      if (key === 'app_settings') return 'App Settings';
+      if (key === 'app_settings') return 'Comic Source Settings';
       if (key === 'about') return 'About';
       if (key === 'debug_keep_screen_on') return 'Keep screen on for debugging';
+      if (key === 'show_debug_info') return 'Show debug info';
       if (key === 'theme') return 'Theme';
       if (key === 'language') return 'Language';
       if (key === 'light') return 'Light';
@@ -723,7 +1006,7 @@ struct Index {
       if (key === 'reading_settings') return 'Reading Settings';
       if (key === 'search_engine') return 'Search Engine';
       if (key === 'rule_settings') return 'Rule Settings';
-      if (key === 'advanced_rules') return 'Advanced Rules';
+      if (key === 'advanced_rules') return 'Custom Rules';
       if (key === 'version') return 'Version';
       if (key === 'build_time') return 'Build Time';
       if (key === 'search_mode') return 'Search Mode';
@@ -737,6 +1020,10 @@ struct Index {
       if (key === 'built_in_rules') return 'Built-in Rules';
       if (key === 'online_rule_changes') return 'Online Changes';
       if (key === 'cover_accuracy') return 'Cover Accuracy Check';
+      if (key === 'update_cover') return 'Update Cover';
+      if (key === 'cover_update_success') return 'Cover updated successfully';
+      if (key === 'cover_update_failed') return 'Cover update failed';
+      if (key === 'cover_no_source') return 'No cover source found';
       if (key === 'auto_cover') return 'Auto Cover';
       if (key === 'show_page_num') return 'Page Numbers';
       if (key === 'reading_bg') return 'Reading BG';
@@ -817,6 +1104,18 @@ struct Index {
       if (key === 'favorites') return 'Favorites';
       if (key === 'list_view') return 'List';
       if (key === 'grid_view') return 'Grid';
+      if (key === 'add_favorite') return 'Add Favorite';
+      if (key === 'remove_favorite') return 'Remove Favorite';
+      if (key === 'search_title') return 'Search Title';
+      if (key === 'delete') return 'Delete';
+      if (key === 'close') return 'Close';
+      if (key === 'api_key') return 'API Key';
+      if (key === 'brave_api_key') return 'Brave API Key';
+      if (key === 'google_api_key') return 'Google API Key';
+      if (key === 'google_cx') return 'Google CX (Search Engine ID)';
+      if (key === 'api_config') return 'API Configuration';
+      if (key === 'api_key_hint') return 'Enter API Key';
+      if (key === 'google_cx_hint') return 'Enter Search Engine ID';
       return key;
     }
     if (key === 'app_title') return '漫画浏览器';
@@ -842,15 +1141,16 @@ struct Index {
     if (key === 'chapter_descending') return '倒序';
     if (key === 'no_chapters') return '没有章节。可能该结果本身就是单话漫画，或目录规则不匹配。';
     if (key === 'basic_settings') return '基础设置';
-    if (key === 'app_settings') return 'APP设置';
+    if (key === 'app_settings') return '漫画源设置';
     if (key === 'about') return '关于';
-    if (key === 'debug_keep_screen_on') return '调试时屏幕常亮';
+    if (key === 'debug_keep_screen_on') return '屏幕常亮';
+    if (key === 'show_debug_info') return '调试信息';
     if (key === 'theme') return '主题';
     if (key === 'language') return '语言';
     if (key === 'light') return '明亮';
     if (key === 'dark') return '暗黑';
     if (key === 'follow_system') return '跟随系统';
-    if (key === 'reader_fullscreen') return '阅读页全屏';
+    if (key === 'reader_fullscreen') return '阅读全屏';
     if (key === 'floating_controls') return '悬浮控制';
     if (key === 'icon_color') return '图标颜色';
     if (key === 'icon_color_colorful') return '多彩';
@@ -865,11 +1165,11 @@ struct Index {
     if (key === 'icon_color_magenta') return '洋红';
     if (key === 'search_menu') return '搜索菜单';
     if (key === 'source_switch') return '源开关';
-    if (key === 'display_reading') return '显示与阅读';
+    if (key === 'display_reading') return '显示阅读';
     if (key === 'reading_settings') return '阅读设置';
     if (key === 'search_engine') return '搜索引擎';
     if (key === 'rule_settings') return '规则设置';
-    if (key === 'advanced_rules') return '高级规则';
+    if (key === 'advanced_rules') return '自定义规则';
     if (key === 'version') return '版本号';
     if (key === 'build_time') return '构建时间';
     if (key === 'search_mode') return '搜索模式';
@@ -880,9 +1180,13 @@ struct Index {
     if (key === 'site_hint') return '站点提示 site:example.com';
     if (key === 'html_rules') return 'HTML规则源';
     if (key === 'remote_rules') return '远程规则';
-    if (key === 'built_in_rules') return '手机内置规则';
+    if (key === 'built_in_rules') return '内置规则';
     if (key === 'online_rule_changes') return '在线规则变化';
-    if (key === 'cover_accuracy') return '封面准确性校验';
+    if (key === 'cover_accuracy') return '封面校验';
+    if (key === 'update_cover') return '更新封面';
+    if (key === 'cover_update_success') return '封面更新成功';
+    if (key === 'cover_update_failed') return '封面更新失败';
+    if (key === 'cover_no_source') return '未找到封面来源';
     if (key === 'auto_cover') return '自动补封面';
     if (key === 'show_page_num') return '显示页码';
     if (key === 'reading_bg') return '阅读背景';
@@ -963,6 +1267,18 @@ struct Index {
     if (key === 'favorites') return '收藏';
     if (key === 'list_view') return '列表';
     if (key === 'grid_view') return '网格';
+    if (key === 'add_favorite') return '添加收藏';
+    if (key === 'remove_favorite') return '取消收藏';
+    if (key === 'search_title') return '搜索书名';
+    if (key === 'delete') return '删除';
+    if (key === 'close') return '关闭';
+    if (key === 'api_key') return 'API Key';
+    if (key === 'brave_api_key') return 'Brave API Key';
+    if (key === 'google_api_key') return 'Google API Key';
+    if (key === 'google_cx') return 'Google CX (搜索引擎ID)';
+    if (key === 'api_config') return 'API 配置';
+    if (key === 'api_key_hint') return '输入 API Key';
+    if (key === 'google_cx_hint') return '输入搜索引擎ID';
     return key;
   }
 
@@ -993,6 +1309,11 @@ struct Index {
   private appBg(): string { return this.isDark() ? '#111318' : '#F6F8FA'; }
   private cardBg(): string { return this.isDark() ? '#1E232F' : '#FFFFFF'; }
   private accent(): string { return '#34C759'; }
+  private colorfulAccent(key: string): string {
+    if (this.iconColorMode !== 'colorful') return this.iconModeColor(this.iconColorMode);
+    return this.colorfulValue(key);
+  }
+  private accentBg(): string { return this.isDark() ? '#1A34C759' : '#0D34C759'; }
   private primaryText(): string { return this.isDark() ? '#E8ECF4' : '#111827'; }
   private secondaryText(): string { return this.isDark() ? '#B6BFCC' : '#667085'; }
   private iconColor(icon: string): string {
@@ -1004,7 +1325,22 @@ struct Index {
     if (icon === 'ic_refresh' || icon === 'ic_engine') return '#00C7BE';
     if (icon === 'ic_rule' || icon === 'ic_code') return '#5856D6';
     if (icon === 'ic_language' || icon === 'ic_filter') return '#F5C400';
-    if (icon === 'ic_reader' || icon === 'ic_reading' || icon === 'ic_layout' || icon === 'ic_fullscreen') return '#FF2D92';
+    if (icon === 'ic_reader' || icon === 'ic_reading' || icon === 'ic_fullscreen') return '#FF2D92';
+    if (icon === 'ic_layout') return '#34C759';
+    if (icon === 'ic_moon') return '#00C7BE';
+    if (icon === 'ic_eye') return '#AF52DE';
+    if (icon === 'ic_info') return '#5856D6';
+    if (icon === 'ic_bug') return '#FF3B30';
+    if (icon === 'ic_palette') return '#FF9500';
+    if (icon === 'ic_more_vert') return '#0A84FF';
+    if (icon === 'ic_keyboard') return '#34C759';
+    if (icon === 'ic_link' || icon === 'ic_back' || icon === 'ic_arrow_left' || icon === 'ic_arrow_right' || icon === 'ic_chevron_right') return '#0A84FF';
+    if (icon === 'ic_color_picker' || icon === 'ic_bookmark' || icon === 'ic_save') return '#FF9500';
+    if (icon === 'ic_wrap_text' || icon === 'ic_copy' || icon === 'ic_paste') return '#00C7BE';
+    if (icon === 'ic_play' || icon === 'ic_check_circle') return '#34C759';
+    if (icon === 'ic_align_left' || icon === 'ic_undo' || icon === 'ic_redo') return '#5856D6';
+    if (icon === 'ic_stats_report') return '#AF52DE';
+    if (icon === 'ic_arrow_down_circle' || icon === 'ic_nav_arrow_down' || icon === 'ic_close') return '#FF2D92';
     return '#FF3B30';
   }
   private iconModeColor(mode: string): string {
@@ -1059,6 +1395,62 @@ struct Index {
   private genericRule(): ComicSourceRule {
     const found = this.rules.find((item: ComicSourceRule) => item.id === 'generic_html_public');
     return found ? found : this.rules[0];
+  }
+
+  private buildBuiltinRulesSummary(): string {
+    let text = '';
+    text += '=== 内置规则概览 ===\n';
+    text += '通用规则: ' + DEFAULT_SOURCES.length + ' 条\n';
+    text += '已验证域名: ' + VERIFIED_DOMAIN_COUNT + ' 个\n';
+    text += '公开访问域名: ' + PUBLIC_ACCESS_DOMAIN_COUNT + ' 个\n';
+    text += '总计覆盖: ' + (VERIFIED_DOMAIN_COUNT + PUBLIC_ACCESS_DOMAIN_COUNT) + ' 个域名\n\n';
+    text += '=== 通用规则定义 ===\n';
+    text += JSON.stringify(DEFAULT_SOURCES, null, 2);
+    text += '\n\n=== 已验证域名列表 (' + VERIFIED_DOMAIN_COUNT + '个) ===\n';
+    text += 'maxPages=12, hasNextPage=false\n';
+    text += '匹配方式: 精确域名匹配, 每域独立referer\n';
+    text += '---\n';
+    text += '288manhua.com, 590ac.com, 5imanhua.click, ac.qq.com, akmh666.com,\n';
+    text += 'asshow.com, b.faloo.com, baoziaicomic.com, bjzf.org, bkmh555.com,\n';
+    text += 'bury.bljipeapy.com, cdt-gz.cn, china-armature.com, comic.qq.com,\n';
+    text += 'cuimanhua.com, cuimh.com, cxjob.com.cn, dafumh.com, dagumh.com,\n';
+    text += 'dandanmh.com, dayiming.cn, dhan.cc, digumh.com, dongman.qq.com,\n';
+    text += 'dongmanmanhua.cn, duiduimanhua.com, duya.cc, ffppt.com,\n';
+    text += 'guazimanhua.com, guazixs.cn, hazelmaka.com, hfuodip.com,\n';
+    text += 'hongshu.com, hqqh.cc, htzsgc.cn, huayangdm.com, huozx.net,\n';
+    text += 'jiexi8.com, jincs.cn, jiujiumanhua.com, jjwxc.net,\n';
+    text += 'jsmanhuawang.com, katadyngroup.com.cn, kkwebtoon.com,\n';
+    text += 'kuaikan321.com, kuaikanmanhua.com, m.bikamanhua.com, m.bjwsxx.com,\n';
+    text += 'm.dagumanhua.cc, m.dumanwu.com, m.dumanwu1.com, m.guozhenglawyer.com,\n';
+    text += 'm.haohuagg.com, m.jingmingbg.com, m.maomimh.com, m.ortzn.com,\n';
+    text += 'm.sisimanhua.com, m.tcsrq.cn, manbatu.com, mangatoon.mobi,\n';
+    text += 'manhua1234.com, manhuarenren.com, maomaoks.com, mdb88.com,\n';
+    text += 'medyakey.com, mh250.cc, mh250.com, mhz4.com, mobile.ac.qq.com,\n';
+    text += 'mwjsiot.com, mzywwcm.com, nhy2.com, nubbub.com, pdbgds.com,\n';
+    text += 'pufeimanhuaw.com, runshua.com, sdxqx.com, sfmanhua.com,\n';
+    text += 'shenqimanhua.net, shilunmh.com, shoujimanhua.com, songyuanman.com,\n';
+    text += 'sqmh.app, sqrsks.com, t.shuqi.com, tcsrq.cn, tzysjx.cn,\n';
+    text += 'veryim.com, wap.faloo.com, xhp119.com, xhp124.com,\n';
+    text += 'xkanmanhua.com, yandans.com, yinglifan.com, yiningguanggao.com,\n';
+    text += 'yinxiang17.com, yixiuche.com, youzimanhua.com, z525.com,\n';
+    text += 'zgmanhua.com, zhongkeman.com, zymk.cn\n\n';
+    text += '=== 公开访问域名列表 (' + PUBLIC_ACCESS_DOMAIN_COUNT + '个) ===\n';
+    text += 'maxPages=16, hasNextPage=true\n';
+    text += '匹配方式: 主机名匹配, 动态referer\n';
+    text += '---\n';
+    text += 'mh160mh.com, shenlanqiyu.cc, manhuaus.com, mangafire.to,\n';
+    text += 'mangadna.com, mangaread.org, mycomic.com, toomics.com,\n';
+    text += 'lezhin.com, webtoons.com, tapas.io, mangadex.org,\n';
+    text += 'guya.moe, catmanga.org, manga4life.com, asurascans.com,\n';
+    text += 'flamescans.org, reapertranslates.com, lhtranslates.com,\n';
+    text += 'immortalscans.com, mangakakalot.com, manganato.com,\n';
+    text += 'readmanga.app, manhuatop.com, manhuaes.com, manhwa18.cc,\n';
+    text += 'toonily.com, manganelo.com, hentai2read.com, nhentai.net,\n';
+    text += 'myreadingmanga.info, dmzj.com, chuiyao.com, 57mh.com,\n';
+    text += 'aikanmanhua.com, manhuagui.com, manhuaren.com, ikanman.com,\n';
+    text += 'dm5.cn, manwang.net, ttkmh.com, labimanhua.com,\n';
+    text += 'hitomi.la, jwxs.org\n';
+    return text;
   }
 
   private findRule(sourceId: string): ComicSourceRule {
@@ -1146,12 +1538,23 @@ struct Index {
     };
   }
 
+  private isUrlBlocked(url: string): boolean {
+    if (this.blockedUrls.length === 0) return false;
+    const lower = url.toLowerCase();
+    for (let i = 0; i < this.blockedUrls.length; i++) {
+      const blocked = this.blockedUrls[i].toLowerCase();
+      if (lower.indexOf(blocked) >= 0) return true;
+    }
+    return false;
+  }
+
   private appendResults(sourceItems: SearchResultItem[]): void {
     const next: SearchResultItem[] = [];
     for (let i = 0; i < this.results.length; i++) next.push(this.results[i]);
     for (let j = 0; j < sourceItems.length; j++) {
       if (next.length >= this.maxSearchResults) break;
       const item = this.enrich(sourceItems[j]);
+      if (this.isUrlBlocked(item.url)) continue;
       if (!next.some((oldItem: SearchResultItem) => oldItem.url === item.url || (oldItem.sourceName === item.sourceName && oldItem.title === item.title))) {
         next.push(item);
       }
@@ -1438,19 +1841,14 @@ struct Index {
     if (!this.enableHtmlRules) return;
     let success = 0;
     let failed = 0;
-    let attempted = 0;
+    const maxPerGroup = 10;
     const pending: Promise<SearchResultItem[]>[] = [];
+    let attempted = 0;
     for (let i = 0; i < this.rules.length; i++) {
       const rule = this.rules[i];
       if (rule.searchUrl.trim().length === 0) continue;
-      // url-only rules parse links discovered elsewhere; they are not search
-      // endpoints. Trying all generated rules here caused 1000+ serial HTTP
-      // requests and made normal search appear frozen.
       if (rule.searchMethod === 'url-only') continue;
-      // Direct site endpoints are a secondary supplement after web discovery.
-      // Keep the foreground search bounded; unreachable legacy sources must
-      // not make an otherwise complete result page look permanently busy.
-      if (attempted >= 8) break;
+      if (attempted >= maxPerGroup * 3) break;
       attempted++;
       pending.push(this.fetchHtmlRuleResults(rule, keyword));
     }
@@ -2007,8 +2405,10 @@ struct Index {
     this.searchFallbackDiscoveryAttempted = false;
     const first = this.searchFallbackCandidates[0];
     const rule = this.ruleForItemUrl(first.url, first.sourceId);
+    const detailCandidate = this.searchFallbackCandidates.find((c: SearchResultItem) => !c.isChapter);
+    this.currentCover = first.cover.length > 0 ? first.cover : (detailCandidate ? detailCandidate.cover : this.currentCover);
     if (first.isChapter) {
-      this.currentDetailUrl = '';
+      this.currentDetailUrl = detailCandidate ? detailCandidate.url : '';
       this.loadChapter({ title: first.title, url: first.url, index: 1, sourceId: first.sourceId, sourceName: first.sourceName }, rule);
     }
     else this.loadDetail(first.url, first.title, rule);
@@ -2152,17 +2552,32 @@ struct Index {
     return latest;
   }
 
+  private async openBookUnified(detailUrl: string, title: string, sourceId: string,
+    cover: string, chapterUrl: string = '', chapterTitle: string = ''): Promise<void> {
+    const rule = this.findRule(sourceId);
+    this.currentCover = cover;
+    await this.loadDetail(detailUrl, title, rule);
+    if (chapterUrl.length === 0 || chapterUrl === detailUrl) return;
+    this.currentUrl = chapterUrl;
+    this.currentChapterTitle = chapterTitle;
+    this.scrollToCurrentChapter();
+  }
+
   private async openHistoryItem(item: ReadingHistoryItem): Promise<void> {
-    if (item.detailUrl && item.detailUrl.length > 0 && item.detailUrl !== item.url) {
-      await this.loadDetail(item.detailUrl, item.title, this.findRule(item.sourceId));
-      const chapter = this.chapters.find((candidate: ChapterItem) => candidate.url === item.url);
-      if (chapter) {
-        await this.loadChapter(chapter, this.findRule(chapter.sourceId));
-        return;
+    let detailUrl = item.detailUrl;
+    if (!detailUrl || detailUrl.length === 0 || detailUrl === item.url) {
+      const shelfMatch = this.bookshelf.find((b: BookshelfItem) => b.title === item.title);
+      if (shelfMatch && shelfMatch.url && shelfMatch.url !== item.url) {
+        detailUrl = shelfMatch.url;
       }
+    }
+    if (detailUrl && detailUrl.length > 0 && detailUrl !== item.url) {
+      await this.openBookUnified(detailUrl, item.title, item.sourceId, item.cover, item.url, item.chapterTitle);
+      return;
     }
     this.chapters = [{ title: item.chapterTitle, url: item.url, index: 1,
       sourceId: item.sourceId, sourceName: item.sourceName }];
+    this.currentCover = item.cover;
     await this.loadChapter(this.chapters[0], this.findRule(item.sourceId));
   }
 
@@ -2220,17 +2635,118 @@ struct Index {
     }
   }
 
+  private async refreshBookCover(itemUrl: string): Promise<boolean> {
+    let remoteCover = '';
+    let bookTitle = '';
+    for (let i = 0; i < this.bookshelf.length; i++) {
+      if (this.bookshelf[i].url === itemUrl) {
+        bookTitle = this.bookshelf[i].title;
+        const rc = this.bookshelf[i].remoteCover;
+        if (rc !== undefined && rc.length > 0) {
+          remoteCover = rc;
+        } else {
+          remoteCover = this.bookshelf[i].cover;
+        }
+        break;
+      }
+    }
+    if (remoteCover.length === 0) {
+      for (let i = 0; i < this.history.length; i++) {
+        if (this.history[i].url === itemUrl) {
+          if (bookTitle.length === 0) bookTitle = this.history[i].title;
+          remoteCover = this.history[i].cover;
+          break;
+        }
+      }
+    }
+    const hasOnlineCover = /^https?:\/\//i.test(remoteCover);
+    if (hasOnlineCover) {
+      this.statusText = this.isEn() ? 'Updating cover from online...' : '正在从在线更新封面…';
+    } else {
+      this.statusText = this.isEn() ? 'Updating cover from local sources...' : '正在从本地校对更新封面…';
+    }
+    if (!hasOnlineCover) {
+      if (bookTitle.length > 0) {
+        const fallbackCover = await this.builtinCoverForTitle(bookTitle, itemUrl);
+        if (fallbackCover.length > 0) {
+          remoteCover = fallbackCover;
+        }
+      }
+    }
+    if (!/^https?:\/\//i.test(remoteCover)) {
+      this.statusText = this.t('cover_no_source');
+      return false;
+    }
+    const localPath = this.coverCacheDir + '/' + this.coverCacheName(remoteCover);
+    try {
+      if (fs.accessSync(localPath)) fs.unlinkSync(localPath);
+    } catch (ignored) {
+    }
+    this.cacheBookshelfCover(itemUrl, remoteCover);
+    this.statusText = this.t('cover_update_success');
+    return true;
+  }
+
+  private async builtinCoverForTitle(title: string, itemUrl: string): Promise<string> {
+    const verified = this.verifiedCoverForTitle(title);
+    if (verified && verified.coverUrl.startsWith('https://')) return verified.coverUrl;
+    const catalogItem = this.catalogItemForExactTitle(title);
+    if (catalogItem !== null) {
+      const coverFromCatalog = this.catalogItemCover(catalogItem);
+      if (coverFromCatalog.length > 0) return coverFromCatalog;
+      const source = this.preferredCatalogSource(catalogItem);
+      if (source !== null && source.coverUrl && source.coverUrl.length > 0) return source.coverUrl;
+    }
+    const rule = this.findRuleByUrl(itemUrl);
+    if (rule.id !== this.genericRule().id && rule.searchUrl.length > 0 && rule.searchItemRegex.length > 0) {
+      try {
+        const searchUrl = rule.searchUrl.replace('{query}', encodeURIComponent(title));
+        const html = await HttpClient.getText(searchUrl, rule.userAgent, rule.homepage);
+        const results = parseSearchResults(html, rule, searchUrl, title);
+        if (results.length > 0 && results[0].cover.length > 0) {
+          return results[0].cover;
+        }
+      } catch (e) {
+        console.error('ComicReader builtin cover fallback failed: ' + JSON.stringify(e));
+      }
+    }
+    const engine = this.selectedEngine();
+    if (isEngineConfigured(engine, this.braveApiKey, this.googleApiKey, this.googleCx)) {
+      try {
+        const engineResults = await this.fetchSearchEngineResults(engine, title, title);
+        const targetKey = this.searchTitleKey(title);
+        for (let i = 0; i < engineResults.length && i < 10; i++) {
+          const cand = engineResults[i];
+          const candKey = this.searchTitleKey(cand.title);
+          if (candKey !== targetKey && !(targetKey.length >= 2 && candKey.indexOf(targetKey) >= 0)) continue;
+          if (cand.cover.length > 0) return cand.cover;
+          const detailRule = this.ruleForItemUrl(cand.url, cand.sourceId);
+          const detailHtml = await HttpClient.getTextWithTimeout(cand.url, detailRule.userAgent,
+            detailRule.referer.length > 0 ? detailRule.referer : cand.url, 8000);
+          const imgs = parseImages(detailHtml, detailRule, cand.url);
+          if (imgs.length > 0) return imgs[0].url;
+        }
+      } catch (e) {
+        console.error('ComicReader builtin cover engine fallback failed: ' + JSON.stringify(e));
+      }
+    }
+    return '';
+  }
+
   private addCurrentToShelf(): void {
     if (this.currentUrl.length === 0) return;
+    const detailUrl = this.currentDetailUrl.length > 0 ? this.currentDetailUrl : this.currentUrl;
+    const readingChapter = this.mode === 'reader';
+    const existing = this.bookshelf.find((b: BookshelfItem) => b.url === detailUrl);
     const item: BookshelfItem = {
       title: this.currentTitle.length > 0 ? this.currentTitle : this.t('unnamed_comic'),
-      url: this.currentDetailUrl.length > 0 ? this.currentDetailUrl : this.currentUrl,
+      url: detailUrl,
       sourceId: this.currentSourceId,
       sourceName: this.currentSourceName,
       cover: this.currentCover,
       remoteCover: this.currentCover,
-      lastChapterTitle: this.currentChapterTitle,
-      lastChapterUrl: this.currentUrl,
+      lastChapterTitle: readingChapter ? this.currentChapterTitle : (existing ? existing.lastChapterTitle : ''),
+      lastChapterUrl: readingChapter ? this.currentUrl : (existing ? existing.lastChapterUrl : ''),
       addedAt: this.nowText(),
       lastReadAt: this.nowText(),
       imageCount: this.images.length,
@@ -2271,22 +2787,8 @@ struct Index {
   }
 
   private async openBookshelfItem(item: BookshelfItem): Promise<void> {
-    const rule = this.findRule(item.sourceId);
-    if (item.lastChapterUrl.length > 0) {
-      this.currentDetailUrl = item.url;
-      this.currentTitle = item.title;
-      this.currentCover = item.cover;
-      await this.loadDetail(item.url, item.title, rule);
-      const chapter = this.chapters.find((candidate: ChapterItem) => candidate.url === item.lastChapterUrl);
-      if (chapter) {
-        await this.loadChapter(chapter, this.findRule(chapter.sourceId));
-        return;
-      }
-      await this.loadChapter({ title: item.lastChapterTitle, url: item.lastChapterUrl, index: 1,
-        sourceId: item.sourceId, sourceName: item.sourceName }, rule);
-      return;
-    }
-    await this.loadDetail(item.url, item.title, rule);
+    await this.openBookUnified(item.url, item.title, item.sourceId, item.cover,
+      item.lastChapterUrl, item.lastChapterTitle);
   }
 
   private isCurrentFavorite(): boolean {
@@ -2309,6 +2811,17 @@ struct Index {
     this.selectedEngineIndex = (this.selectedEngineIndex + 1) % this.searchEngines.length;
   }
 
+  private closeAllExpandedExcept(keep: string): void {
+    if (keep !== 'theme') this.themeExpanded = false;
+    if (keep !== 'language') this.languageExpanded = false;
+    if (keep !== 'iconColor') this.iconColorExpanded = false;
+    if (keep !== 'search') this.searchExpanded = false;
+    if (keep !== 'sources') this.sourcesExpanded = false;
+    if (keep !== 'reader') this.readerExpanded = false;
+    if (keep !== 'engines') this.enginesExpanded = false;
+    if (keep !== 'rules') this.rulesExpanded = false;
+  }
+
   private nextSearchMode(): void {
     if (this.searchMode === 'mixed') this.searchMode = 'engine_only';
     else if (this.searchMode === 'engine_only') this.searchMode = 'api_only';
@@ -2321,7 +2834,7 @@ struct Index {
     else this.languageMode = 'chinese';
   }
 
-  private applyCustomRule(): void {
+  private applyCustomRule(): boolean {
     try {
       const value = JSON.parse(this.customRuleText) as ComicSourceRule | ComicSourceRule[];
       const parsed = Array.isArray(value) ? value : [value as ComicSourceRule];
@@ -2333,25 +2846,249 @@ struct Index {
         this.rebuildEffectiveRules();
         this.persistData();
         this.statusText = this.t('added_shelf');
+        return true;
       } else {
         this.statusText = this.t('chapter_failed');
+        return false;
       }
     } catch (err) {
       this.statusText = this.t('chapter_failed');
+      return false;
+    }
+  }
+
+  private editorTheme(): CodeEditorTheme {
+    return this.editorThemeCache;
+  }
+
+  private editorLines(): string[] {
+    return this.editorLinesCache;
+  }
+
+  private refreshEditorTheme(): void {
+    this.editorThemeCache = defaultEditorTheme(this.isDark());
+  }
+
+  private refreshEditorLines(): void {
+    if (this.editorFullscreen) {
+      if (this.editorReadOnly) this.editorLinesCache = this.ruleViewerText.split('\n');
+      else this.editorLinesCache = this.customRuleText.split('\n');
+    } else if (this.settingsDialog === 'advanced') this.editorLinesCache = this.customRuleText.split('\n');
+    else if (this.settingsDialog === 'rule_viewer') this.editorLinesCache = this.ruleViewerText.split('\n');
+    else this.editorLinesCache = [];
+    this.editorLineDataSource.updateData(this.editorLinesCache);
+  }
+
+  private editorValidate() {
+    let text: string;
+    if (this.editorFullscreen) {
+      text = this.editorReadOnly ? this.ruleViewerText : this.customRuleText;
+    } else {
+      text = this.settingsDialog === 'advanced' ? this.customRuleText : this.ruleViewerText;
+    }
+    const result = validateJson(text);
+    this.editorIsValid = result.valid;
+    this.editorError = result.error;
+  }
+
+  private editorUpdateSearch() {
+    this.editorSearchMatches = findSearchMatches(this.editorLines(), this.editorSearchQuery, this.editorUseRegex, this.editorCaseSensitive);
+    this.editorCurrentMatch = this.editorSearchMatches.length > 0 ? 0 : -1;
+  }
+
+  private editorJumpToMatch(idx: number) {
+    if (this.editorSearchMatches.length === 0) return;
+    const m = this.editorSearchMatches[idx];
+    this.editorScroller.scrollTo({ xOffset: 0, yOffset: m.lineIndex * 18 });
+    this.editorCursorLine = m.lineIndex;
+  }
+
+  private editorFormat() {
+    if (this.editorReadOnly) return;
+    if (this.settingsDialog !== 'advanced' && !this.editorFullscreen) return;
+    this.editorPushUndo();
+    const formatted = formatJson(this.customRuleText, this.editorIndentSize);
+    this.customRuleText = formatted;
+    this.refreshEditorLines();
+    this.editorValidate();
+  }
+
+  private editorPushUndo(): void {
+    this.editorUndoStack.push(this.customRuleText);
+    if (this.editorUndoStack.length > 50) this.editorUndoStack.shift();
+    this.editorRedoStack = [];
+    this.editorCanUndo = true;
+    this.editorCanRedo = false;
+  }
+
+  private editorUndo(): void {
+    if (this.editorUndoStack.length === 0) return;
+    this.editorRedoStack.push(this.customRuleText);
+    this.customRuleText = this.editorUndoStack.pop()!;
+    this.editorCanUndo = this.editorUndoStack.length > 0;
+    this.editorCanRedo = true;
+    this.refreshEditorLines();
+    this.editorValidate();
+  }
+
+  private editorRedo(): void {
+    if (this.editorRedoStack.length === 0) return;
+    this.editorUndoStack.push(this.customRuleText);
+    this.customRuleText = this.editorRedoStack.pop()!;
+    this.editorCanUndo = true;
+    this.editorCanRedo = this.editorRedoStack.length > 0;
+    this.refreshEditorLines();
+    this.editorValidate();
+  }
+
+  private editorCopyText(): void {
+  }
+
+  private editorPasteText(): void {
+    if (this.editorReadOnly) return;
+  }
+
+  private editorEditAtLine(line: number): void {
+    if (!this.editorReadOnly) return;
+    if (this.editorMode === 'blocked') {
+      this.customRuleText = JSON.stringify(this.blockedUrls, null, 2);
+    } else {
+      this.customRuleText = JSON.stringify(this.advancedRules, null, 2);
+    }
+    this.openEditorFullscreen(this.editorTitle, false);
+    this.editorCursorLine = line;
+    this.editorSelectedLine = line;
+  }
+
+  private editorSave(): void {
+    if (this.editorReadOnly) return;
+    if (this.editorMode === 'blocked') {
+      if (this.applyBlockedUrls()) {
+        this.editorFullscreen = false;
+        this.settingsDialog = '';
+        this.editorMode = 'advanced';
+        this.applyReaderFullscreen(false);
+      }
+      return;
+    }
+    if (this.applyCustomRule()) {
+      this.editorFullscreen = false;
+      this.settingsDialog = '';
+      this.applyReaderFullscreen(false);
+    }
+  }
+
+  private applyBlockedUrls(): boolean {
+    try {
+      const value = JSON.parse(this.customRuleText) as string[];
+      if (Array.isArray(value)) {
+        const valid: string[] = [];
+        for (let i = 0; i < value.length; i++) {
+          const s = String(value[i]).trim();
+          if (s.length > 0) valid.push(s);
+        }
+        this.blockedUrls = valid;
+        this.customRuleText = JSON.stringify(valid, null, 2);
+        this.persistData();
+        this.statusText = '已保存 ' + valid.length + ' 条屏蔽规则';
+        return true;
+      } else {
+        this.statusText = '格式错误：需要 JSON 数组';
+        return false;
+      }
+    } catch (err) {
+      this.statusText = '格式错误：JSON 解析失败';
+      return false;
+    }
+  }
+
+  private toggleBookmark(): void {
+    const idx = this.editorBookmarks.indexOf(this.editorCursorLine);
+    if (idx >= 0) {
+      this.editorBookmarks.splice(idx, 1);
+    } else {
+      this.editorBookmarks.push(this.editorCursorLine);
+    }
+  }
+
+  private nextBookmark(): void {
+    if (this.editorBookmarks.length === 0) return;
+    const sorted = [...this.editorBookmarks].sort((a: number, b: number) => a - b);
+    const next = sorted.find((bm: number) => bm > this.editorCursorLine);
+    const target = next !== undefined ? next : sorted[0];
+    this.editorCursorLine = target;
+    this.editorScroller.scrollTo({ xOffset: 0, yOffset: target * 20 });
+  }
+
+  private refreshEditorLinks(): void {
+    const text = this.editorReadOnly ? this.ruleViewerText : this.customRuleText;
+    const keys: string[] = [];
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
+      if (trimmed.startsWith('"')) {
+        const endQuote = trimmed.indexOf('"', 1);
+        if (endQuote > 0) {
+          const key = trimmed.substring(1, endQuote);
+          const after = trimmed.substring(endQuote + 1).trimStart();
+          if (after.startsWith(':')) {
+            if (keys.indexOf(key) < 0) keys.push(key);
+          }
+        }
+      }
+    }
+    this.editorLinksCache = keys;
+  }
+
+  private refreshEditorStats(): void {
+    const text = this.editorReadOnly ? this.ruleViewerText : this.customRuleText;
+    this.editorStatsLines = text.split('\n').length;
+    this.editorStatsWords = text.split(/\s+/).filter((s: string) => s.length > 0).length;
+    this.editorStatsChars = text.length;
+  }
+
+  private openEditorFullscreen(title: string, readOnly: boolean): void {
+    this.settingsDialog = '';
+    this.editorTitle = title;
+    this.editorReadOnly = readOnly;
+    this.editorMenuVisible = false;
+    this.editorSeekVisible = false;
+    this.editorBookmarks = [];
+    this.editorSearchVisible = false;
+    this.editorSearchQuery = '';
+    this.editorSearchMatches = [];
+    this.editorCurrentMatch = -1;
+    this.editorShowIndent = false;
+    this.editorCursorLine = 0;
+    this.editorCol = 0;
+    this.editorSelectedLine = 0;
+    this.editorLinksVisible = false;
+    this.editorStatsVisible = false;
+    this.editorColorPickerVisible = false;
+    this.editorPreviewVisible = false;
+    this.refreshEditorTheme();
+    if (readOnly) this.editorLinesCache = this.ruleViewerText.split('\n');
+    else this.editorLinesCache = this.customRuleText.split('\n');
+    this.editorLineDataSource.updateData(this.editorLinesCache);
+    this.editorLineNumberWidth = Math.max(12, this.editorLinesCache.length.toString().length * 8);
+    const text = readOnly ? this.ruleViewerText : this.customRuleText;
+    const result = validateJson(text);
+    this.editorIsValid = result.valid;
+    this.editorError = result.error;
+    this.editorFullscreen = true;
+    this.applyReaderFullscreen(true);
+    if (!readOnly) {
+      setTimeout(() => {
+        try {
+          this.getUIContext().getFocusController().requestFocus('customRuleTextArea');
+        } catch (e) {}
+      }, 120);
     }
   }
 
   private rebuildEffectiveRules(): void {
     const withAdvanced = RemoteRuleService.mergeRules(DEFAULT_SOURCES, this.advancedRules);
-    this.rules = RemoteRuleService.mergeRules(withAdvanced, this.onlineRules);
-  }
-
-  private jsonLineColor(line: string): string {
-    const value = line.trim();
-    if (value.startsWith('"') && value.indexOf(':') > 0) return this.iconColor('ic_rule');
-    if (value.indexOf('true') >= 0 || value.indexOf('false') >= 0 || value.indexOf('null') >= 0) return '#E06C75';
-    if (/^-?\d/.test(value)) return '#D19A66';
-    return this.secondaryText();
+    this.rules = RemoteRuleService.mergeRules(this.onlineRules, withAdvanced);
   }
 
   private toggleTheme(): void {
@@ -2719,7 +3456,7 @@ struct Index {
         Text(item.title.substring(0, 1))
           .fontSize(32)
           .fontWeight(FontWeight.Bold)
-          .fontColor(this.accent())
+          .fontColor(this.colorfulAccent('avatar-' + item.title))
         Text(this.t('no_cover'))
           .fontSize(11)
           .fontColor(this.secondaryText())
@@ -2745,6 +3482,9 @@ struct Index {
           Text(this.t('comic_tag')).fontSize(11).fontColor('#FFFFFF').padding({ left: 8, right: 8, top: 3, bottom: 3 }).backgroundColor(this.actionBg()).borderRadius(10)
           Text(this.hostOf(item.url)).fontSize(11).fontColor(this.secondaryText()).layoutWeight(1).margin({ left: 8 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }.width('100%').margin({ top: 7 })
+        if (this.showDebugInfo) {
+          Text('来源: ' + item.sourceName + ' (' + item.sourceId + ')').fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').margin({ top: 3 })
+        }
       }.layoutWeight(1).margin({ left: 12 })
     }
     .width('100%')
@@ -2763,6 +3503,17 @@ struct Index {
     Scroll(this.searchResultsScroller) {
       Column() {
         Column() {}.width('100%').height(this.contentTopInset())
+        if (this.showDebugInfo) {
+          Row() {
+            Text('Results: ' + this.results.length).fontSize(10).fontColor(this.colorfulValue('debug-Results'))
+            Text('Loading: ' + this.isLoading).fontSize(10).fontColor(this.colorfulValue('debug-Loading')).margin({ left: 8 })
+            Text('Mode: ' + this.searchMode).fontSize(10).fontColor(this.colorfulValue('debug-SearchMode')).margin({ left: 8 })
+            Text('Engine: ' + this.selectedEngine().name).fontSize(10).fontColor(this.colorfulValue('debug-Engine')).margin({ left: 8 })
+            Text('Rules: ' + this.rules.length).fontSize(10).fontColor(this.colorfulValue('debug-Rules')).margin({ left: 8 })
+            Text('AllEng: ' + this.searchAllEngines).fontSize(10).fontColor(this.colorfulValue('debug-AllEng')).margin({ left: 8 })
+            Text('History: ' + this.history.length).fontSize(10).fontColor(this.colorfulValue('debug-History')).margin({ left: 8 })
+          }.width('100%').padding({ left: 14, right: 14, top: 2, bottom: 2 })
+        }
         if (this.results.length === 0) {
           Text(this.isLoading ? this.t('searching_sources') : this.t('no_results'))
             .fontSize(14)
@@ -2787,12 +3538,24 @@ struct Index {
     Stack() {
       List({ scroller: this.chapterScroller, space: 8 }) {
           ListItem() { Column() {}.width('100%').height(this.headerOverlayHeight()) }
+          if (this.showDebugInfo) {
+            ListItem() {
+              Row() {
+                Text('Chapters: ' + this.chapters.length).fontSize(10).fontColor(this.colorfulValue('debug-Chapters'))
+                Text('Loading: ' + this.detailLoading).fontSize(10).fontColor(this.colorfulValue('debug-DetailLoading')).margin({ left: 8 })
+                Text('Reversed: ' + this.chapterReversed).fontSize(10).fontColor(this.colorfulValue('debug-Reversed')).margin({ left: 8 })
+                Text('SrcId: ' + this.currentSourceId).fontSize(10).fontColor(this.colorfulValue('debug-SrcId')).margin({ left: 8 })
+                Text('SrcName: ' + this.currentSourceName).fontSize(10).fontColor(this.colorfulValue('debug-SrcName')).margin({ left: 8 })
+                Text('DetailUrl: ' + this.currentDetailUrl).fontSize(10).fontColor(this.colorfulValue('debug-DetailUrl')).margin({ left: 8 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+              }.width('100%').padding({ left: 14, right: 14 })
+            }
+          }
           if (this.detailLoading) {
             ListItem() {
               Column({ space: 6 }) {
                 Progress({ value: this.detailTotalBytes > 0
                   ? Math.min(100, Math.floor(this.detailReceivedBytes * 100 / this.detailTotalBytes)) : 0,
-                  total: 100, type: ProgressType.Linear }).width('100%').height(6).color(this.accent())
+                  total: 100, type: ProgressType.Linear }).width('100%').height(6).color(this.colorfulAccent('progress-detail'))
                 Text(this.detailProgressText()).fontSize(12).fontColor(this.secondaryText()).width('100%')
               }.width('100%').padding({ bottom: 2 })
             }
@@ -2808,16 +3571,17 @@ struct Index {
                 Row() {
                   Text(chapter.title.trim().length > 0 ? chapter.title : this.t('chapter_list') + ' ' + chapter.index)
                     .fontSize(15)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor(this.primaryText())
+                    .fontWeight(chapter.url === this.currentUrl ? FontWeight.Bold : FontWeight.Medium)
+                    .fontColor(chapter.url === this.currentUrl ? this.colorfulAccent('chapter-' + chapter.url) : this.primaryText())
                     .layoutWeight(1)
                     .maxLines(2)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                 }
                 .width('100%')
                 .padding(12)
-                .backgroundColor(this.cardBg())
+                .backgroundColor(chapter.url === this.currentUrl ? this.selectedSoftBg() : this.cardBg())
                 .borderRadius(10)
+                .border({ width: chapter.url === this.currentUrl ? 2 : 0, color: this.colorfulAccent('chapter-' + chapter.url) })
               }
               .onClick(() => this.loadChapter(chapter, this.findRule(chapter.sourceId)))
             }, (chapter: ChapterItem) => chapter.url)
@@ -2836,8 +3600,8 @@ struct Index {
             .fontSize(19).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
             .margin({ left: 6 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           Text(this.chapterReversed ? this.t('chapter_ascending') : this.t('chapter_descending'))
-            .fontSize(13).fontColor(this.accent()).padding({ left: 10, right: 10, top: 6, bottom: 6 })
-            .border({ width: 1, color: this.accent() }).borderRadius(14)
+            .fontSize(13).fontColor(this.colorfulAccent('btn-chapter-order')).padding({ left: 10, right: 10, top: 6, bottom: 6 })
+            .border({ width: 1, color: this.colorfulAccent('btn-chapter-order') }).borderRadius(14)
             .onClick(() => { this.chapterReversed = !this.chapterReversed; this.persistData(); })
           Column() { Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_add_shelf'))) }
             .padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
@@ -2855,6 +3619,18 @@ struct Index {
     Stack() {
       Scroll() {
         Column() {
+          if (this.showDebugInfo) {
+            Row() {
+              Text('Images: ' + this.images.length).fontSize(10).fontColor(this.colorfulValue('debug-Images'))
+              Text('Render: ' + this.readerRenderLimit).fontSize(10).fontColor(this.colorfulValue('debug-Render')).margin({ left: 8 })
+              Text('Zoom: ' + this.readerZoomScale.toFixed(2)).fontSize(10).fontColor(this.colorfulValue('debug-Zoom')).margin({ left: 8 })
+              Text('MaxPages: ' + this.maxReaderPages).fontSize(10).fontColor(this.colorfulValue('debug-MaxPages')).margin({ left: 8 })
+              Text('ChapTitle: ' + this.currentChapterTitle).fontSize(10).fontColor(this.colorfulValue('debug-ChapIdx')).margin({ left: 8 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+              Text('SrcId: ' + this.currentSourceId).fontSize(10).fontColor(this.colorfulValue('debug-RdrSrcId')).margin({ left: 8 })
+              Text('Fullscreen: ' + this.fullscreenReader).fontSize(10).fontColor(this.colorfulValue('debug-Fullscreen')).margin({ left: 8 })
+              Text('Floating: ' + this.floatingReaderControls).fontSize(10).fontColor(this.colorfulValue('debug-Floating')).margin({ left: 8 })
+            }.width('100%').padding({ left: 14, right: 14, top: 2, bottom: 2 })
+          }
           ForEach(this.displayedReaderImages(), (item: ReaderImageItem) => {
             Column() {
               if (this.showImageIndex && item.status === 'error') {
@@ -2949,7 +3725,7 @@ struct Index {
               .linearGradient({ angle: 145, colors: this.readerControlGradient() })
               .border({ width: 1, color: this.borderSubtle() })
               .shadow({ radius: 8, color: '#28000000', offsetY: 3 })
-              .onClick(() => this.applyReaderFullscreen(!this.fullscreenReader))
+              .onClick(() => { this.fullscreenReader = !this.fullscreenReader; this.applyReaderFullscreen(this.fullscreenReader); this.persistData(); })
           }
           .width('100%').padding({ left: 10, right: 10, top: this.avoidStatusBarHeight + 8 })
 
@@ -3001,11 +3777,24 @@ struct Index {
       .fontWeight(FontWeight.Medium)
       .width('100%')
       .padding({ left: 4 })
-      .margin({ top: 18, bottom: 8 })
+      .margin({ top: 4, bottom: 8 })
   }
 
   @Builder
-  private LinkRow(icon: string, label: string, value: string, showTopBorder: boolean) {
+  private DebugInfoTag(info: string) {
+    if (this.showDebugInfo) {
+      Text(info)
+        .fontSize(10)
+        .fontColor(this.colorfulValue('debug-tag-' + info))
+        .backgroundColor(this.isDark() ? '#1A4CAF50' : '#0D4CAF50')
+        .borderRadius(4)
+        .padding({ left: 4, right: 4, top: 1, bottom: 1 })
+        .margin({ left: 4 })
+    }
+  }
+
+  @Builder
+  private LinkRow(icon: string, label: string, value: string, showTopBorder: boolean, arrowIcon?: string) {
     Row({ space: 12 }) {
       Stack() {
         Image($rawfile(icon + '.svg')).width(20).height(20)
@@ -3015,8 +3804,8 @@ struct Index {
         Text(label).fontSize(16).fontColor(this.primaryText()).width('100%')
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       Text(value).fontSize(13).fontColor(this.secondaryText()).textAlign(TextAlign.End)
-      Image($rawfile('ic_more.svg')).width(16).height(16)
-        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_more')))
+      Image($rawfile((arrowIcon ?? 'ic_chevron_right') + '.svg')).width(16).height(16)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor(icon)))
     }
     .width('100%')
     .height(56)
@@ -3024,7 +3813,7 @@ struct Index {
   }
 
   @Builder
-  private ToggleSettingRow(icon: string, label: string, isOn: boolean, showTopBorder: boolean) {
+  private ToggleSettingRow(icon: string, label: string, isOn: boolean, showTopBorder: boolean, onChange: (isOn: boolean) => void) {
     Row({ space: 12 }) {
       Stack() {
         Image($rawfile(icon + '.svg')).width(20).height(20)
@@ -3032,9 +3821,10 @@ struct Index {
       }.width(34).height(34)
       Text(label).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: isOn })
-        .selectedColor(this.accent())
+        .selectedColor(this.iconColor(icon))
         .switchPointColor('#FFFFFF')
         .constraintSize({ maxHeight: 32 })
+        .onChange(onChange)
     }
     .width('100%')
     .height(56)
@@ -3042,19 +3832,30 @@ struct Index {
   }
 
   @Builder
-  private ThemeOptionRow(mode: string, label: string, showTopBorder: boolean) {
-    Row({ space: 10 }) {
-      Stack() {
-        Circle().width(20).height(20).fill(Color.Transparent).stroke(this.appTheme === mode ? this.accent() : this.secondaryText()).strokeWidth(2)
-        if (this.appTheme === mode) {
-          Circle().width(12).height(12).fill(this.accent())
-        }
-      }.width(20).height(20)
-      Text(label).fontSize(16).fontColor(this.appTheme === mode ? this.accent() : this.primaryText()).layoutWeight(1)
+  private SelectOptionRow(label: string, isSelected: boolean, showTopBorder: boolean, onSelect: () => void) {
+    Row({ space: 0 }) {
+      Text(label).fontSize(16).fontColor(isSelected ? this.colorfulAccent('select-option-' + label) : this.primaryText()).layoutWeight(1).textAlign(TextAlign.Start).margin({ left: 16 })
     }
     .width('100%')
     .height(50)
-    .border(showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
+    .borderRadius(isSelected ? 8 : 0)
+    .border(isSelected
+      ? { width: 1.5, color: this.colorfulAccent('select-option-' + label), style: BorderStyle.Solid }
+      : showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
+    .onClick(onSelect)
+  }
+
+  @Builder
+  private ThemeOptionRow(mode: string, label: string, showTopBorder: boolean) {
+    Row({ space: 0 }) {
+      Text(label).fontSize(16).fontColor(this.appTheme === mode ? this.colorfulAccent('theme-' + mode) : this.primaryText()).layoutWeight(1).textAlign(TextAlign.Start).margin({ left: 16 })
+    }
+    .width('100%')
+    .height(50)
+    .borderRadius(this.appTheme === mode ? 8 : 0)
+    .border(this.appTheme === mode
+      ? { width: 1.5, color: this.colorfulAccent('theme-' + mode), style: BorderStyle.Solid }
+      : showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
     .onClick(() => {
       if (this.appTheme !== mode) {
         this.appTheme = mode;
@@ -3063,7 +3864,7 @@ struct Index {
         this.statusText = this.t('theme_switched');
         this.persistData();
       }
-      this.themeDialogVisible = false;
+      this.themeExpanded = false;
     })
   }
 
@@ -3077,47 +3878,43 @@ struct Index {
           Circle().width(5).height(18).fill('#00C7BE')
           Circle().width(5).height(18).fill('#5856D6')
           Circle().width(5).height(18).fill('#FF2D92')
-        }.width(30).height(20)
+        }.width(30).height(20).margin({ left: 11 })
       } else {
-        Circle().width(20).height(20).fill(this.iconModeColor(mode)).margin({ left: 5, right: 5 })
+        Circle().width(20).height(20).fill(this.iconModeColor(mode)).margin({ left: 16 })
       }
       Text(this.t('icon_color_' + mode)).fontSize(16)
-        .fontColor(this.iconColorMode === mode ? this.accent() : this.primaryText()).layoutWeight(1)
-      if (this.iconColorMode === mode) {
-        Image($rawfile('ic_check.svg')).width(18).height(18)
-          .colorFilter(createStrokeIconColorFilter(this.accent()))
-      }
+        .fontColor(this.iconColorMode === mode ? this.colorfulAccent('icon-mode-' + mode) : this.primaryText()).layoutWeight(1)
     }
     .width('100%')
-    .height(46)
-    .border(showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
+    .height(50)
+    .borderRadius(this.iconColorMode === mode ? 8 : 0)
+    .border(this.iconColorMode === mode
+      ? { width: 1.5, color: this.colorfulAccent('icon-mode-' + mode), style: BorderStyle.Solid }
+      : showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
     .onClick(() => {
       this.iconColorMode = mode;
       AppStorage.setOrCreate<number>('uiVersion', Date.now());
       this.persistData();
-      this.settingsDialog = '';
+      this.iconColorExpanded = false;
     })
   }
 
   @Builder
   private LanguageOptionRow(mode: string, label: string, showTopBorder: boolean) {
-    Row({ space: 10 }) {
-      Stack() {
-        Circle().width(20).height(20).fill(Color.Transparent).stroke(this.appLanguage === mode ? this.accent() : this.secondaryText()).strokeWidth(2)
-        if (this.appLanguage === mode) {
-          Circle().width(12).height(12).fill(this.accent())
-        }
-      }.width(20).height(20)
-      Text(label).fontSize(16).fontColor(this.appLanguage === mode ? this.accent() : this.primaryText()).layoutWeight(1)
+    Row({ space: 0 }) {
+      Text(label).fontSize(16).fontColor(this.appLanguage === mode ? this.colorfulAccent('lang-' + mode) : this.primaryText()).layoutWeight(1).textAlign(TextAlign.Start).margin({ left: 16 })
     }
     .width('100%')
     .height(50)
-    .border(showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
+    .borderRadius(this.appLanguage === mode ? 8 : 0)
+    .border(this.appLanguage === mode
+      ? { width: 1.5, color: this.colorfulAccent('lang-' + mode), style: BorderStyle.Solid }
+      : showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
     .onClick(() => {
       this.appLanguage = mode;
       this.refreshCatalogLanguageFilter();
       AppStorage.setOrCreate<number>('uiVersion', Date.now());
-      this.languageDialogVisible = false;
+      this.languageExpanded = false;
       this.persistData();
     })
   }
@@ -3151,24 +3948,50 @@ struct Index {
     Stack() {
       Scroll() {
         Column() {
-          Column() {}.width('100%').height(this.compactContentTopInset())
+          Column() {}.width('100%').height(this.avoidStatusBarHeight + 43)
 
+          if (this.showDebugInfo) {
+            Row() {
+              Text('Rules: ' + this.rules.length).fontSize(10).fontColor(this.colorfulValue('debug-RulesCount'))
+              Text('Online: ' + this.onlineRules.length).fontSize(10).fontColor(this.colorfulValue('debug-OnlineRules')).margin({ left: 8 })
+              Text('Engines: ' + this.searchEngines.length).fontSize(10).fontColor(this.colorfulValue('debug-EnginesCount')).margin({ left: 8 })
+              Text('AdvRules: ' + this.advancedRules.length).fontSize(10).fontColor(this.colorfulValue('debug-AdvRules')).margin({ left: 8 })
+              Text('Theme: ' + this.appTheme).fontSize(10).fontColor(this.colorfulValue('debug-Theme')).margin({ left: 8 })
+              Text('Lang: ' + this.appLanguage).fontSize(10).fontColor(this.colorfulValue('debug-Lang')).margin({ left: 8 })
+              Text('IconMode: ' + this.iconColorMode).fontSize(10).fontColor(this.colorfulValue('debug-IconMode')).margin({ left: 8 })
+              Text('CoverAcc: ' + (this.coverAccuracyIndex === null ? '0' : this.coverAccuracyIndex.count)).fontSize(10).fontColor(this.colorfulValue('debug-CoverAcc')).margin({ left: 8 })
+            }.width('100%').padding({ left: 18, right: 18, top: 2, bottom: 2 })
+          }
           this.SectionLabel(this.t('basic_settings'))
           Column({ space: 0 }) {
-            Column() { this.LinkRow('ic_moon', this.t('theme'), this.themeDisplay(), false) }.onClick(() => { this.themeDialogVisible = true; })
-            Column() { this.LinkRow('ic_language', this.t('language'), this.languageDisplay(), true) }.onClick(() => { this.languageDialogVisible = true; })
-            Column() { this.ToggleSettingRow('ic_fullscreen', this.t('reader_fullscreen'), this.fullscreenReader, true) }.onClick(() => { this.fullscreenReader = !this.fullscreenReader; this.persistData(); })
-            Column() { this.ToggleSettingRow('ic_layout', this.t('floating_controls'), this.floatingReaderControls, true) }.onClick(() => { this.floatingReaderControls = !this.floatingReaderControls; this.persistData(); })
-            Column() { this.LinkRow('ic_theme', this.t('icon_color'), this.iconColorModeDisplay(), true) }.onClick(() => { this.settingsDialog = 'icons'; })
+            Column() { this.LinkRow('ic_moon', this.t('theme'), this.themeDisplay(), false,
+              this.themeExpanded ? 'ic_chevron_up' : 'ic_chevron_down') }
+              .onClick(() => { this.themeExpanded = !this.themeExpanded; this.languageExpanded = false; this.iconColorExpanded = false; this.dlgSearchModeExpanded = false; this.dlgLangExpanded = false; this.dlgEngineExpanded = false; this.dlgReaderBgExpanded = false; this.dlgMaxResultsExpanded = false; this.dlgMaxPagesExpanded = false; })
+              .onAreaChange((_old: Area, newArea: Area) => {
+                this.themeRowBottom = Number(newArea.globalPosition.y) + Number(newArea.height);
+              })
+            Column() { this.LinkRow('ic_language', this.t('language'), this.languageDisplay(), true,
+              this.languageExpanded ? 'ic_chevron_up' : 'ic_chevron_down') }
+              .onClick(() => { this.languageExpanded = !this.languageExpanded; this.themeExpanded = false; this.iconColorExpanded = false; this.dlgSearchModeExpanded = false; this.dlgLangExpanded = false; this.dlgEngineExpanded = false; this.dlgReaderBgExpanded = false; this.dlgMaxResultsExpanded = false; this.dlgMaxPagesExpanded = false; })
+              .onAreaChange((_old: Area, newArea: Area) => {
+                this.languageRowBottom = Number(newArea.globalPosition.y) + Number(newArea.height);
+              })
+            Column() { this.ToggleSettingRow('ic_fullscreen', this.t('reader_fullscreen'), this.fullscreenReader, true, (isOn: boolean) => { this.fullscreenReader = isOn; this.persistData(); }) }
+            Column() { this.ToggleSettingRow('ic_layout', this.t('floating_controls'), this.floatingReaderControls, true, (isOn: boolean) => { this.floatingReaderControls = isOn; this.persistData(); }) }
+            Column() { this.LinkRow('ic_theme', this.t('icon_color'), this.iconColorModeDisplay(), true,
+              this.iconColorExpanded ? 'ic_chevron_up' : 'ic_chevron_down') }
+              .onClick(() => { this.iconColorExpanded = !this.iconColorExpanded; this.themeExpanded = false; this.languageExpanded = false; this.dlgSearchModeExpanded = false; this.dlgLangExpanded = false; this.dlgEngineExpanded = false; this.dlgReaderBgExpanded = false; this.dlgMaxResultsExpanded = false; this.dlgMaxPagesExpanded = false; })
+              .onAreaChange((_old: Area, newArea: Area) => {
+                this.iconColorRowBottom = Number(newArea.globalPosition.y) + Number(newArea.height);
+              })
           }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
 
           this.SectionLabel(this.t('app_settings'))
           Column({ space: 0 }) {
-            Column() { this.LinkRow('ic_search', this.t('search_menu'), this.searchModeDisplay() + ' · ' + this.selectedEngine().name, false) }.onClick(() => { this.settingsDialog = 'search'; })
-            Column() { this.LinkRow('ic_filter', this.t('source_switch'), this.enableSearchEngines ? this.t('enabled') : this.t('disabled'), true) }.onClick(() => { this.settingsDialog = 'sources'; })
-            Column() { this.LinkRow('ic_reading', this.t('display_reading'), this.t('reading_settings'), true) }.onClick(() => { this.settingsDialog = 'reader'; })
-            Column() { this.LinkRow('ic_engine', this.t('search_engine'), this.selectedEngine().name, true) }.onClick(() => { this.settingsDialog = 'engines'; })
-            Column() { this.LinkRow('ic_rule', this.t('rule_settings'), this.remoteRuleCount + this.t('rules_unit'), true) }.onClick(() => { this.settingsDialog = 'rules'; })
+            Column() { this.LinkRow('ic_search', this.t('search_menu'), this.searchModeDisplay() + ' · ' + this.selectedEngine().name, false) }.onClick(() => { this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; this.settingsDialog = 'search'; })
+            Column() { this.LinkRow('ic_filter', this.t('source_switch'), this.enableSearchEngines ? this.t('enabled') : this.t('disabled'), true) }.onClick(() => { this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; this.settingsDialog = 'sources'; })
+            Column() { this.LinkRow('ic_reading', this.t('display_reading'), this.t('reading_settings'), true) }.onClick(() => { this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; this.settingsDialog = 'reader'; })
+            Column() { this.LinkRow('ic_rule', this.t('rule_settings'), this.remoteRuleCount + this.t('rules_unit'), true) }.onClick(() => { this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; this.settingsDialog = 'rules'; })
           }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
 
           this.SectionLabel(this.t('data_update'))
@@ -3183,9 +4006,27 @@ struct Index {
                 .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_eye')))
               Text(this.t('debug_keep_screen_on')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
               Toggle({ type: ToggleType.Switch, isOn: this.debugKeepScreenOn })
-                .selectedColor(this.accent())
+                .selectedColor(this.iconColor('ic_eye'))
                 .switchPointColor('#FFFFFF')
+                .onChange((isOn: boolean) => {
+                  this.debugKeepScreenOn = isOn;
+                  this.applyKeepScreenOn();
+                  this.persistData();
+                })
             }.width('100%').height(50).onClick(() => { this.toggleDebugKeepScreenOn(); })
+            Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
+            Row({ space: 12 }) {
+              Image($rawfile('ic_bug.svg')).width(20).height(20)
+                .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_bug')))
+              Text(this.t('show_debug_info')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+              Toggle({ type: ToggleType.Switch, isOn: this.showDebugInfo })
+                .selectedColor(this.iconColor('ic_bug'))
+                .switchPointColor('#FFFFFF')
+                .onChange((isOn: boolean) => {
+                  this.showDebugInfo = isOn;
+                  this.persistData();
+                })
+            }.width('100%').height(50).onClick(() => { this.showDebugInfo = !this.showDebugInfo; this.persistData(); })
             Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
             Row({ space: 12 }) {
               Image($rawfile('ic_info.svg')).width(20).height(20)
@@ -3203,12 +4044,63 @@ struct Index {
           }.width('100%').padding({ left: 18, right: 18 }).backgroundColor(this.cardBg()).borderRadius(18)
           Blank().height(this.contentBottomInset())
         }.width('100%').constraintSize({ minHeight: '100%' }).padding(14)
+        .onClick(() => { this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; this.searchExpanded = false; this.sourcesExpanded = false; this.readerExpanded = false; this.enginesExpanded = false; this.rulesExpanded = false; })
       }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+      if (this.themeExpanded) {
+        Column({ space: 0 }) {
+          this.ThemeOptionRow('light', this.t('light'), false)
+          this.ThemeOptionRow('dark', this.t('dark'), true)
+          this.ThemeOptionRow('system', this.t('follow_system'), true)
+        }
+        .width('35%')
+        .backgroundColor(this.cardBg())
+        .borderRadius(12)
+        .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
+        .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+        .position({ x: '63%', y: this.themeRowBottom - this.settingsStackTop + 4 })
+        .zIndex(9999)
+      }
+      if (this.languageExpanded) {
+        Column({ space: 0 }) {
+          this.LanguageOptionRow('system', this.t('follow_system'), false)
+          this.LanguageOptionRow('zh', this.t('lang_zh'), true)
+          this.LanguageOptionRow('en', this.t('lang_en'), true)
+        }
+        .width('35%')
+        .backgroundColor(this.cardBg())
+        .borderRadius(12)
+        .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
+        .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+        .position({ x: '63%', y: this.languageRowBottom - this.settingsStackTop + 4 })
+        .zIndex(9999)
+      }
+      if (this.iconColorExpanded) {
+        Column({ space: 0 }) {
+          this.IconColorOptionRow('colorful', false)
+          this.IconColorOptionRow('red', true)
+          this.IconColorOptionRow('orange', true)
+          this.IconColorOptionRow('yellow', true)
+          this.IconColorOptionRow('green', true)
+          this.IconColorOptionRow('cyan', true)
+          this.IconColorOptionRow('blue', true)
+          this.IconColorOptionRow('indigo', true)
+          this.IconColorOptionRow('violet', true)
+          this.IconColorOptionRow('magenta', true)
+        }
+        .width('35%')
+        .backgroundColor(this.cardBg())
+        .borderRadius(12)
+        .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
+        .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+        .position({ x: '63%', y: this.iconColorRowBottom - this.settingsStackTop + 4 })
+        .zIndex(9999)
+      }
       if (this.settingsDialog.length > 0) this.SettingsDialog()
-      if (this.themeDialogVisible) this.ThemeDialog()
-      if (this.languageDialogVisible) this.LanguageDialog()
       if (this.updateDialogVisible) this.UpdateDialog()
     }.layoutWeight(1).backgroundColor(this.appBg())
+    .onAreaChange((_old: Area, newArea: Area) => {
+      this.settingsStackTop = Number(newArea.globalPosition.y);
+    })
   }
 
   @Builder
@@ -3216,8 +4108,6 @@ struct Index {
     Row() {
       Text(label).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
       Text(value).fontSize(13).fontColor(this.secondaryText())
-      Image($rawfile('ic_more.svg')).width(16).height(16)
-        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_more'))).margin({ left: 4 })
     }
     .width('100%')
     .height(50)
@@ -3225,13 +4115,14 @@ struct Index {
   }
 
   @Builder
-  private DialogToggleRow(label: string, isOn: boolean, showTopBorder: boolean) {
+  private DialogToggleRow(label: string, isOn: boolean, showTopBorder: boolean, onChange: (isOn: boolean) => void) {
     Row() {
       Text(label).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: isOn })
-        .selectedColor(this.accent())
+        .selectedColor(this.colorfulAccent('toggle-dialog'))
         .switchPointColor('#FFFFFF')
         .constraintSize({ maxHeight: 32 })
+        .onChange(onChange)
     }
     .width('100%')
     .height(50)
@@ -3252,112 +4143,314 @@ struct Index {
   }
 
   @Builder
+  private DialogExpandRow(label: string, value: string, isExpanded: boolean, showTopBorder: boolean, onToggle: () => void) {
+    Row() {
+      Text(label).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+      Text(value).fontSize(14).fontColor(this.colorfulAccent('dialog-value-' + label))
+      Image($rawfile(isExpanded ? 'ic_chevron_up.svg' : 'ic_chevron_down.svg')).width(16).height(16)
+        .colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+    }
+    .width('100%')
+    .height(50)
+    .border(showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
+    .onClick(onToggle)
+  }
+
+  @Builder
   private SettingsDialog() {
     Column() {
-      Column({ space: 16 }) {
-        if (this.settingsDialog === 'search') {
-          this.DialogHeader(this.t('search_menu'))
+      Stack() {
+        Column({ space: 16 }) {
+          if (this.settingsDialog === 'search') {
+            this.DialogHeader(this.t('search_menu'))
+            Column({ space: 0 }) {
+              Row() {
+                Text(this.t('search_mode')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+                Text(this.searchModeDisplay()).fontSize(14).fontColor(this.colorfulAccent('dialog-value-search_mode'))
+                Image($rawfile(this.dlgSearchModeExpanded ? 'ic_chevron_up.svg' : 'ic_chevron_down.svg')).width(16).height(16)
+                  .colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              }
+              .width('100%').height(50)
+              .onClick(() => { this.dlgSearchModeExpanded = !this.dlgSearchModeExpanded; this.dlgLangExpanded = false; this.dlgEngineExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
+            }.width('100%')
+            Column({ space: 0 }) {
+              Row() {
+                Text(this.t('language_pref')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+                Text(this.languageModeDisplay()).fontSize(14).fontColor(this.colorfulAccent('dialog-value-language_pref'))
+                Image($rawfile(this.dlgLangExpanded ? 'ic_chevron_up.svg' : 'ic_chevron_down.svg')).width(16).height(16)
+                  .colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              }
+              .width('100%').height(50)
+              .border({ width: { top: 1 }, color: this.borderSubtle() })
+              .onClick(() => { this.dlgLangExpanded = !this.dlgLangExpanded; this.dlgSearchModeExpanded = false; this.dlgEngineExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
+            }.width('100%')
+            Column({ space: 0 }) {
+              Row() {
+                Text(this.t('search_engine')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+                Text(this.selectedEngine().name).fontSize(14).fontColor(this.colorfulAccent('dialog-value-search_engine'))
+                Image($rawfile(this.dlgEngineExpanded ? 'ic_chevron_up.svg' : 'ic_chevron_down.svg')).width(16).height(16)
+                  .colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              }
+              .width('100%').height(50)
+              .border({ width: { top: 1 }, color: this.borderSubtle() })
+              .onClick(() => { this.dlgEngineExpanded = !this.dlgEngineExpanded; this.dlgSearchModeExpanded = false; this.dlgLangExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
+            }.width('100%')
+            if (this.selectedEngine().requiresKey) {
+              Column({ space: 8 }) {
+                Text(this.t('api_config')).fontSize(14).fontWeight(FontWeight.Bold).fontColor(this.colorfulAccent('api-config-label')).width('100%')
+                if (this.selectedEngine().engineType === 'brave-api') {
+                  TextInput({ placeholder: this.t('api_key_hint'), text: this.braveApiKey })
+                    .height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText())
+                    .backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 })
+                    .type(InputType.Password)
+                    .onChange((value: string) => { this.braveApiKey = value; this.persistData(); })
+                }
+                if (this.selectedEngine().engineType === 'google-cse-api') {
+                  TextInput({ placeholder: this.t('api_key_hint'), text: this.googleApiKey })
+                    .height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText())
+                    .backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 })
+                    .type(InputType.Password)
+                    .onChange((value: string) => { this.googleApiKey = value; this.persistData(); })
+                  TextInput({ placeholder: this.t('google_cx_hint'), text: this.googleCx })
+                    .height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText())
+                    .backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 })
+                    .onChange((value: string) => { this.googleCx = value; this.persistData(); })
+                }
+              }
+              .width('100%')
+              .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+              .borderRadius(12)
+              .backgroundColor(this.inputBg())
+            }
+            Column() { this.DialogToggleRow(this.t('all_engines'), this.searchAllEngines, true, (isOn: boolean) => { this.searchAllEngines = isOn; this.persistData(); }) }.onClick(() => { this.searchAllEngines = !this.searchAllEngines; this.persistData(); })
+            TextInput({ placeholder: this.t('extra_terms'), text: this.extraSearchTerms }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.extraSearchTerms = value; })
+            TextInput({ placeholder: this.t('site_hint'), text: this.siteHint }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.siteHint = value; })
+          } else if (this.settingsDialog === 'sources') {
+            this.DialogHeader(this.t('source_switch'))
+            Column({ space: 0 }) {
+              Column() { this.DialogToggleRow(this.t('search_engine'), this.enableSearchEngines, false, (isOn: boolean) => { this.enableSearchEngines = isOn; this.persistData(); }) }.onClick(() => { this.enableSearchEngines = !this.enableSearchEngines; this.persistData(); })
+              Column() { this.DialogToggleRow(this.t('html_rules'), this.enableHtmlRules, true, (isOn: boolean) => { this.enableHtmlRules = isOn; this.persistData(); }) }.onClick(() => { this.enableHtmlRules = !this.enableHtmlRules; this.persistData(); })
+              Column() { this.DialogLinkRow(this.t('remote_rules'), this.remoteRuleCount + this.t('rules_unit'), true) }.onClick(() => this.updateRemoteRules())
+            }.width('100%')
+            Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
+          } else if (this.settingsDialog === 'reader') {
+            this.DialogHeader(this.t('display_reading'))
+            Column({ space: 0 }) {
+              Column() { this.DialogToggleRow(this.t('auto_cover'), this.autoCoverEnabled, false, (isOn: boolean) => { this.autoCoverEnabled = isOn; this.persistData(); }) }.onClick(() => { this.autoCoverEnabled = !this.autoCoverEnabled; this.persistData(); })
+              Column() { this.DialogToggleRow(this.t('show_page_num'), this.showImageIndex, true, (isOn: boolean) => { this.showImageIndex = isOn; this.persistData(); }) }.onClick(() => { this.showImageIndex = !this.showImageIndex; this.persistData(); })
+            }.width('100%')
+            Column({ space: 0 }) {
+              Row() {
+                Text(this.t('reading_bg')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+                Text(this.readerDarkMode ? this.t('dark_color') : this.t('light_color')).fontSize(14).fontColor(this.colorfulAccent('dialog-value-reading_bg'))
+                Image($rawfile(this.dlgReaderBgExpanded ? 'ic_chevron_up.svg' : 'ic_chevron_down.svg')).width(16).height(16)
+                  .colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              }
+              .width('100%').height(50)
+              .border({ width: { top: 1 }, color: this.borderSubtle() })
+              .onClick(() => { this.dlgReaderBgExpanded = !this.dlgReaderBgExpanded; this.dlgMaxResultsExpanded = false; this.dlgMaxPagesExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
+            }.width('100%')
+            Column({ space: 0 }) {
+              Row() {
+                Text(this.t('max_results')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+                Text(this.maxSearchResults + this.t('items_unit')).fontSize(14).fontColor(this.colorfulAccent('dialog-value-max_results'))
+                Image($rawfile(this.dlgMaxResultsExpanded ? 'ic_chevron_up.svg' : 'ic_chevron_down.svg')).width(16).height(16)
+                  .colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              }
+              .width('100%').height(50)
+              .border({ width: { top: 1 }, color: this.borderSubtle() })
+              .onClick(() => { this.dlgMaxResultsExpanded = !this.dlgMaxResultsExpanded; this.dlgReaderBgExpanded = false; this.dlgMaxPagesExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
+            }.width('100%')
+            Column({ space: 0 }) {
+              Row() {
+                Text(this.t('chapter_pages')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+                Text(this.maxReaderPages + this.t('pages_unit')).fontSize(14).fontColor(this.colorfulAccent('dialog-value-chapter_pages'))
+                Image($rawfile(this.dlgMaxPagesExpanded ? 'ic_chevron_up.svg' : 'ic_chevron_down.svg')).width(16).height(16)
+                  .colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              }
+              .width('100%').height(50)
+              .border({ width: { top: 1 }, color: this.borderSubtle() })
+              .onClick(() => { this.dlgMaxPagesExpanded = !this.dlgMaxPagesExpanded; this.dlgReaderBgExpanded = false; this.dlgMaxResultsExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
+            }.width('100%')
+          } else if (this.settingsDialog === 'rules') {
+            this.DialogHeader(this.t('rule_settings'))
+            Column({ space: 0 }) {
+              Column() { this.DialogLinkRow(this.t('built_in_rules'), (VERIFIED_DOMAIN_COUNT + PUBLIC_ACCESS_DOMAIN_COUNT) + this.t('rules_unit'), false) }.onClick(() => {
+                this.editorMode = 'advanced';
+                this.editorEditable = false;
+                this.ruleViewerTitle = this.t('built_in_rules');
+                this.ruleViewerText = this.buildBuiltinRulesSummary();
+                this.openEditorFullscreen(this.ruleViewerTitle, true);
+              })
+              Column() { this.DialogLinkRow(this.t('advanced_rules'), this.advancedRules.length + this.t('rules_unit'), true) }.onClick(() => {
+                this.editorMode = 'advanced';
+                this.editorEditable = true;
+                this.ruleViewerTitle = this.t('advanced_rules');
+                this.ruleViewerText = JSON.stringify(this.advancedRules, null, 2);
+                this.openEditorFullscreen(this.ruleViewerTitle, true);
+              })
+              Column() { this.DialogLinkRow(this.t('remote_rules'), this.onlineRules.length + this.t('rules_unit'), true) }.onClick(() => {
+                this.editorMode = 'advanced';
+                this.editorEditable = false;
+                this.ruleViewerTitle = this.t('remote_rules');
+                this.ruleViewerText = JSON.stringify(this.onlineRules, null, 2);
+                this.openEditorFullscreen(this.ruleViewerTitle, true);
+              })
+              Column() { this.DialogLinkRow('屏蔽列表', this.blockedUrls.length + ' 条', true) }.onClick(() => {
+                this.editorMode = 'blocked';
+                this.editorEditable = true;
+                this.customRuleText = JSON.stringify(this.blockedUrls, null, 2);
+                this.openEditorFullscreen('屏蔽列表', false);
+              })
+              Column() { this.DialogLinkRow(this.t('cover_accuracy'), this.coverAccuracyIndex === null ? '0' : this.coverAccuracyIndex.count.toString(), true) }.onClick(() => this.updateCoverAccuracy())
+            }.width('100%')
+            Button(this.updatingRules ? '更新中...' : '更新远程规则')
+              .width('100%').height(38).fontSize(14).fontColor('#FFFFFF')
+              .backgroundColor(this.updatingRules ? this.borderSubtle() : this.actionBg())
+              .borderRadius(10).margin({ top: 8 })
+              .onClick(() => { if (!this.updatingRules) this.updateRemoteRules(); })
+            TextInput({ placeholder: this.t('remote_url'), text: this.remoteRuleUrl }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.remoteRuleUrl = value; })
+            Text(this.t('online_rule_changes')).fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').margin({ top: 8 })
+            Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
+            Text(this.coverAccuracyStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
+          } else {
+            this.DialogHeader(this.t('advanced_rules'))
+            Button(this.t('enabled'))
+              .width('100%')
+              .height(42)
+              .fontSize(15)
+              .fontColor('#FFFFFF')
+              .backgroundColor(this.actionBg())
+              .borderRadius(12)
+              .margin({ top: 10 })
+              .onClick(() => this.applyCustomRule())
+          }
+        }
+        .width('100%')
+        .padding(14)
+        .backgroundColor(this.cardBg())
+        .borderRadius(16)
+        .shadow({ radius: 20, color: '#18000000', offsetX: 0, offsetY: 4 })
+        .onClick(() => {
+          if (this.dlgSearchModeExpanded || this.dlgLangExpanded || this.dlgEngineExpanded ||
+            this.dlgReaderBgExpanded || this.dlgMaxResultsExpanded || this.dlgMaxPagesExpanded) {
+            this.dlgSearchModeExpanded = false;
+            this.dlgLangExpanded = false;
+            this.dlgEngineExpanded = false;
+            this.dlgReaderBgExpanded = false;
+            this.dlgMaxResultsExpanded = false;
+            this.dlgMaxPagesExpanded = false;
+          }
+        })
+
+        if (this.dlgSearchModeExpanded) {
           Column({ space: 0 }) {
-            Column() { this.DialogLinkRow(this.t('search_mode'), this.searchModeDisplay(), false) }.onClick(() => this.nextSearchMode())
-            Column() { this.DialogLinkRow(this.t('current_engine'), this.selectedEngine().name, true) }.onClick(() => this.cycleEngine())
-            Column() { this.DialogToggleRow(this.t('all_engines'), this.searchAllEngines, true) }.onClick(() => { this.searchAllEngines = !this.searchAllEngines; })
-            Column() { this.DialogLinkRow(this.t('language_pref'), this.languageModeDisplay(), true) }.onClick(() => this.nextLanguageMode())
-          }.width('100%').padding({ left: 4, right: 4 })
-          TextInput({ placeholder: this.t('extra_terms'), text: this.extraSearchTerms }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.extraSearchTerms = value; })
-          TextInput({ placeholder: this.t('site_hint'), text: this.siteHint }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.siteHint = value; })
-        } else if (this.settingsDialog === 'sources') {
-          this.DialogHeader(this.t('source_switch'))
+            this.SelectOptionRow(this.t('mixed'), this.searchMode === 'mixed', false, () => { this.searchMode = 'mixed'; this.persistData(); this.dlgSearchModeExpanded = false; })
+            this.SelectOptionRow(this.t('engine_only'), this.searchMode === 'engine_only', true, () => { this.searchMode = 'engine_only'; this.persistData(); this.dlgSearchModeExpanded = false; })
+            this.SelectOptionRow(this.t('api_only'), this.searchMode === 'api_only', true, () => { this.searchMode = 'api_only'; this.persistData(); this.dlgSearchModeExpanded = false; })
+          }
+          .width('35%')
+          .backgroundColor(this.cardBg())
+          .borderRadius(12)
+          .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
+          .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+          .position({ x: '63%', y: 78 })
+          .zIndex(9999)
+        }
+        if (this.dlgLangExpanded) {
           Column({ space: 0 }) {
-            Column() { this.DialogToggleRow(this.t('search_engine'), this.enableSearchEngines, false) }.onClick(() => { this.enableSearchEngines = !this.enableSearchEngines; })
-            Column() { this.DialogToggleRow(this.t('html_rules'), this.enableHtmlRules, true) }.onClick(() => { this.enableHtmlRules = !this.enableHtmlRules; })
-            Column() { this.DialogLinkRow(this.t('remote_rules'), this.remoteRuleCount + this.t('rules_unit'), true) }.onClick(() => this.updateRemoteRules())
-          }.width('100%').padding({ left: 4, right: 4 })
-          Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
-        } else if (this.settingsDialog === 'icons') {
-          this.DialogHeader(this.t('icon_color'))
-          Column({ space: 0 }) {
-            this.IconColorOptionRow('colorful', false)
-            this.IconColorOptionRow('red', true)
-            this.IconColorOptionRow('orange', true)
-            this.IconColorOptionRow('yellow', true)
-            this.IconColorOptionRow('green', true)
-            this.IconColorOptionRow('cyan', true)
-            this.IconColorOptionRow('blue', true)
-            this.IconColorOptionRow('indigo', true)
-            this.IconColorOptionRow('violet', true)
-            this.IconColorOptionRow('magenta', true)
-          }.width('100%').padding({ left: 4, right: 4 })
-        } else if (this.settingsDialog === 'reader') {
-          this.DialogHeader(this.t('display_reading'))
-          Column({ space: 0 }) {
-            Column() { this.DialogToggleRow(this.t('auto_cover'), this.autoCoverEnabled, false) }.onClick(() => { this.autoCoverEnabled = !this.autoCoverEnabled; })
-            Column() { this.DialogToggleRow(this.t('show_page_num'), this.showImageIndex, true) }.onClick(() => { this.showImageIndex = !this.showImageIndex; })
-            Column() { this.DialogLinkRow(this.t('reading_bg'), this.readerDarkMode ? this.t('dark_color') : this.t('light_color'), true) }.onClick(() => { this.readerDarkMode = !this.readerDarkMode; })
-            Column() { this.DialogLinkRow(this.t('max_results'), this.maxSearchResults + this.t('items_unit'), true) }.onClick(() => {
-              this.maxSearchResults = this.maxSearchResults === 40 ? 80 : (this.maxSearchResults === 80 ? 160 : 40);
-            })
-            Column() { this.DialogLinkRow(this.t('chapter_pages'), this.maxReaderPages + this.t('pages_unit'), true) }.onClick(() => { this.maxReaderPages = this.maxReaderPages === 30 ? 50 : 30; })
-          }.width('100%').padding({ left: 4, right: 4 })
-        } else if (this.settingsDialog === 'engines') {
-          this.DialogHeader(this.t('search_engine'))
-          Column({ space: 0 }) {
-            Column() { this.DialogLinkRow(this.t('current_engine'), this.selectedEngine().name, false) }.onClick(() => this.cycleEngine())
-            ForEach(this.searchEngines, (engine: SearchEngineConfig, index: number) => {
-              Column() { this.DialogToggleRow(engine.name, engine.enabled, index > 0 || true) }.onClick(() => { engine.enabled = !engine.enabled; })
-            }, (engine: SearchEngineConfig) => engine.id)
-          }.width('100%').padding({ left: 4, right: 4 })
-        } else if (this.settingsDialog === 'rules') {
-          this.DialogHeader(this.t('rule_settings'))
-          Column({ space: 0 }) {
-            Column() { this.DialogLinkRow(this.t('built_in_rules'), DEFAULT_SOURCES.length + this.t('rules_unit'), false) }
-            Column() { this.DialogLinkRow(this.t('advanced_rules'), this.advancedRules.length + this.t('rules_unit'), true) }.onClick(() => { this.settingsDialog = 'advanced'; })
-            Column() { this.DialogLinkRow(this.t('remote_rules'), this.onlineRules.length + this.t('rules_unit'), true) }.onClick(() => this.updateRemoteRules())
-            Column() { this.DialogLinkRow(this.t('cover_accuracy'), this.coverAccuracyIndex === null ? '0' : this.coverAccuracyIndex.count.toString(), true) }.onClick(() => this.updateCoverAccuracy())
-          }.width('100%').padding({ left: 4, right: 4 })
-          TextInput({ placeholder: this.t('remote_url'), text: this.remoteRuleUrl }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.remoteRuleUrl = value; })
-          Text(this.t('online_rule_changes')).fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').margin({ top: 8 })
-          Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
-          Text(this.coverAccuracyStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
-        } else {
-          this.DialogHeader(this.t('advanced_rules'))
-          TextArea({ placeholder: this.t('custom_json'), text: this.customRuleText })
-            .height(300).fontSize(13).fontFamily('monospace').fontColor(this.primaryText())
-            .placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding(10)
-            .onChange((value: string) => { this.customRuleText = value; })
-          Text(this.isEn() ? 'Syntax highlighted preview' : '语法高亮预览')
-            .fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%')
+            this.SelectOptionRow(this.t('chinese'), this.languageMode === 'chinese', false, () => { this.languageMode = 'chinese'; this.persistData(); this.dlgLangExpanded = false; })
+            this.SelectOptionRow(this.t('english'), this.languageMode === 'english', true, () => { this.languageMode = 'english'; this.persistData(); this.dlgLangExpanded = false; })
+            this.SelectOptionRow(this.t('auto'), this.languageMode === 'auto', true, () => { this.languageMode = 'auto'; this.persistData(); this.dlgLangExpanded = false; })
+          }
+          .width('35%')
+          .backgroundColor(this.cardBg())
+          .borderRadius(12)
+          .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
+          .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+          .position({ x: '63%', y: 128 })
+          .zIndex(9999)
+        }
+        if (this.dlgEngineExpanded) {
           Scroll() {
-            Column() {
-              ForEach(this.customRuleText.split('\n'), (line: string, index: number) => {
-                Text((index + 1) + '  ' + line).fontSize(11).fontFamily('monospace')
-                  .fontColor(this.jsonLineColor(line)).width('100%').maxLines(1)
-              }, (line: string, index: number) => index + '_' + line)
-            }.width('100%').alignItems(HorizontalAlign.Start)
-          }.height(140).width('100%').backgroundColor(this.inputBg()).borderRadius(12).padding(8)
-          Button(this.t('enabled'))
-            .width('100%')
-            .height(42)
-            .fontSize(15)
-            .fontColor('#FFFFFF')
-            .backgroundColor(this.actionBg())
-            .borderRadius(12)
-            .margin({ top: 10 })
-            .onClick(() => this.applyCustomRule())
+            Column({ space: 0 }) {
+              ForEach(this.searchEngines, (engine: SearchEngineConfig, index: number) => {
+                this.SelectOptionRow(engine.name, this.selectedEngineIndex === index, index > 0,
+                  () => { this.selectedEngineIndex = index; this.persistData(); this.dlgEngineExpanded = false; })
+              }, (engine: SearchEngineConfig) => engine.id)
+            }
+          }
+          .scrollable(ScrollDirection.Vertical)
+          .scrollBar(BarState.Auto)
+          .constraintSize({ maxHeight: 300 })
+          .width('35%')
+          .backgroundColor(this.cardBg())
+          .borderRadius(12)
+          .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
+          .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+          .position({ x: '63%', y: 178 })
+          .zIndex(9999)
+        }
+        if (this.dlgReaderBgExpanded) {
+          Column({ space: 0 }) {
+            this.SelectOptionRow(this.t('dark_color'), this.readerDarkMode, false, () => { this.readerDarkMode = true; this.persistData(); this.dlgReaderBgExpanded = false; })
+            this.SelectOptionRow(this.t('light_color'), !this.readerDarkMode, true, () => { this.readerDarkMode = false; this.persistData(); this.dlgReaderBgExpanded = false; })
+          }
+          .width('35%')
+          .backgroundColor(this.cardBg())
+          .borderRadius(12)
+          .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
+          .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+          .position({ x: '63%', y: 178 })
+          .zIndex(9999)
+        }
+        if (this.dlgMaxResultsExpanded) {
+          Column({ space: 0 }) {
+            this.SelectOptionRow('40' + this.t('items_unit'), this.maxSearchResults === 40, false, () => { this.maxSearchResults = 40; this.persistData(); this.dlgMaxResultsExpanded = false; })
+            this.SelectOptionRow('80' + this.t('items_unit'), this.maxSearchResults === 80, true, () => { this.maxSearchResults = 80; this.persistData(); this.dlgMaxResultsExpanded = false; })
+            this.SelectOptionRow('160' + this.t('items_unit'), this.maxSearchResults === 160, true, () => { this.maxSearchResults = 160; this.persistData(); this.dlgMaxResultsExpanded = false; })
+          }
+          .width('35%')
+          .backgroundColor(this.cardBg())
+          .borderRadius(12)
+          .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
+          .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+          .position({ x: '63%', y: 228 })
+          .zIndex(9999)
+        }
+        if (this.dlgMaxPagesExpanded) {
+          Column({ space: 0 }) {
+            this.SelectOptionRow('30' + this.t('pages_unit'), this.maxReaderPages === 30, false, () => { this.maxReaderPages = 30; this.persistData(); this.dlgMaxPagesExpanded = false; })
+            this.SelectOptionRow('50' + this.t('pages_unit'), this.maxReaderPages === 50, true, () => { this.maxReaderPages = 50; this.persistData(); this.dlgMaxPagesExpanded = false; })
+          }
+          .width('35%')
+          .backgroundColor(this.cardBg())
+          .borderRadius(12)
+          .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
+          .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+          .position({ x: '63%', y: 278 })
+          .zIndex(9999)
         }
       }
-      .width(this.settingsDialog === 'advanced' ? '94%' : '72%')
-      .padding(14)
-      .backgroundColor(this.cardBg())
-      .borderRadius(16)
-      .shadow({ radius: 20, color: '#18000000', offsetX: 0, offsetY: 4 })
+      .width('80%')
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Color.Transparent)
-    .justifyContent(FlexAlign.Start)
-    .alignItems(HorizontalAlign.End)
-    .padding({ top: this.headerOverlayHeight() + 72, right: 14 })
-    .onClick(() => { this.settingsDialog = ''; })
+    .backgroundColor(this.dialogOverlay())
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .onClick(() => {
+      if (this.dlgSearchModeExpanded || this.dlgLangExpanded || this.dlgEngineExpanded || this.dlgReaderBgExpanded || this.dlgMaxResultsExpanded || this.dlgMaxPagesExpanded) {
+        this.dlgSearchModeExpanded = false;
+        this.dlgLangExpanded = false;
+        this.dlgEngineExpanded = false;
+        this.dlgReaderBgExpanded = false;
+        this.dlgMaxResultsExpanded = false;
+        this.dlgMaxPagesExpanded = false;
+      } else {
+        this.settingsDialog = '';
+      }
+    })
   }
 
   @Builder
@@ -3386,7 +4479,7 @@ struct Index {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Color.Transparent)
+    .backgroundColor(this.dialogOverlay())
     .justifyContent(FlexAlign.Start)
     .alignItems(HorizontalAlign.End)
     .padding({ top: this.headerOverlayHeight() + 20, right: 14 })
@@ -3419,7 +4512,7 @@ struct Index {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Color.Transparent)
+    .backgroundColor(this.dialogOverlay())
     .justifyContent(FlexAlign.Start)
     .alignItems(HorizontalAlign.End)
     .padding({ top: this.headerOverlayHeight() + 70, right: 14 })
@@ -3443,7 +4536,7 @@ struct Index {
             Image($rawfile('ic_refresh.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_refresh'))).margin({ right: 10 })
             Text(this.t('update_all')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.updatingRules || this.updatingCatalog) {
-              LoadingProgress().width(18).height(18).color(this.accent())
+              LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
             }
           }.width('100%').height(50).onClick(() => { this.updateAll(); })
           Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
@@ -3451,7 +4544,7 @@ struct Index {
             Image($rawfile('ic_rule.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_rule'))).margin({ right: 10 })
             Text(this.t('update_rules')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.updatingRules) {
-              LoadingProgress().width(18).height(18).color(this.accent())
+              LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
             } else {
               Text(this.remoteRuleCount + this.t('rules_unit')).fontSize(13).fontColor(this.secondaryText())
             }
@@ -3461,7 +4554,7 @@ struct Index {
             Image($rawfile('ic_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shelf'))).margin({ right: 10 })
             Text(this.t('update_catalog')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.updatingCatalog) {
-              LoadingProgress().width(18).height(18).color(this.accent())
+              LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
             } else {
               Text(this.catalogUpdateAvailable
                 ? this.catalogStage('有更新', 'Update available')
@@ -3475,7 +4568,7 @@ struct Index {
               Progress({ value: this.catalogProgressPercent, total: 100, type: ProgressType.Linear })
                 .width('100%')
                 .height(6)
-                .color(this.accent())
+                .color(this.colorfulAccent('progress-catalog'))
               Text(this.catalogProgressText())
                 .fontSize(12)
                 .fontColor(this.secondaryText())
@@ -3501,53 +4594,168 @@ struct Index {
   }
 
   @Builder
+  private CatalogItemCard(item: CatalogItem) {
+    Column() {
+      Stack() {
+        if (this.catalogItemCover(item).length > 0) {
+          Image(this.catalogItemCover(item)).width('100%').height(140).objectFit(ImageFit.Cover).borderRadius({ topLeft: 12, topRight: 12 })
+        } else {
+          Column() {
+            Text(item.title.substring(0, 1)).fontSize(28).fontWeight(FontWeight.Bold).fontColor(this.colorfulAccent('catalog-avatar-' + item.title))
+          }.width('100%').height(140).justifyContent(FlexAlign.Center).backgroundColor(this.coverPlaceholderBg()).borderRadius({ topLeft: 12, topRight: 12 })
+        }
+      }.width('100%').height(140).clip(true)
+
+      Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.id)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 6, bottom: 6 })
+    }
+    .width('31%')
+    .backgroundColor(this.cardBg())
+    .borderRadius(12)
+    .clip(true)
+    .margin({ bottom: 8, right: '2%' })
+    .onClick(() => {
+      if (!this.isLongPressing) {
+        const source = this.preferredCatalogSource(item);
+        if (source?.detailUrl) {
+          const cover = source.coverUrl ? source.coverUrl : this.catalogItemCover(item);
+          const shelfMatch = this.bookshelf.find((b: BookshelfItem) => b.url === source!.detailUrl ||
+            (b.title === item.title && b.lastChapterUrl.length > 0));
+          if (shelfMatch && shelfMatch.lastChapterUrl.length > 0) {
+            this.openBookUnified(shelfMatch.url, shelfMatch.title, shelfMatch.sourceId, cover,
+              shelfMatch.lastChapterUrl, shelfMatch.lastChapterTitle);
+            return;
+          }
+          const histMatch = this.history.find((h: ReadingHistoryItem) =>
+            (h.detailUrl !== undefined && h.detailUrl.length > 0 && h.detailUrl === source!.detailUrl) ||
+            (h.title === item.title && h.url.length > 0));
+          if (histMatch && histMatch.detailUrl !== undefined && histMatch.detailUrl.length > 0 &&
+            histMatch.detailUrl !== histMatch.url) {
+            this.openBookUnified(histMatch.detailUrl!, histMatch.title, histMatch.sourceId, cover,
+              histMatch.url, histMatch.chapterTitle);
+            return;
+          }
+          this.currentCover = cover;
+          this.loadDetail(source.detailUrl, item.title, this.findRuleByUrl(source.detailUrl));
+        } else if (source?.searchUrl) {
+          this.queryText = item.title;
+          this.activeTab = 'search';
+          this.startSearch();
+        }
+      }
+    })
+    .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent) => {
+      this.isLongPressing = true;
+      this.bookLongPressTitle = item.title;
+      this.bookLongPressUrl = '';
+      this.bookLongPressCover = this.catalogItemCover(item);
+      this.bookLongPressIsFavorite = this.bookshelf.some((b: BookshelfItem) => b.title === item.title);
+      this.bookLongPressSourceName = item.sources.length > 0 ? (item.sources[0].domain ?? '') : '';
+      this.setLongPressPosition(event.fingerList[0].globalX, event.fingerList[0].globalY);
+      this.bookLongPressVisible = true;
+    }))
+  }
+
+  @Builder
   private ShelfPage() {
     Scroll() {
       Column() {
         Column() {}.width('100%').height(this.compactContentTopInset())
 
-        if (this.catalogLoading) {
+        if (this.showDebugInfo) {
+          Row() {
+            Text('Catalog: ' + (this.remoteCatalog !== null ? 'loaded' : 'null')).fontSize(10).fontColor(this.colorfulValue('debug-Catalog'))
+            Text('Categories: ' + this.catalogCategories.length).fontSize(10).fontColor(this.colorfulValue('debug-Categories')).margin({ left: 8 })
+            Text('Items: ' + this.catalogItems.length).fontSize(10).fontColor(this.colorfulValue('debug-CatalogItems')).margin({ left: 8 })
+            Text('Bookshelf: ' + this.bookshelf.length).fontSize(10).fontColor(this.colorfulValue('debug-Bookshelf')).margin({ left: 8 })
+            Text('CoverCache: ' + this.coverCacheDir).fontSize(10).fontColor(this.colorfulValue('debug-CoverCache')).margin({ left: 8 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+          }.width('100%').padding({ left: 14, right: 14, top: 2, bottom: 2 })
+        }
+        if (this.catalogLoading && this.shelfViewMode === 'catalog') {
           Column() {
-            LoadingProgress().width(24).height(24).color(this.accent())
+            LoadingProgress().width(24).height(24).color(this.colorfulAccent('loading-catalog'))
             Text(this.catalogUpdateStatus.length > 0 ? this.catalogUpdateStatus : (this.t('catalog_loading') ?? '加载目录中...')).fontSize(14).fontColor(this.secondaryText()).margin({ top: 8 })
           }.width('100%').height(200).justifyContent(FlexAlign.Center)
-        } else if (this.catalogCategories.length > 0) {
+        } else if (this.shelfViewMode === 'catalog' && this.catalogCategories.length > 0) {
           if (this.selectedCatalogCategory.length > 0 && this.catalogItems.length > 0) {
-            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-              ForEach(this.catalogItems, (item: CatalogItem) => {
-                Column() {
-                  Stack() {
-                    if (this.catalogItemCover(item).length > 0) {
-                      Image(this.catalogItemCover(item)).width('100%').height(140).objectFit(ImageFit.Cover).borderRadius({ topLeft: 12, topRight: 12 })
-                    } else {
-                      Column() {
-                        Text(item.title.substring(0, 1)).fontSize(28).fontWeight(FontWeight.Bold).fontColor(this.accent())
-                      }.width('100%').height(140).justifyContent(FlexAlign.Center).backgroundColor(this.coverPlaceholderBg()).borderRadius({ topLeft: 12, topRight: 12 })
-                    }
-                  }.width('100%').height(140).clip(true)
-
-                  Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.id)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, top: 6, bottom: 6 })
+            Stack() {
+              Column() {
+                Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+                  ForEach(this.catalogItems, (item: CatalogItem) => {
+                    this.CatalogItemCard(item)
+                  }, (item: CatalogItem) => item.id)
                 }
-                .width('32%')
-                .backgroundColor(this.cardBg())
-                .borderRadius(12)
-                .clip(true)
-                .margin({ bottom: 8 })
-                .onClick(() => {
-                  const source = this.preferredCatalogSource(item);
-                  if (source?.detailUrl) {
-                    this.currentCover = source.coverUrl ? source.coverUrl : this.catalogItemCover(item);
-                    this.loadDetail(source.detailUrl, item.title, this.findRuleByUrl(source.detailUrl));
-                  } else if (source?.searchUrl) {
-                    this.queryText = item.title;
-                    this.activeTab = 'search';
-                    this.startSearch();
+                .width('100%')
+                .padding({ left: 10, right: 10, top: 4, bottom: 14 })
+              }
+              .width('100%')
+              .translate({ x: this.shelfPanOffset })
+
+              if (this.shelfAdjacentDir !== 0 && this.shelfAdjacentItems.length > 0) {
+                Column() {
+                  Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+                    ForEach(this.shelfAdjacentItems, (item: CatalogItem) => {
+                      this.CatalogItemCard(item)
+                    }, (item: CatalogItem) => item.id)
                   }
-                })
-              }, (item: CatalogItem) => item.id)
+                  .width('100%')
+                  .padding({ left: 10, right: 10, top: 4, bottom: 14 })
+                }
+                .width('100%')
+                .translate({ x: this.shelfAdjacentDir * this.shelfViewportWidth + this.shelfPanOffset })
+              }
             }
             .width('100%')
-            .padding({ left: 10, right: 10, top: 4, bottom: 14 })
+            .alignContent(Alignment.TopStart)
+            .parallelGesture(PanGesture({ direction: PanDirection.Horizontal, distance: 8 })
+              .onActionStart(() => {
+                this.shelfPanStartX = this.shelfPanOffset;
+                this.shelfIsPanning = true;
+                this.shelfAdjacentDir = 0;
+                this.shelfAdjacentItems = [];
+              })
+              .onActionUpdate((event: PanGestureEvent) => {
+                this.shelfPanOffset = this.shelfPanStartX + event.offsetX;
+                if (this.shelfAdjacentDir === 0 && Math.abs(event.offsetX) > 5) {
+                  const dir = event.offsetX < 0 ? 1 : -1;
+                  const adjacentId = this.shelfAdjacentCategory(dir);
+                  if (adjacentId.length > 0 && this.remoteCatalog !== null) {
+                    this.shelfAdjacentDir = dir;
+                    this.shelfAdjacentItems = this.filteredCatalogItems(this.remoteCatalog, adjacentId);
+                  }
+                }
+              })
+              .onActionEnd(() => {
+                this.shelfIsPanning = false;
+                const threshold = this.shelfViewportWidth / 3;
+                if (this.shelfPanOffset < -threshold && this.shelfAdjacentDir === 1) {
+                  animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
+                    this.shelfPanOffset = -this.shelfViewportWidth;
+                  });
+                  setTimeout(() => {
+                    this.shelfSwitchCategory(1);
+                    this.shelfPanOffset = 0;
+                    this.shelfAdjacentItems = [];
+                    this.shelfAdjacentDir = 0;
+                  }, 300);
+                } else if (this.shelfPanOffset > threshold && this.shelfAdjacentDir === -1) {
+                  animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
+                    this.shelfPanOffset = this.shelfViewportWidth;
+                  });
+                  setTimeout(() => {
+                    this.shelfSwitchCategory(-1);
+                    this.shelfPanOffset = 0;
+                    this.shelfAdjacentItems = [];
+                    this.shelfAdjacentDir = 0;
+                  }, 300);
+                } else {
+                  animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+                    this.shelfPanOffset = 0;
+                  });
+                  this.shelfAdjacentItems = [];
+                  this.shelfAdjacentDir = 0;
+                }
+              })
+            )
           } else {
             Column() {
               Text(this.t('select_category') ?? '选择分类浏览漫画').fontSize(14).fontColor(this.secondaryText()).margin({ top: 40 })
@@ -3556,11 +4764,58 @@ struct Index {
         } else {
           if (this.bookshelf.length === 0) {
             Text(this.t('shelf_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
+          } else if (this.shelfDisplayMode === 'grid') {
+            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+              ForEach(this.bookshelf, (item: BookshelfItem) => {
+                Column() {
+                  if (item.cover.length > 0) {
+                    Image(item.cover).width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).objectFit(ImageFit.Cover)
+                  } else {
+                    Column() { Text(item.title.substring(0, 1)).fontSize(28).fontWeight(FontWeight.Bold).fontColor(this.colorfulAccent('shelf-avatar-' + item.title)) }.width('100%').height(140).justifyContent(FlexAlign.Center).backgroundColor(this.coverPlaceholderBg()).borderRadius({ topLeft: 12, topRight: 12 })
+                  }
+                  Row() {
+                    Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                  }.width('100%').padding({ left: 6, top: 4 })
+                  Text(item.lastChapterTitle.length > 0 ? item.lastChapterTitle : item.sourceName).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 2 })
+                  if (this.showDebugInfo) {
+                    Text(item.sourceName).fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
+                  } else {
+                    Text(item.progressPercent + '%').fontSize(9).fontColor(this.colorfulAccent('shelf-progress-' + item.url)).width('100%').padding({ left: 6, right: 6, bottom: 6 })
+                  }
+                }.width('31%').margin({ bottom: 8, right: '2%' }).backgroundColor(this.cardBg()).borderRadius(12)
+                  .onClick(() => { if (!this.isLongPressing) this.openBookshelfItem(item); })
+                  .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent) => {
+                    this.isLongPressing = true;
+                    this.bookLongPressTitle = item.title;
+                    this.bookLongPressUrl = item.url;
+                    this.bookLongPressCover = item.cover;
+                    this.bookLongPressIsFavorite = true;
+                    this.bookLongPressSourceName = item.sourceName;
+                    this.setLongPressPosition(event.fingerList[0].globalX, event.fingerList[0].globalY);
+                    this.bookLongPressVisible = true;
+                  }))
+              }, (item: BookshelfItem) => item.url + item.title)
+            }.width('100%')
           } else {
             ForEach(this.bookshelf, (item: BookshelfItem) => {
-              Column() { this.SettingCard(item.title, item.sourceName + ' · ' + item.lastReadAt, item.progressPercent + '%') }
-                .onClick(() => this.openBookshelfItem(item))
-            }, (item: BookshelfItem) => item.url)
+              Column() {
+                this.SettingCard(item.title, (item.lastChapterTitle.length > 0 ? item.lastChapterTitle : item.sourceName) + ' · ' + item.lastReadAt, item.progressPercent + '%')
+                if (this.showDebugInfo) {
+                  Text('来源: ' + item.sourceName + ' (' + item.sourceId + ')').fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 14, top: 2 })
+                }
+              }
+                .onClick(() => { if (!this.isLongPressing) this.openBookshelfItem(item); })
+                .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent) => {
+                  this.isLongPressing = true;
+                  this.bookLongPressTitle = item.title;
+                  this.bookLongPressUrl = item.url;
+                  this.bookLongPressCover = item.cover;
+                  this.bookLongPressIsFavorite = true;
+                  this.bookLongPressSourceName = item.sourceName;
+                  this.setLongPressPosition(event.fingerList[0].globalX, event.fingerList[0].globalY);
+                  this.bookLongPressVisible = true;
+                }))
+            }, (item: BookshelfItem) => item.url + item.title)
           }
         }
         Blank().height(this.contentBottomInset())
@@ -3571,6 +4826,10 @@ struct Index {
     .scrollBar(BarState.Auto)
     .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     .backgroundColor(this.appBg())
+    .onAreaChange((_oldValue: Area, newValue: Area) => {
+      const width = Number(newValue.width);
+      if (width > 0) this.shelfViewportWidth = width;
+    })
   }
 
   private catalogItemCover(item: CatalogItem): string {
@@ -3596,91 +4855,135 @@ struct Index {
     return ordered.length > 0 ? ordered[0] : null;
   }
 
+  private closeBookLongPressMenu() {
+    this.bookLongPressVisible = false;
+    this.isLongPressing = false;
+  }
+
+  private setLongPressPosition(globalX: number, globalY: number): void {
+    const menuWidth = 180;
+    const menuHeight = 280;
+    const screenWidth = 1320;
+    const screenHeight = 2856;
+    const margin = 8;
+    let x = globalX;
+    let y = globalY;
+    if (x + menuWidth + margin > screenWidth) {
+      x = screenWidth - menuWidth - margin;
+    }
+    if (x < margin) x = margin;
+    if (y + menuHeight + margin > screenHeight) {
+      y = screenHeight - menuHeight - margin;
+    }
+    if (y < margin) y = margin;
+    this.bookLongPressX = x;
+    this.bookLongPressY = y;
+  }
+
+  private closeAllDialogsAndMenus() {
+    this.searchHistoryVisible = false;
+    this.updateDialogVisible = false;
+    this.editorSearchVisible = false;
+    this.editorMenuVisible = false;
+    this.editorSeekVisible = false;
+    this.editorLinksVisible = false;
+    this.editorStatsVisible = false;
+    this.editorColorPickerVisible = false;
+    this.editorPreviewVisible = false;
+    this.themeDialogVisible = false;
+    this.languageDialogVisible = false;
+    this.historyMenuVisible = false;
+    this.bookLongPressVisible = false;
+    this.settingsDialog = '';
+    this.themeExpanded = false;
+    this.languageExpanded = false;
+    this.iconColorExpanded = false;
+    this.searchExpanded = false;
+    this.sourcesExpanded = false;
+    this.readerExpanded = false;
+    this.enginesExpanded = false;
+    this.rulesExpanded = false;
+    this.dlgSearchModeExpanded = false;
+    this.dlgLangExpanded = false;
+    this.dlgReaderBgExpanded = false;
+    this.dlgMaxResultsExpanded = false;
+    this.dlgMaxPagesExpanded = false;
+    this.dlgEngineExpanded = false;
+    this.isLongPressing = false;
+  }
+
   @Builder
-  private HistoryPage() {
-    Scroll() {
+  private BookLongPressMenu() {
+    Column() {
       Column() {
-        Column() {}.width('100%').height(this.compactContentTopInset())
-        if (this.historyTab === 'history') {
-          if (this.history.length === 0) {
-            Text(this.t('history_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
-          } else if (this.historyViewMode === 'grid') {
-            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
-              ForEach(this.history, (item: ReadingHistoryItem) => {
-                Column() {
-                  if (item.cover.length > 0) {
-                    Image(item.cover).width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).objectFit(ImageFit.Cover)
-                  } else {
-                    Column() { Text(this.t('no_cover')).fontSize(11).fontColor(this.secondaryText()) }.width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).justifyContent(FlexAlign.Center).backgroundColor(this.cardBg())
-                  }
-                  Row() {
-                    Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-                    if (this.revealedDeleteUrl === item.url) {
-                      Image($rawfile('ic_x.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
-                        .padding({ left: 6, right: 6 }).onClick(() => this.removeHistoryItem(item.url))
-                    }
-                  }.width('100%').padding({ left: 6, top: 4 })
-                  Text(item.chapterTitle).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
-                }.width('31.5%').margin({ bottom: 10 }).backgroundColor(this.cardBg()).borderRadius(12)
-                  .onClick(() => this.openHistoryItem(item))
-                  .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 10 })
-                    .onActionEnd((event: PanGestureEvent) => this.handleRecordSwipe(item.url, false, event.offsetX)))
-              }, (item: ReadingHistoryItem) => item.url)
-            }.width('100%')
-          } else {
-            ForEach(this.history, (item: ReadingHistoryItem) => {
-              Row() {
-                Column() { this.SettingCard(item.title, item.chapterTitle + ' · ' + item.lastReadAt, item.imageCount + this.t('images_unit')) }.layoutWeight(1).onClick(() => this.openHistoryItem(item))
-                if (this.revealedDeleteUrl === item.url) {
-                  Image($rawfile('ic_x.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
-                    .padding(14).onClick(() => this.removeHistoryItem(item.url))
-                }
-              }.width('100%').gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 10 })
-                .onActionEnd((event: PanGestureEvent) => this.handleRecordSwipe(item.url, false, event.offsetX)))
-            }, (item: ReadingHistoryItem) => item.url)
-          }
-        } else {
-          if (this.bookshelf.length === 0) {
-            Text(this.t('shelf_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
-          } else if (this.historyViewMode === 'grid') {
-            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
-              ForEach(this.bookshelf, (item: BookshelfItem) => {
-                Column() {
-                  if (item.cover.length > 0) {
-                    Image(item.cover).width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).objectFit(ImageFit.Cover)
-                  } else {
-                    Column() { Text(this.t('no_cover')).fontSize(11).fontColor(this.secondaryText()) }.width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).justifyContent(FlexAlign.Center).backgroundColor(this.cardBg())
-                  }
-                  Row() {
-                    Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-                    if (this.revealedDeleteUrl === item.url) {
-                      Image($rawfile('ic_x.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
-                        .padding({ left: 6, right: 6 }).onClick(() => this.removeBookshelfItem(item.url))
-                    }
-                  }.width('100%').padding({ left: 6, top: 4 })
-                  Text(item.sourceName).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
-                }.width('31.5%').margin({ bottom: 10 }).backgroundColor(this.cardBg()).borderRadius(12)
-                  .onClick(() => this.openBookshelfItem(item))
-                  .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 10 })
-                    .onActionEnd((event: PanGestureEvent) => this.handleRecordSwipe(item.url, true, event.offsetX)))
-              }, (item: BookshelfItem) => item.url)
-            }.width('100%')
-          } else {
-            ForEach(this.bookshelf, (item: BookshelfItem) => {
-              Row() {
-                Column() { this.SettingCard(item.title, item.sourceName + ' · ' + item.lastReadAt, item.progressPercent + '%') }.layoutWeight(1).onClick(() => this.openBookshelfItem(item))
-                if (this.revealedDeleteUrl === item.url) {
-                  Image($rawfile('ic_x.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
-                    .padding(14).onClick(() => this.removeBookshelfItem(item.url))
-                }
-              }.width('100%').gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 10 })
-                .onActionEnd((event: PanGestureEvent) => this.handleRecordSwipe(item.url, true, event.offsetX)))
-            }, (item: BookshelfItem) => item.url)
-          }
+        if (this.bookLongPressCover.length > 0) {
+          Image(this.bookLongPressCover).width(40).height(40).borderRadius(8).objectFit(ImageFit.Cover).margin({ right: 8 })
         }
-        Blank().height(this.contentBottomInset())
-      }.width('100%').constraintSize({ minHeight: '100%' }).padding({ left: 14, right: 14 })
-    }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true }).backgroundColor(this.appBg())
+        Text(this.bookLongPressTitle).fontSize(14).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .width('100%')
+      .padding({ left: 14, right: 14, top: 10, bottom: 8 })
+      .alignItems(HorizontalAlign.Start)
+
+      Column() {
+        Text(this.bookLongPressIsFavorite ? this.t('remove_favorite') : this.t('add_favorite'))
+          .fontSize(13).fontColor(this.primaryText()).width('100%').padding({ left: 14, top: 10, bottom: 10 })
+      }
+      .width('100%')
+      .onClick(() => {
+        if (this.bookLongPressIsFavorite) this.removeBookshelfItem(this.bookLongPressUrl);
+        else this.addCurrentToShelf();
+        this.closeBookLongPressMenu();
+      })
+
+      Column() {
+        Text(this.t('search_title'))
+          .fontSize(13).fontColor(this.primaryText()).width('100%').padding({ left: 14, top: 10, bottom: 10 })
+      }
+      .width('100%')
+      .onClick(() => {
+        this.queryText = this.bookLongPressTitle;
+        this.activeTab = 'search';
+        this.startSearch();
+        this.closeBookLongPressMenu();
+      })
+
+      Column() {
+        Text(this.t('update_cover'))
+          .fontSize(13).fontColor(this.primaryText()).width('100%').padding({ left: 14, top: 10, bottom: 10 })
+      }
+      .width('100%')
+      .onClick(() => {
+        this.refreshBookCover(this.bookLongPressUrl);
+        this.closeBookLongPressMenu();
+      })
+
+      Column() {
+        Text(this.t('delete'))
+          .fontSize(13).fontColor('#F38BA8').width('100%').padding({ left: 14, top: 10, bottom: 10 })
+      }
+      .width('100%')
+      .onClick(() => {
+        this.removeHistoryItem(this.bookLongPressUrl);
+        if (this.bookLongPressIsFavorite) this.removeBookshelfItem(this.bookLongPressUrl);
+        this.closeBookLongPressMenu();
+      })
+
+      Column() {
+        Text(this.t('close'))
+          .fontSize(13).fontColor(this.secondaryText()).width('100%').padding({ left: 14, top: 10, bottom: 10 })
+      }
+      .width('100%')
+      .onClick(() => {
+        this.closeBookLongPressMenu();
+      })
+    }
+    .width(180)
+    .backgroundColor(this.cardBg())
+    .borderRadius(12)
+    .border({ width: 1, color: this.borderSubtle() })
+    .shadow({ radius: 12, color: '#40000000', offsetY: 4 })
+    .position({ x: this.bookLongPressX, y: this.bookLongPressY })
   }
 
   @Builder
@@ -3688,8 +4991,9 @@ struct Index {
     Image($rawfile(this.tabIconKey(name) + '.svg'))
       .width(size)
       .height(size)
-      .colorFilter(createStrokeIconColorFilter(this.iconColor(this.tabIconKey(name))))
-      .opacity(this.activeTab === name ? 1 : 0.68)
+      .colorFilter(createStrokeIconColorFilter(
+        this.activeTab === name ? this.colorfulAccent('tab-' + name) : this.secondaryText()
+      ))
   }
 
   @Builder
@@ -3698,7 +5002,7 @@ struct Index {
       this.UiIcon(tab, 22)
       Text(label)
         .fontSize(11)
-        .fontColor(this.activeTab === tab ? this.accent() : this.secondaryText())
+        .fontColor(this.activeTab === tab ? this.colorfulAccent('tab-' + tab) : this.secondaryText())
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
     }
@@ -3708,6 +5012,7 @@ struct Index {
     .alignItems(HorizontalAlign.Center)
     .padding({ top: 4, bottom: 4 })
     .onClick(() => {
+      if (this.activeTab !== tab) this.closeAllDialogsAndMenus();
       this.activeTab = tab;
       if (tab === 'shelf') this.checkCatalogUpdateOnShelfEntry();
       if (tab === 'search' && this.mode === 'reader') this.mode = this.results.length > 0 ? 'results' : 'home';
@@ -3735,6 +5040,10 @@ struct Index {
     return this.avoidStatusBarHeight + 64;
   }
 
+  private headerOverlayWidth(): number {
+    return 360;
+  }
+
   private contentTopInset(): number {
     return this.headerOverlayHeight();
   }
@@ -3748,6 +5057,900 @@ struct Index {
 
   private contentBottomInset(): number {
     return 80 + this.bottomSafeInset;
+  }
+
+  @Builder
+  private HistoryPage() {
+    Scroll() {
+      Column() {
+        Column() {}.width('100%').height(this.compactContentTopInset())
+        if (this.showDebugInfo) {
+          Row() {
+            Text('History: ' + this.history.length).fontSize(10).fontColor(this.colorfulValue('debug-HistoryCount'))
+            Text('Bookshelf: ' + this.bookshelf.length).fontSize(10).fontColor(this.colorfulValue('debug-HistBookshelf')).margin({ left: 8 })
+            Text('View: ' + this.historyViewMode).fontSize(10).fontColor(this.colorfulValue('debug-HistView')).margin({ left: 8 })
+            Text('Tab: ' + this.historyTab).fontSize(10).fontColor(this.colorfulValue('debug-HistTab')).margin({ left: 8 })
+            Text('Sources: ' + new Set(this.history.map((h: ReadingHistoryItem) => h.sourceId)).size).fontSize(10).fontColor(this.colorfulValue('debug-HistSources')).margin({ left: 8 })
+          }.width('100%').padding({ left: 14, right: 14, top: 2, bottom: 2 })
+        }
+        Stack() {
+          Column() {
+            if (this.history.length === 0) {
+              Text(this.t('history_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
+            } else if (this.historyViewMode === 'grid') {
+              Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+                ForEach(this.history, (item: ReadingHistoryItem) => {
+                  Column() {
+                    if (item.cover.length > 0) {
+                      Image(item.cover).width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).objectFit(ImageFit.Cover)
+                    } else {
+                      Column() { Text(this.t('no_cover')).fontSize(11).fontColor(this.secondaryText()) }.width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).justifyContent(FlexAlign.Center).backgroundColor(this.cardBg())
+                    }
+                    Row() {
+                      Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                      if (this.revealedDeleteUrl === item.url) {
+                        Image($rawfile('ic_x.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
+                          .padding({ left: 6, right: 6 }).onClick(() => this.removeHistoryItem(item.url))
+                      }
+                    }.width('100%').padding({ left: 6, top: 4 })
+                    Text(item.chapterTitle).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 2 })
+                    if (this.showDebugInfo) {
+                      Text(item.sourceName).fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
+                    } else {
+                      Text('').height(4)
+                    }
+                  }.width('31%').margin({ bottom: 8, right: '2%' }).backgroundColor(this.cardBg()).borderRadius(12)
+                    .onClick(() => { if (!this.isLongPressing) this.openHistoryItem(item); })
+                    .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent) => {
+                      this.isLongPressing = true;
+                      this.bookLongPressTitle = item.title;
+                      this.bookLongPressUrl = item.url;
+                      this.bookLongPressCover = item.cover;
+                      this.bookLongPressIsFavorite = this.bookshelf.some((b: BookshelfItem) => b.url === item.url);
+                      this.bookLongPressSourceName = item.sourceName;
+                      this.setLongPressPosition(event.fingerList[0].globalX, event.fingerList[0].globalY);
+                      this.bookLongPressVisible = true;
+                    }))
+                }, (item: ReadingHistoryItem) => item.url + item.title)
+              }.width('100%')
+            } else {
+              ForEach(this.history, (item: ReadingHistoryItem) => {
+                Row() {
+                  Column() {
+                    this.SettingCard(item.title, item.chapterTitle + ' · ' + item.lastReadAt, item.imageCount + this.t('images_unit'))
+                    if (this.showDebugInfo) {
+                      Text('来源: ' + item.sourceName + ' (' + item.sourceId + ')').fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 14, top: 2 })
+                    }
+                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                  if (this.revealedDeleteUrl === item.url) {
+                    Image($rawfile('ic_x.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
+                      .padding(14).onClick(() => this.removeHistoryItem(item.url))
+                  }
+                }.width('100%')
+                  .onClick(() => { if (!this.isLongPressing) this.openHistoryItem(item); })
+                  .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent) => {
+                    this.isLongPressing = true;
+                    this.bookLongPressTitle = item.title;
+                    this.bookLongPressUrl = item.url;
+                    this.bookLongPressCover = item.cover;
+                    this.bookLongPressIsFavorite = this.bookshelf.some((b: BookshelfItem) => b.url === item.url);
+                    this.bookLongPressSourceName = item.sourceName;
+                    this.setLongPressPosition(event.fingerList[0].globalX, event.fingerList[0].globalY);
+                    this.bookLongPressVisible = true;
+                  }))
+              }, (item: ReadingHistoryItem) => item.url + item.title)
+            }
+          }
+          .width('100%')
+          .translate({ x: this.historyTab === 'history' ? this.historyPanOffset : -this.historyViewportWidth + this.historyPanOffset })
+
+          Column() {
+            if (this.bookshelf.length === 0) {
+              Text(this.t('shelf_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
+            } else if (this.historyViewMode === 'grid') {
+              Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+                ForEach(this.bookshelf, (item: BookshelfItem) => {
+                  Column() {
+                    if (item.cover.length > 0) {
+                      Image(item.cover).width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).objectFit(ImageFit.Cover)
+                    } else {
+                      Column() { Text(this.t('no_cover')).fontSize(11).fontColor(this.secondaryText()) }.width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).justifyContent(FlexAlign.Center).backgroundColor(this.cardBg())
+                    }
+                    Row() {
+                      Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+                      if (this.revealedDeleteUrl === item.url) {
+                        Image($rawfile('ic_x.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
+                          .padding({ left: 6, right: 6 }).onClick(() => this.removeBookshelfItem(item.url))
+                      }
+                    }.width('100%').padding({ left: 6, top: 4 })
+                    Text(item.lastChapterTitle.length > 0 ? item.lastChapterTitle : item.sourceName).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 2 })
+                    if (this.showDebugInfo) {
+                      Text(item.sourceName).fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
+                    } else {
+                      Text('').height(4)
+                    }
+                  }.width('31%').margin({ bottom: 8, right: '2%' }).backgroundColor(this.cardBg()).borderRadius(12)
+                    .onClick(() => { if (!this.isLongPressing) this.openBookshelfItem(item); })
+                    .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent) => {
+                      this.isLongPressing = true;
+                      this.bookLongPressTitle = item.title;
+                      this.bookLongPressUrl = item.url;
+                      this.bookLongPressCover = item.cover;
+                      this.bookLongPressIsFavorite = true;
+                      this.bookLongPressSourceName = item.sourceName;
+                      this.setLongPressPosition(event.fingerList[0].globalX, event.fingerList[0].globalY);
+                      this.bookLongPressVisible = true;
+                    }))
+                }, (item: BookshelfItem) => item.url + item.title)
+              }.width('100%')
+            } else {
+              ForEach(this.bookshelf, (item: BookshelfItem) => {
+                Row() {
+                  Column() {
+                    this.SettingCard(item.title, (item.lastChapterTitle.length > 0 ? item.lastChapterTitle : item.sourceName) + ' · ' + item.lastReadAt, item.progressPercent + '%')
+                    if (this.showDebugInfo) {
+                      Text('来源: ' + item.sourceName + ' (' + item.sourceId + ')').fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 14, top: 2 })
+                    }
+                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                  if (this.revealedDeleteUrl === item.url) {
+                    Image($rawfile('ic_x.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
+                      .padding(14).onClick(() => this.removeBookshelfItem(item.url))
+                  }
+                }.width('100%')
+                  .onClick(() => { if (!this.isLongPressing) this.openBookshelfItem(item); })
+                  .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent) => {
+                    this.isLongPressing = true;
+                    this.bookLongPressTitle = item.title;
+                    this.bookLongPressUrl = item.url;
+                    this.bookLongPressCover = item.cover;
+                    this.bookLongPressIsFavorite = true;
+                    this.bookLongPressSourceName = item.sourceName;
+                    this.setLongPressPosition(event.fingerList[0].globalX, event.fingerList[0].globalY);
+                    this.bookLongPressVisible = true;
+                  }))
+              }, (item: BookshelfItem) => item.url + item.title)
+            }
+          }
+          .width('100%')
+          .translate({ x: this.historyTab === 'favorites' ? this.historyPanOffset : this.historyViewportWidth + this.historyPanOffset })
+        }
+        .width('100%')
+        .alignContent(Alignment.TopStart)
+        .parallelGesture(PanGesture({ direction: PanDirection.Horizontal, distance: 8 })
+          .onActionStart(() => {
+            this.historyPanStartX = this.historyPanOffset;
+          })
+          .onActionUpdate((event: PanGestureEvent) => {
+            this.historyPanOffset = this.historyPanStartX + event.offsetX;
+          })
+          .onActionEnd(() => {
+            const threshold = this.historyViewportWidth / 3;
+            if (this.historyPanOffset < -threshold) {
+              animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
+                this.historyPanOffset = 0;
+              });
+              this.historyTab = 'favorites';
+            } else if (this.historyPanOffset > threshold) {
+              animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
+                this.historyPanOffset = 0;
+              });
+              this.historyTab = 'history';
+            } else {
+              animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+                this.historyPanOffset = 0;
+              });
+            }
+          })
+        )
+        Blank().height(this.contentBottomInset())
+      }.width('100%').constraintSize({ minHeight: '100%' }).padding({ left: 14, right: 14 })
+    }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true }).backgroundColor(this.appBg())
+    .onAreaChange((_oldValue, newValue) => {
+      const width = Number(newValue.width);
+      if (width > 0) this.historyViewportWidth = width;
+    })
+  }
+
+  @Builder
+  private CodeEditorFullscreen() {
+    Stack() {
+      this.EditorContent()
+
+      Column() {
+        this.EditorTopBar()
+        if (this.editorSearchVisible) this.EditorSearchBar()
+        if (this.editorShowIndent && !this.editorReadOnly) this.EditorIndentBar()
+        if (!this.editorIsValid && !this.editorReadOnly) {
+          Text(this.editorError)
+            .fontSize(10).fontColor('#F38BA8').width('100%')
+            .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+            .backgroundColor('#311428')
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+      }
+      .width('100%')
+      .height('100%')
+      .justifyContent(FlexAlign.Start)
+      .padding({ top: this.avoidStatusBarHeight })
+      .hitTestBehavior(HitTestMode.Transparent)
+
+      if (this.editorToolBarVisible) {
+        Column() {
+          Blank()
+          this.EditorStatusBar()
+          this.EditorToolBar()
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.End)
+        .padding({ bottom: Math.max(this.bottomSafeInset - 10, 0) })
+        .hitTestBehavior(HitTestMode.Transparent)
+      }
+
+      if (this.editorMenuVisible) this.EditorMenu()
+      if (this.editorSeekVisible) this.EditorSeekDialog()
+      if (this.editorLinksVisible) this.EditorLinksPanel()
+      if (this.editorStatsVisible) this.EditorStatsPanel()
+      if (this.editorColorPickerVisible) this.EditorColorPickerPanel()
+      if (this.editorPreviewVisible) this.EditorPreviewPanel()
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(this.editorTheme().background)
+  }
+
+  @Builder
+  private EditorTopBar() {
+    Row() {
+      Image($rawfile('ic_back.svg')).width(20).height(20)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_back')))
+        .onClick(() => {
+          this.editorFullscreen = false;
+          this.settingsDialog = '';
+          this.applyReaderFullscreen(false);
+        })
+      Text(this.editorTitle)
+        .fontSize(14).fontColor(this.editorTheme().text)
+        .margin({ left: 8 }).layoutWeight(1).maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      if (this.editorReadOnly) {
+        Text('READ').fontSize(10).fontColor(this.editorTheme().nullColor)
+          .margin({ right: 4 })
+      }
+      Image($rawfile('ic_more_vert.svg')).width(20).height(20)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_more_vert')))
+        .onClick(() => { this.editorMenuVisible = !this.editorMenuVisible; })
+    }
+    .width('100%').height(40).padding({ left: 8, right: 8 })
+    .backgroundColor('#1A000000')
+  }
+
+  @Builder
+  private EditorSearchBar() {
+    Row() {
+      TextInput({ placeholder: '搜索...', text: this.editorSearchQuery })
+        .height(32).fontSize(12).layoutWeight(1)
+        .backgroundColor('#33000000').fontColor(this.editorTheme().text)
+        .borderRadius(6).padding({ left: 6, right: 6 })
+        .onChange((value: string) => { this.editorSearchQuery = value; this.editorUpdateSearch(); })
+      Text('正则').fontSize(10)
+        .fontColor(this.editorUseRegex ? this.editorTheme().keyword : this.editorTheme().nullColor)
+        .margin({ left: 4 }).onClick(() => { this.editorUseRegex = !this.editorUseRegex; this.editorUpdateSearch(); })
+      Text('大小写').fontSize(10)
+        .fontColor(this.editorCaseSensitive ? this.editorTheme().keyword : this.editorTheme().nullColor)
+        .margin({ left: 4 }).onClick(() => { this.editorCaseSensitive = !this.editorCaseSensitive; this.editorUpdateSearch(); })
+      if (this.editorSearchMatches.length > 0) {
+        Text(`${this.editorCurrentMatch + 1}/${this.editorSearchMatches.length}`)
+          .fontSize(10).fontColor(this.editorTheme().text).margin({ left: 4 })
+      }
+      Text('<').fontSize(14).fontColor(this.editorTheme().text).margin({ left: 4 })
+        .onClick(() => {
+          if (this.editorSearchMatches.length > 0) {
+            this.editorCurrentMatch = (this.editorCurrentMatch - 1 + this.editorSearchMatches.length) % this.editorSearchMatches.length;
+            this.editorJumpToMatch(this.editorCurrentMatch);
+          }
+        })
+      Text('>').fontSize(14).fontColor(this.editorTheme().text).margin({ left: 4 })
+        .onClick(() => {
+          if (this.editorSearchMatches.length > 0) {
+            this.editorCurrentMatch = (this.editorCurrentMatch + 1) % this.editorSearchMatches.length;
+            this.editorJumpToMatch(this.editorCurrentMatch);
+          }
+        })
+      Image($rawfile('ic_close.svg')).width(16).height(16)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close')))
+        .margin({ left: 4 })
+        .onClick(() => {
+          this.editorSearchVisible = false;
+          this.editorSearchQuery = '';
+          this.editorSearchMatches = [];
+        })
+    }
+    .width('100%').height(36).padding({ left: 8, right: 8 })
+    .backgroundColor('#1A000000')
+  }
+
+  @Builder
+  private EditorIndentBar() {
+    Row() {
+      Text('缩进:').fontSize(11).fontColor(this.editorTheme().text)
+      Text(this.editorUseTab ? 'Tab' : '空格').fontSize(11).fontColor(this.editorTheme().keyword)
+        .onClick(() => { this.editorUseTab = !this.editorUseTab; })
+      Text('大小:').fontSize(11).fontColor(this.editorTheme().text).margin({ left: 8 })
+      ForEach([2, 4, 8], (size: number) => {
+        Text(size.toString()).fontSize(11)
+          .fontColor(this.editorIndentSize === size ? this.editorTheme().keyword : this.editorTheme().text)
+          .margin({ left: 4 })
+          .onClick(() => { this.editorIndentSize = size; })
+      }, (size: number) => size.toString())
+      Blank()
+      Image($rawfile('ic_close.svg')).width(16).height(16)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close')))
+        .onClick(() => { this.editorShowIndent = false; })
+    }
+    .width('100%').height(32).padding({ left: 8, right: 8 })
+    .backgroundColor('#1A000000')
+  }
+
+  @Builder
+  private EditorContent() {
+    if (this.editorReadOnly) {
+      Stack() {
+        List() {
+          LazyForEach(this.editorLineDataSource, (line: string, index: number) => {
+            ListItem() {
+              Row() {
+                Text((index + 1).toString())
+                  .fontSize(10).fontFamily('monospace')
+                  .fontColor(index === this.editorCursorLine ? this.editorThemeCache.text : this.editorThemeCache.lineNumber)
+                  .width(this.editorLineNumberWidth)
+                  .textAlign(TextAlign.End)
+                  .padding({ right: 4 })
+                  .onClick(() => {
+                    if (this.editorEditable) this.editorEditAtLine(index);
+                    else { this.editorCursorLine = index; this.editorSelectedLine = index; }
+                  })
+                Text() {
+                  ForEach(highlightJsonLine(line, this.editorThemeCache), (seg: HighlightSegment) => {
+                    Span(seg.text)
+                      .fontColor(seg.color)
+                      .fontSize(13)
+                      .fontFamily('monospace')
+                  }, (seg: HighlightSegment, idx: number) => `${index}_${idx}`)
+                }
+                .layoutWeight(1)
+                .copyOption(CopyOptions.LocalDevice)
+                .maxLines(this.editorWordWrap ? Infinity : 1)
+                .textOverflow({ overflow: this.editorWordWrap ? TextOverflow.None : TextOverflow.Ellipsis })
+                .padding({ left: 6 })
+              }
+              .width('100%')
+              .padding({ left: 0, right: 8 })
+              .backgroundColor(index === this.editorCursorLine ? this.editorThemeCache.currentLine : Color.Transparent)
+              .onClick(() => {
+                this.editorCursorLine = index;
+                this.editorSelectedLine = index;
+              })
+            }
+          }, (line: string, index: number) => 'line_' + index)
+        }
+        .width('100%').height('100%')
+        .scrollBar(BarState.Auto)
+        .backgroundColor(this.editorThemeCache.background)
+        .contentStartOffset(this.avoidStatusBarHeight + 40)
+        .contentEndOffset(this.editorToolBarVisible ? 60 : 0)
+
+        Column() {}
+          .width(1)
+          .height('100%')
+          .backgroundColor(this.editorThemeCache.nullColor)
+          .position({ x: this.editorLineNumberWidth + 4, y: 0 })
+      }
+      .width('100%').height('100%')
+      .alignContent(Alignment.Start)
+    } else {
+      Row() {
+        Column() {
+          ForEach(this.editorLinesCache, (line: string, index: number) => {
+            Text((index + 1).toString())
+              .fontSize(10).fontFamily('monospace')
+              .fontColor(index === this.editorCursorLine ? this.editorThemeCache.text : this.editorThemeCache.lineNumber)
+              .width(this.editorLineNumberWidth)
+              .textAlign(TextAlign.End)
+              .height(18)
+          }, (line: string, index: number) => 'ln_' + index)
+        }
+        .width(this.editorLineNumberWidth + 8)
+        .height('100%')
+        .padding({ top: this.avoidStatusBarHeight + 40, bottom: this.editorToolBarVisible ? 60 : 0 })
+        .backgroundColor(this.editorThemeCache.background)
+        .translate({ y: this.editorScrollY })
+
+        Column() {}
+          .width(1)
+          .height('100%')
+          .backgroundColor(this.editorThemeCache.nullColor)
+
+        TextArea({ text: this.customRuleText })
+          .fontSize(13).fontFamily('monospace')
+          .fontColor(this.editorThemeCache.text)
+          .backgroundColor(this.editorThemeCache.background)
+          .caretStyle({ color: this.editorThemeCache.keyword })
+          .layoutWeight(1).height('100%')
+          .padding({ top: this.avoidStatusBarHeight + 40, bottom: this.editorToolBarVisible ? 60 : 0, left: 4 })
+          .focusOnTouch(true)
+          .enableKeyboardOnFocus(true)
+          .defaultFocus(!this.editorReadOnly)
+          .id('customRuleTextArea')
+          .onFocus(() => {
+            if (this.editorToolBarVisible) {
+              this.editorToolBarHiddenByKeyboard = true;
+              this.editorToolBarVisible = false;
+            }
+          })
+          .onBlur(() => {
+            if (this.editorToolBarHiddenByKeyboard) {
+              this.editorToolBarHiddenByKeyboard = false;
+              this.editorToolBarVisible = true;
+            }
+          })
+          .onChange((value: string) => {
+            if (value !== this.customRuleText) {
+              this.editorPushUndo();
+              this.customRuleText = value;
+              this.editorValidate();
+              this.editorLinesCache = value.split('\n');
+              this.editorLineDataSource.updateData(this.editorLinesCache);
+              this.editorLineNumberWidth = Math.max(12, this.editorLinesCache.length.toString().length * 8);
+            }
+          })
+          .onTextSelectionChange((selectionStart: number, selectionEnd: number) => {
+            const pos = selectionStart;
+            const before = this.customRuleText.substring(0, pos);
+            const lines = before.split('\n');
+            this.editorCursorLine = lines.length - 1;
+            this.editorCol = lines[lines.length - 1].length;
+            this.editorSelectedLine = this.editorCursorLine;
+          })
+          .onContentScroll((totalOffsetX: number, totalOffsetY: number) => {
+            this.editorScrollY = -totalOffsetY;
+          })
+      }
+      .width('100%').height('100%')
+    }
+  }
+
+  @Builder
+  private EditorToolBar() {
+    Row() {
+      Image($rawfile('ic_copy.svg')).width(18).height(18)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_copy')))
+        .onClick(() => { this.editorCopyText(); })
+      Image($rawfile('ic_paste.svg')).width(18).height(18)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_paste')))
+        .margin({ left: 10 })
+        .onClick(() => { this.editorPasteText(); })
+      Image($rawfile('ic_undo.svg')).width(18).height(18)
+        .colorFilter(createStrokeIconColorFilter(this.editorCanUndo ? this.iconColor('ic_undo') : this.editorTheme().nullColor))
+        .margin({ left: 10 })
+        .onClick(() => { this.editorUndo(); })
+      Image($rawfile('ic_redo.svg')).width(18).height(18)
+        .colorFilter(createStrokeIconColorFilter(this.editorCanRedo ? this.iconColor('ic_redo') : this.editorTheme().nullColor))
+        .margin({ left: 10 })
+        .onClick(() => { this.editorRedo(); })
+      Image($rawfile('ic_search.svg')).width(18).height(18)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_search')))
+        .margin({ left: 10 })
+        .onClick(() => { this.editorSearchVisible = !this.editorSearchVisible; })
+      Image($rawfile('ic_arrow_left.svg')).width(18).height(18)
+        .colorFilter(createStrokeIconColorFilter(this.editorSearchMatches.length > 0 ? this.iconColor('ic_arrow_left') : this.editorTheme().nullColor))
+        .margin({ left: 10 })
+        .onClick(() => {
+          if (this.editorSearchMatches.length > 0) {
+            this.editorCurrentMatch = (this.editorCurrentMatch - 1 + this.editorSearchMatches.length) % this.editorSearchMatches.length;
+            this.editorJumpToMatch(this.editorCurrentMatch);
+          }
+        })
+      Image($rawfile('ic_arrow_right.svg')).width(18).height(18)
+        .colorFilter(createStrokeIconColorFilter(this.editorSearchMatches.length > 0 ? this.iconColor('ic_arrow_right') : this.editorTheme().nullColor))
+        .margin({ left: 10 })
+        .onClick(() => {
+          if (this.editorSearchMatches.length > 0) {
+            this.editorCurrentMatch = (this.editorCurrentMatch + 1) % this.editorSearchMatches.length;
+            this.editorJumpToMatch(this.editorCurrentMatch);
+          }
+        })
+      Blank()
+      if (!this.editorReadOnly) {
+        Image($rawfile('ic_keyboard.svg')).width(18).height(18)
+          .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_keyboard')))
+          .margin({ right: 10 })
+          .onClick(() => {
+            try {
+              this.getUIContext().getFocusController().requestFocus('customRuleTextArea');
+            } catch (e) {}
+          })
+      }
+      Image($rawfile('ic_save.svg')).width(18).height(18)
+        .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_save')))
+        .onClick(() => { this.editorSave(); })
+    }
+    .width('100%').height(32).padding({ left: 8, right: 8 })
+    .backgroundColor('#0A000000')
+  }
+
+  @Builder
+  private EditorStatusBar() {
+    Row() {
+      Text(`Ln ${this.editorCursorLine + 1}`)
+        .fontSize(10).fontColor(this.editorTheme().nullColor)
+      Text(`Col ${this.editorCol + 1}`)
+        .fontSize(10).fontColor(this.editorTheme().nullColor).margin({ left: 8 })
+      if (this.editorBookmarks.length > 0) {
+        Text(`BM ${this.editorBookmarks.length}`)
+          .fontSize(10).fontColor(this.editorTheme().keyword).margin({ left: 8 })
+      }
+      Blank()
+      if (this.editorIsValid) {
+        Text('JSON Valid').fontSize(10).fontColor('#A6E3A1')
+      } else {
+        Text('JSON Invalid').fontSize(10).fontColor('#F38BA8')
+      }
+      Text(`${this.editorIndentSize} ${this.editorUseTab ? 'Tab' : '空格'}`)
+        .fontSize(10).fontColor(this.editorTheme().nullColor).margin({ left: 8 })
+    }
+    .width('100%').height(24).padding({ left: 8, right: 8 })
+    .backgroundColor('#0A000000')
+  }
+
+  @Builder
+  private EditorMenu() {
+    Column() {
+      Column({ space: 0 }) {
+        if (this.editorReadOnly) {
+          this.EditorMenuItem('编辑', 'ic_code', true, () => {
+            if (this.editorMode === 'blocked') {
+              this.customRuleText = JSON.stringify(this.blockedUrls, null, 2);
+            } else {
+              this.customRuleText = JSON.stringify(this.advancedRules, null, 2);
+            }
+            this.openEditorFullscreen(this.editorTitle, false);
+            this.editorMenuVisible = false;
+          })
+        }
+        this.EditorMenuItem('搜索', 'ic_search', !this.editorSearchVisible, () => {
+          this.editorSearchVisible = true;
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem('格式化 JSON', 'ic_align_left', !this.editorReadOnly, () => {
+          this.editorFormat();
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem('缩进设置', 'ic_tune', !this.editorReadOnly, () => {
+          this.editorShowIndent = true;
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem('跳转到行', 'ic_arrow_down_circle', true, () => {
+          this.editorSeekVisible = true;
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem('切换书签', 'ic_bookmark', true, () => {
+          this.toggleBookmark();
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem('下一个书签', 'ic_nav_arrow_down', this.editorBookmarks.length > 0, () => {
+          this.nextBookmark();
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem('验证 JSON', 'ic_check_circle', true, () => {
+          this.editorValidate();
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem('链接（JSON键）', 'ic_link', true, () => {
+          this.refreshEditorLinks();
+          this.editorLinksVisible = true;
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem('统计', 'ic_stats_report', true, () => {
+          this.refreshEditorStats();
+          this.editorStatsVisible = true;
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem('颜色选择器', 'ic_color_picker', !this.editorReadOnly, () => {
+          this.editorColorPickerVisible = true;
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem('预览', 'ic_eye', true, () => {
+          this.editorPreviewVisible = true;
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem(this.editorWordWrap ? '关闭自动换行' : '自动换行', 'ic_wrap_text', true, () => {
+          this.editorWordWrap = !this.editorWordWrap;
+          this.editorMenuVisible = false;
+        })
+        this.EditorMenuItem(this.editorToolBarVisible ? '隐藏工具栏' : '显示工具栏', 'ic_layout', true, () => {
+          this.editorToolBarVisible = !this.editorToolBarVisible;
+          this.editorMenuVisible = false;
+        })
+        if (!this.editorReadOnly) {
+          this.EditorMenuItem('应用规则', 'ic_play', true, () => {
+            this.applyCustomRule();
+            this.editorMenuVisible = false;
+          })
+        }
+      }
+      .width(160)
+      .backgroundColor(this.editorTheme().currentLine)
+      .borderRadius(8)
+      .border({ width: 1, color: this.editorTheme().nullColor })
+    }
+    .width('100%').height('100%')
+    .backgroundColor('#66000000')
+    .justifyContent(FlexAlign.Start)
+    .alignItems(HorizontalAlign.End)
+    .padding({ top: this.avoidStatusBarHeight + 40, right: 8 })
+    .onClick(() => { this.editorMenuVisible = false; })
+  }
+
+  @Builder
+  private EditorMenuItem(label: string, icon: string, enabled: boolean, action: () => void) {
+    Row() {
+      if (icon.length > 0) {
+        Image($rawfile(icon + '.svg')).width(16).height(16)
+          .colorFilter(createStrokeIconColorFilter(enabled ? this.iconColor(icon) : this.editorTheme().nullColor))
+          .margin({ right: 8 })
+      }
+      Text(label)
+        .fontSize(12).fontColor(enabled ? this.editorTheme().text : this.editorTheme().nullColor)
+        .layoutWeight(1).textAlign(TextAlign.Start)
+    }
+    .width('100%').height(32).padding({ left: 12 })
+    .onClick(() => { if (enabled) action(); })
+  }
+
+  @Builder
+  private EditorSeekDialog() {
+    Column() {
+      Column({ space: 8 }) {
+        Text('Go to Line').fontSize(14).fontColor(this.editorTheme().text)
+        TextInput({ placeholder: 'Line number...', text: this.editorSeekInput })
+          .height(32).fontSize(12)
+          .backgroundColor(this.editorTheme().background).fontColor(this.editorTheme().text)
+          .borderRadius(6).padding({ left: 6, right: 6 })
+          .type(InputType.Number)
+          .onChange((value: string) => { this.editorSeekInput = value; })
+        Row() {
+          Button('Go').height(28).fontSize(12).fontColor('#FFFFFF')
+            .backgroundColor(this.editorTheme().keyword).borderRadius(6)
+            .onClick(() => {
+              const ln = parseInt(this.editorSeekInput);
+              if (ln > 0 && ln <= this.editorLinesCache.length) {
+                this.editorCursorLine = ln - 1;
+                this.editorSelectedLine = ln - 1;
+        if (this.editorReadOnly && this.editorEditable) {
+                  this.editorScroller.scrollTo({ xOffset: 0, yOffset: (ln - 1) * 20 });
+                } else {
+                  setTimeout(() => {
+                    try {
+                      this.getUIContext().getFocusController().requestFocus('customRuleTextArea');
+                    } catch (e) {}
+                  }, 50);
+                }
+              }
+              this.editorSeekVisible = false;
+              this.editorSeekInput = '';
+            })
+          Button('Cancel').height(28).fontSize(12).fontColor(this.editorTheme().text)
+            .backgroundColor(this.editorTheme().currentLine).borderRadius(6)
+            .margin({ left: 8 })
+            .onClick(() => { this.editorSeekVisible = false; this.editorSeekInput = ''; })
+        }
+      }
+      .width('60%').padding(12)
+      .backgroundColor(this.editorTheme().currentLine)
+      .borderRadius(12)
+      .border({ width: 1, color: this.editorTheme().nullColor })
+    }
+    .width('100%').height('100%')
+    .backgroundColor('#66000000')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .onClick(() => { this.editorSeekVisible = false; this.editorSeekInput = ''; })
+  }
+
+  @Builder
+  private EditorLinksPanel() {
+    Column() {
+      Column({ space: 0 }) {
+        Row() {
+          Text('JSON Keys').fontSize(14).fontColor(this.editorTheme().text).layoutWeight(1)
+          Image($rawfile('ic_close.svg')).width(16).height(16)
+            .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close')))
+            .onClick(() => { this.editorLinksVisible = false; })
+        }
+        .width('100%').height(36).padding({ left: 12, right: 8 })
+        List() {
+          ForEach(this.editorLinksCache, (key: string, index: number) => {
+            ListItem() {
+              Text(key)
+                .fontSize(12).fontColor(this.editorTheme().keyword)
+                .width('100%').height(32).padding({ left: 12 })
+                .onClick(() => {
+                  const text = this.editorReadOnly ? this.ruleViewerText : this.customRuleText;
+                  const lines = text.split('\n');
+                  for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].indexOf('"' + key + '"') >= 0) {
+                      this.editorCursorLine = i;
+                      this.editorLinksVisible = false;
+                      return;
+                    }
+                  }
+                  this.editorLinksVisible = false;
+                })
+            }
+          }, (key: string, index: number) => 'link_' + index)
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .scrollBar(BarState.Auto)
+      }
+      .width('70%')
+      .height('60%')
+      .backgroundColor(this.editorTheme().currentLine)
+      .borderRadius(12)
+      .border({ width: 1, color: this.editorTheme().nullColor })
+    }
+    .width('100%').height('100%')
+    .backgroundColor('#66000000')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .onClick(() => { this.editorLinksVisible = false; })
+  }
+
+  @Builder
+  private EditorStatsPanel() {
+    Column() {
+      Column({ space: 8 }) {
+        Row() {
+          Text('Statistics').fontSize(14).fontColor(this.editorTheme().text).layoutWeight(1)
+          Image($rawfile('ic_close.svg')).width(16).height(16)
+            .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close')))
+            .onClick(() => { this.editorStatsVisible = false; })
+        }
+        .width('100%')
+        Row() {
+          Text('Lines:').fontSize(12).fontColor(this.editorTheme().text).layoutWeight(1)
+          Text(this.editorStatsLines.toString()).fontSize(12).fontColor(this.editorTheme().keyword)
+        }.width('100%')
+        Row() {
+          Text('Words:').fontSize(12).fontColor(this.editorTheme().text).layoutWeight(1)
+          Text(this.editorStatsWords.toString()).fontSize(12).fontColor(this.editorTheme().keyword)
+        }.width('100%')
+        Row() {
+          Text('Characters:').fontSize(12).fontColor(this.editorTheme().text).layoutWeight(1)
+          Text(this.editorStatsChars.toString()).fontSize(12).fontColor(this.editorTheme().keyword)
+        }.width('100%')
+        Row() {
+          Text('Bookmarks:').fontSize(12).fontColor(this.editorTheme().text).layoutWeight(1)
+          Text(this.editorBookmarks.length.toString()).fontSize(12).fontColor(this.editorTheme().keyword)
+        }.width('100%')
+      }
+      .width('70%').padding(12)
+      .backgroundColor(this.editorTheme().currentLine)
+      .borderRadius(12)
+      .border({ width: 1, color: this.editorTheme().nullColor })
+    }
+    .width('100%').height('100%')
+    .backgroundColor('#66000000')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .onClick(() => { this.editorStatsVisible = false; })
+  }
+
+  @Builder
+  private EditorColorPickerPanel() {
+    Column() {
+      Column({ space: 8 }) {
+        Row() {
+          Text('Color Picker').fontSize(14).fontColor(this.editorTheme().text).layoutWeight(1)
+          Image($rawfile('ic_close.svg')).width(16).height(16)
+            .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close')))
+            .onClick(() => { this.editorColorPickerVisible = false; })
+        }
+        .width('100%')
+        Grid() {
+          ForEach(['#F38BA8', '#A6E3A1', '#FAB387', '#CBA6F7', '#89DCEB', '#EBA0AC',
+            '#F9E2AF', '#94E2D5', '#74C7EC', '#89B4FA', '#DC8A78', '#CDD6F4',
+            '#FFFFFF', '#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFF00',
+            '#FF00FF', '#00FFFF', '#808080', '#C0C0C0', '#800000', '#008000',
+            '#000080', '#808000', '#800080', '#008080', '#400000', '#004000'], (color: string) => {
+            GridItem() {
+              Column() {
+                Stack() {
+                  Circle().width(28).height(28).fill(color)
+                  if (this.editorTheme().background === color) {
+                    Circle().width(28).height(28).fill(Color.Transparent).stroke('#FFFFFF').strokeWidth(2)
+                  }
+                }.width(28).height(28)
+                Text(color).fontSize(8).fontColor(this.editorTheme().text).margin({ top: 2 })
+              }
+              .width('100%')
+              .onClick(() => {
+                this.customRuleText = this.customRuleText + color;
+                this.editorColorPickerVisible = false;
+                this.refreshEditorLines();
+                this.editorValidate();
+              })
+            }
+          }, (color: string) => color)
+        }
+        .columnsTemplate('1fr 1fr 1fr 1fr 1fr 1fr')
+        .rowsGap(4)
+        .columnsGap(4)
+        .width('100%')
+        .height(200)
+      }
+      .width('70%').padding(12)
+      .backgroundColor(this.editorTheme().currentLine)
+      .borderRadius(12)
+      .border({ width: 1, color: this.editorTheme().nullColor })
+    }
+    .width('100%').height('100%')
+    .backgroundColor('#66000000')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .onClick(() => { this.editorColorPickerVisible = false; })
+  }
+
+  @Builder
+  private EditorPreviewPanel() {
+    Column() {
+      Column({ space: 8 }) {
+        Row() {
+          Text('Preview').fontSize(14).fontColor(this.editorTheme().text).layoutWeight(1)
+          Image($rawfile('ic_close.svg')).width(16).height(16)
+            .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close')))
+            .onClick(() => { this.editorPreviewVisible = false; })
+        }
+        .width('100%').height(36).padding({ left: 12, right: 8 })
+        Scroll() {
+          Column() {
+            ForEach(this.editorLinesCache.slice(0, 500), (line: string, index: number) => {
+              Row() {
+                Text((index + 1).toString())
+                  .fontSize(10).fontColor(this.editorTheme().lineNumber)
+                  .width(30).textAlign(TextAlign.End)
+                Row() {
+                  ForEach(highlightJsonLine(line, this.editorThemeCache), (seg: HighlightSegment) => {
+                    Text(seg.text).fontSize(12).fontColor(seg.color).fontFamily('monospace')
+                  }, (seg: HighlightSegment, si: number) => 'pv_' + index + '_' + si)
+                }
+                .layoutWeight(1)
+              }
+              .width('100%')
+              .backgroundColor(index === this.editorCursorLine ? this.editorThemeCache.currentLine : Color.Transparent)
+            }, (line: string, index: number) => 'pvl_' + index)
+            if (this.editorLinesCache.length > 500) {
+              Text(`... ${this.editorLinesCache.length - 500} more lines not shown`)
+                .fontSize(10).fontColor(this.editorTheme().nullColor)
+                .width('100%').textAlign(TextAlign.Center).padding(8)
+            }
+          }.width('100%')
+        }
+        .layoutWeight(1)
+        .scrollBar(BarState.Auto)
+      }
+      .width('80%')
+      .height('70%')
+      .backgroundColor(this.editorTheme().currentLine)
+      .borderRadius(12)
+      .border({ width: 1, color: this.editorTheme().nullColor })
+    }
+    .width('100%').height('100%')
+    .backgroundColor('#66000000')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .onClick(() => { this.editorPreviewVisible = false; })
   }
 
   @Builder
@@ -3784,75 +5987,75 @@ struct Index {
         .width('100%')
         .padding({ left: 14, right: 14, top: 8, bottom: 8 })
       } else if (this.activeTab === 'shelf') {
-        Scroll() {
-          Row({ space: 8 }) {
-            ForEach(this.catalogCategories, (cat: CatalogCategory) => {
-              Text(cat.name)
-                .fontSize(14)
-                .fontWeight(this.selectedCatalogCategory === cat.id ? FontWeight.Bold : FontWeight.Normal)
-                .fontColor(this.colorfulValue(cat.id))
-                .maxLines(1)
-                .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-                .borderRadius(16)
-                .border({ width: 1, color: this.selectedCatalogCategory === cat.id ? this.colorfulValue(cat.id) : this.borderSubtle() })
-                .onClick(() => {
-                  if (this.selectedCatalogCategory === cat.id) {
-                    this.selectedCatalogCategory = '';
-                    this.catalogItems = [];
-                  } else {
-                    this.selectedCatalogCategory = cat.id;
-                    this.catalogItems = this.filteredCatalogItems(this.remoteCatalog!, cat.id);
-                  }
-                })
-            }, (cat: CatalogCategory) => cat.id)
+        Row() {
+          Scroll() {
+            Row({ space: 8 }) {
+              ForEach(this.catalogCategories, (cat: CatalogCategory) => {
+                Text(cat.name)
+                  .fontSize(14)
+                  .fontWeight(this.selectedCatalogCategory === cat.id ? FontWeight.Bold : FontWeight.Normal)
+                  .fontColor(this.colorfulValue(cat.id))
+                  .maxLines(1)
+                  .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                  .borderRadius(16)
+                  .border({ width: 1, color: this.selectedCatalogCategory === cat.id ? this.colorfulValue(cat.id) : this.borderSubtle() })
+                  .onClick(() => {
+                    if (this.selectedCatalogCategory === cat.id) {
+                      this.selectedCatalogCategory = '';
+                      this.catalogItems = [];
+                    } else {
+                      this.selectedCatalogCategory = cat.id;
+                      this.catalogItems = this.filteredCatalogItems(this.remoteCatalog!, cat.id);
+                    }
+                  })
+              }, (cat: CatalogCategory) => cat.id)
+            }
+            .padding({ left: 14, right: 14 })
           }
-          .padding({ left: 14, right: 14 })
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
+          .padding({ top: 8, bottom: 8 })
+          .backgroundColor(Color.Transparent)
+          Button() {
+            Image($rawfile('ic_more_vert.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_more_vert')))
+          }
+          .width(36).height(36).backgroundColor(Color.Transparent).borderWidth(0)
+          .onClick(() => { this.shelfMenuVisible = !this.shelfMenuVisible; })
         }
-        .scrollable(ScrollDirection.Horizontal)
-        .scrollBar(BarState.Off)
         .width('100%')
-        .padding({ top: 8, bottom: 8 })
-        .backgroundColor(Color.Transparent)
+        .padding({ right: 8, top: 0, bottom: 0 })
       } else if (this.activeTab === 'history') {
         Row() {
           Row({ space: 16 }) {
-            Text(this.t('history'))
-              .fontSize(20)
-              .fontWeight(this.historyTab === 'history' ? FontWeight.Bold : FontWeight.Normal)
-              .fontColor(this.historyTab === 'history' ? this.primaryText() : this.secondaryText())
-              .onClick(() => { this.historyTab = 'history'; })
-            Text(this.t('favorites'))
-              .fontSize(20)
-              .fontWeight(this.historyTab === 'favorites' ? FontWeight.Bold : FontWeight.Normal)
-              .fontColor(this.historyTab === 'favorites' ? this.primaryText() : this.secondaryText())
-              .onClick(() => { this.historyTab = 'favorites'; })
-          }.layoutWeight(1)
-          Stack() {
-            Image($rawfile('ic_more.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_more')))
-              .onClick(() => { this.historyMenuVisible = !this.historyMenuVisible; })
-            if (this.historyMenuVisible) {
-              Column() {
-                Row({ space: 8 }) {
-                  Image($rawfile('ic_layout.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_layout')))
-                  Text(this.t('list_view')).fontSize(14).fontColor(this.historyViewMode === 'list' ? this.accent() : this.primaryText())
-                }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.historyViewMode = 'list'; this.historyMenuVisible = false; })
-                Row({ space: 8 }) {
-                  Image($rawfile('ic_shelf.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shelf')))
-                  Text(this.t('grid_view')).fontSize(14).fontColor(this.historyViewMode === 'grid' ? this.accent() : this.primaryText())
-                }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.historyViewMode = 'grid'; this.historyMenuVisible = false; })
-                Row({ space: 8 }) {
-                  Image($rawfile('ic_x.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
-                  Text(this.isEn() ? 'Clear all' : '全部清除').fontSize(14).fontColor(this.iconColor('ic_x'))
-                }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.clearVisibleHistory(); this.historyMenuVisible = false; })
-              }
-              .width(140)
-              .backgroundColor(this.cardBg())
-              .borderRadius(12)
-              .shadow({ radius: 12, color: '#30000000', offsetY: 4 })
-              .border({ width: 1, color: this.borderSubtle() })
-              .position({ x: -100, y: 36 })
+            if (this.historyTab === 'history') {
+              Button(this.t('history'))
+                .fontSize(20).fontWeight(FontWeight.Bold).fontColor(this.primaryText())
+                .backgroundColor(Color.Transparent).borderWidth(0)
+                .onClick(() => { this.historyTab = 'history'; })
+            } else {
+              Button(this.t('history'))
+                .fontSize(20).fontWeight(FontWeight.Normal).fontColor(this.secondaryText())
+                .backgroundColor(Color.Transparent).borderWidth(0)
+                .onClick(() => { this.historyTab = 'history'; })
             }
-          }.width(36).height(36).alignContent(Alignment.Center)
+            if (this.historyTab === 'favorites') {
+              Button(this.t('favorites'))
+                .fontSize(20).fontWeight(FontWeight.Bold).fontColor(this.primaryText())
+                .backgroundColor(Color.Transparent).borderWidth(0)
+                .onClick(() => { this.historyTab = 'favorites'; })
+            } else {
+              Button(this.t('favorites'))
+                .fontSize(20).fontWeight(FontWeight.Normal).fontColor(this.secondaryText())
+                .backgroundColor(Color.Transparent).borderWidth(0)
+                .onClick(() => { this.historyTab = 'favorites'; })
+            }
+          }.layoutWeight(1)
+          Button() {
+            Image($rawfile('ic_more_vert.svg')).width(22).height(22).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_more_vert')))
+          }
+          .width(36).height(36).backgroundColor(Color.Transparent).borderWidth(0)
+          .onClick(() => { this.historyMenuVisible = !this.historyMenuVisible; })
         }
         .width('100%')
         .padding({ left: 14, right: 14, top: 8, bottom: 8 })
@@ -3945,6 +6148,82 @@ struct Index {
           Column() { this.RecentSearchPanel() }
             .width('100%').padding({ left: 14, right: 14 })
             .position({ x: 0, y: this.headerOverlayHeight() })
+        }
+
+        if (this.historyMenuVisible) {
+          Column() {
+            Column() {
+              Row({ space: 8 }) {
+                Image($rawfile('ic_layout.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_layout')))
+                Text(this.t('list_view')).fontSize(14).fontColor(this.historyViewMode === 'list' ? this.colorfulAccent('view-list') : this.primaryText())
+              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.historyViewMode = 'list'; this.historyMenuVisible = false; })
+              Row({ space: 8 }) {
+                Image($rawfile('ic_shelf.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shelf')))
+                Text(this.t('grid_view')).fontSize(14).fontColor(this.historyViewMode === 'grid' ? this.colorfulAccent('view-grid') : this.primaryText())
+              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.historyViewMode = 'grid'; this.historyMenuVisible = false; })
+              Row({ space: 8 }) {
+                Image($rawfile('ic_x.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
+                Text(this.isEn() ? 'Clear all' : '全部清除').fontSize(14).fontColor(this.iconColor('ic_x'))
+              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.clearVisibleHistory(); this.historyMenuVisible = false; })
+            }
+            .width(140)
+            .backgroundColor(this.cardBg())
+            .borderRadius(12)
+            .shadow({ radius: 12, color: '#30000000', offsetY: 4 })
+            .border({ width: 1, color: this.borderSubtle() })
+            .position({ x: this.headerOverlayWidth() - 154, y: this.avoidStatusBarHeight + 44 })
+          }
+          .width('100%').height('100%')
+          .backgroundColor(this.dialogOverlay())
+          .onClick(() => { this.historyMenuVisible = false; })
+        }
+
+        if (this.shelfMenuVisible) {
+          Column() {
+            Column() {
+              Row({ space: 8 }) {
+                Image($rawfile('ic_globe.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_globe')))
+                Text(this.isEn() ? 'Catalog' : '分类浏览').fontSize(14).fontColor(this.shelfViewMode === 'catalog' ? this.colorfulAccent('shelf-catalog') : this.primaryText())
+              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.shelfViewMode = 'catalog'; this.shelfMenuVisible = false; })
+              Row({ space: 8 }) {
+                Image($rawfile('ic_book.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_book')))
+                Text(this.isEn() ? 'Favorites' : '收藏').fontSize(14).fontColor(this.shelfViewMode === 'bookshelf' ? this.colorfulAccent('shelf-bookshelf') : this.primaryText())
+              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.shelfViewMode = 'bookshelf'; this.shelfMenuVisible = false; })
+              Divider().color(this.borderSubtle()).width('100%').padding({ left: 14, right: 14 })
+              Row({ space: 8 }) {
+                Image($rawfile('ic_layout.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_layout')))
+                Text(this.t('list_view')).fontSize(14).fontColor(this.shelfDisplayMode === 'list' ? this.colorfulAccent('shelf-list') : this.primaryText())
+              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.shelfDisplayMode = 'list'; this.shelfMenuVisible = false; })
+              Row({ space: 8 }) {
+                Image($rawfile('ic_shelf.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shelf')))
+                Text(this.t('grid_view')).fontSize(14).fontColor(this.shelfDisplayMode === 'grid' ? this.colorfulAccent('shelf-grid') : this.primaryText())
+              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.shelfDisplayMode = 'grid'; this.shelfMenuVisible = false; })
+            }
+            .width(140)
+            .backgroundColor(this.cardBg())
+            .borderRadius(12)
+            .shadow({ radius: 12, color: '#30000000', offsetY: 4 })
+            .border({ width: 1, color: this.borderSubtle() })
+            .position({ x: this.headerOverlayWidth() - 154, y: this.avoidStatusBarHeight + 44 })
+          }
+          .width('100%').height('100%')
+          .backgroundColor(this.dialogOverlay())
+          .onClick(() => { this.shelfMenuVisible = false; })
+        }
+
+        if (this.bookLongPressVisible) {
+          Column() {
+            this.BookLongPressMenu()
+          }
+          .width('100%').height('100%')
+          .backgroundColor(this.dialogOverlay())
+          .onClick(() => { this.closeBookLongPressMenu(); })
+        }
+
+        if (this.editorFullscreen) {
+          Column() { this.CodeEditorFullscreen() }
+            .width('100%')
+            .height('100%')
         }
       }, (item: string, index: number) => `${item}_${index}`)
     }

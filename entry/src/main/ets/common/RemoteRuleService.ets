@@ -1,4 +1,4 @@
-import { ComicSourceRule, LanguageInfo, CoverAccuracyIndex } from '../model/ComicModels';
+import { ComicSourceRule, LanguageInfo, CoverAccuracyIndex, CoverDiscoveryRuleIndex } from '../model/ComicModels';
 import { HttpClient } from './HttpClient';
 import { isValidPublicRule } from './RuleValidator';
 
@@ -37,6 +37,7 @@ interface UpdateManifest {
   rules?: ManifestRulesEntry;
   catalog?: ManifestCatalogEntry;
   coverAudit?: ManifestCatalogEntry;
+  coverRules?: ManifestCatalogEntry;
 }
 
 function isSafeRemoteRuleUrl(url: string): boolean {
@@ -121,6 +122,25 @@ export class RemoteRuleService {
     if (index.schema !== 'comic_cover_accuracy_index_v1' || !Array.isArray(index.entries) ||
       index.entries.length > 10000 || index.entries.length !== index.count) {
       throw new Error('Invalid cover accuracy index');
+    }
+    return index;
+  }
+
+  static async fetchCoverDiscoveryRules(manifestUrl: string): Promise<CoverDiscoveryRuleIndex> {
+    if (!isSafeRemoteRuleUrl(manifestUrl)) throw new Error('Manifest URL must use HTTPS');
+    const manifestText = await HttpClient.getText(manifestUrl,
+      'Mozilla/5.0 HarmonyOS ComicReader CoverRules/1.0', 'https://github.com/');
+    const manifest = JSON.parse(manifestText) as UpdateManifest;
+    const url = manifest.coverRules?.url;
+    if (!isTrustedManifest(manifest) || !url || !isSafeRemoteRuleUrl(url)) {
+      throw new Error('Invalid manifest or missing cover rules URL');
+    }
+    const text = await HttpClient.getText(url,
+      'Mozilla/5.0 HarmonyOS ComicReader CoverRules/1.0', 'https://github.com/');
+    const index = JSON.parse(text) as CoverDiscoveryRuleIndex;
+    if (index.schema !== 'comic_cover_discovery_rules_v1' || !Array.isArray(index.rules) ||
+      index.rules.length > 200 || index.rules.length !== index.count) {
+      throw new Error('Invalid cover discovery rules');
     }
     return index;
   }

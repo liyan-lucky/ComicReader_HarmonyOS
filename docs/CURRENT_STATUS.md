@@ -1,6 +1,6 @@
 # 当前仓库状态
 
-更新时间：2026-08-31
+更新时间：2026-09-16
 
 > 本轮完整需求与验证基线见 [SESSION_REQUIREMENTS_2026-08-31.md](SESSION_REQUIREMENTS_2026-08-31.md)。
 
@@ -12,13 +12,18 @@
 
 - 工程类型：HarmonyOS / OpenHarmony ArkTS Stage 应用。
 - 包名：`com.nw.cleansite.novel.hm`。
-- 当前工作树版本：0.1.110（版本码 1110）。
+- 当前工作树版本：0.87.44（版本码 870440）。
 - 当前能力边界：公开漫画资源搜索、结果整理、章节卷轴阅读、书架目录浏览、历史/设置等 App 侧能力。
 - 规则来源：默认从 `ComicReader_Rules` 的 `generated/update_manifest.json` 读取远程规则（两步获取：manifest → rules）。
 - 目录来源：从 `update_manifest.json` 的 `catalog.url` 获取远程目录，本地 rawfile 作为 fallback。
 - 目录解析同时兼容旧版 `womh_comic_catalog_v1` 和规则仓库增量发布使用的 `comic_catalog_v1`；任一作品完成来源及域名规则验证后即可进入线上目录。
 - 搜索源：搜索引擎（Bing/DuckDuckGo/Google/Yandex）+ HTML 规则源 + API 源（Internet Archive/Wikimedia/Open Library/Library of Congress/Pepper）。
-- 内置规则：`GeneratedSourceRules.ets` 包含 22 条自动审计生成的规则，通过 `domainApplicabilityList` 匹配 URL。
+- 内置规则：`SourceRules.ets` 包含 100 条验证域名规则（`VERIFIED_DOMAIN_LIST`）+ 公开访问规则（`PUBLIC_ACCESS_LIST`）+ 通用 HTML 规则（`generic_html`）。`GeneratedSourceRules.ets` 已删除，规则统一由 `SourceRules.ets` 管理。
+- 规则优先级：自定义规则 > 内置规则 > 远程规则（`rebuildEffectiveRules` 合并顺序）。搜索时规则上限 30 条。
+- 屏蔽规则：用户可在设置中维护 URL 屏蔽列表（JSON 字符串数组），搜索结果中匹配屏蔽 URL 的条目自动过滤。
+- 自定义规则编辑器：全屏代码编辑器，支持行号显示、光标位置跟踪（Ln/Col）、行号点击编辑、键盘快捷键（工具栏键盘图标）。可编辑自定义规则和屏蔽列表，只读查看内置规则和远程规则。
+- 自动探测未知来源：搜索引擎发现的无专用规则 URL 会被串行探测（`autoProbeUnknownUrls`），使用通用 HTML 规则尝试解析章节或图片，渐进式显示结果。`splitEngineResults` 对 probeQueue 做去重，`autoProbeUnknownUrls` 使用 try-finally 确保 `isProbing` 状态可靠重置。
+- 搜索引擎 Toggle：使用数组替换方式更新 `@State searchEngines`，确保 ArkUI 状态正确刷新。
 - 数据持久化：书架/历史/最近 10 条搜索/主题/语言通过 `@ohos.data.preferences` 持久化存储，书架封面落盘缓存。
 - 合规边界：不托管漫画图片、章节正文、付费内容、账号数据、站点 Logo、字体、SDK 压缩包、签名证书、HAP/APP 发布包或其他第三方受保护资源。
 
@@ -33,11 +38,24 @@
 - 搜索首页：Column 布局 + 插图 + 透明线框搜索框 + 顶部/底部 Blank 避让。
 - 搜索按钮：绿色胶囊形 `#34C759`，加载时 Canvas 沿按钮轮廓绘制渐变描边旋转动画（深绿→透明）。
 - 搜索框：透明背景 + 灰色线框，X 按钮可中断搜索+清空结果+回到首页。
-- 书架页：HeaderOverlay 中显示分类标签（横向滚动），选中分类后下方 3 列网格展示封面+标题，默认选中第一个分类。本地 rawfile 目录作为离线 fallback，远程更新覆盖。
-- 设置页：SectionLabel + CardContainer 分组 + LinkRow/ToggleRow + 自定义 JSON 规则应用按钮，标题行图标+文字在 HeaderOverlay 渐变层中。
+- 书架页：HeaderOverlay 中显示分类标签（横向滚动），选中分类后下方 3 列网格展示封面+标题，默认选中第一个分类。本地 rawfile 目录作为离线 fallback，远程更新覆盖。左右滑动切换分类（Stack 双内容叠加方案）。
+- 设置页：SectionLabel + CardContainer 分组 + LinkRow/ToggleRow + 自定义 JSON 规则应用按钮，标题行图标+文字在 HeaderOverlay 渐变层中。间距 `avoidStatusBarHeight + 43`。
+- 设置页图标：LinkRow 右侧用 `ic_chevron_right`（>），主题/语言行用 `ic_chevron_down`（▼），ToggleSettingRow 用开关。所有 `ic_more.svg` 已替换。
+- 设置页文案：i18n 中文文案精简为4字（阅读全屏、屏幕常亮、显示阅读、封面校验、内置规则等）。
+- 书架长按菜单：取消收藏/搜索书名/更新封面/删除/关闭，5个选项。
+- 对话框遮罩：所有对话框使用 `dialogOverlay()` 半透明遮罩（`#88000000`/`#66000000`），避免点击穿透和显示残留。
+- `onBackPress`：处理所有对话框状态（settingsDialog、themeDialogVisible、languageDialogVisible、updateDialogVisible、historyMenuVisible、bookLongPressVisible、editorMenuVisible、editorFullscreen、editorConfirmDiscard）。
+- 屏幕常亮：默认关闭，可在设置→关于中手动开启。
 - Tab 图标状态：选中绿色图标+文字，未选中灰色图标+文字，通过 `this.activeTab` 直接驱动。
-- 所有图标使用 SVG（stroke 格式），来自 ProIcons / Lucide Icons，存放在 `entry/src/main/resources/rawfile/`。
+- 所有图标使用 SVG（stroke 格式），来自 iconoir.com / ProIcons / Lucide Icons，存放在 `entry/src/main/resources/rawfile/`。全彩图标模式下所有配色通过 `colorfulAccent(key)` 统一逻辑。
 - 全屏显示模式：`expandSafeArea` + 状态栏透明 + 9 段渐变半透明 HeaderOverlay。
+- 自定义规则编辑器 UI：全屏 Stack 布局，顶部工具栏（返回/标题/三点菜单），底部编辑工具栏（撤销/重做/复制/粘贴/保存/键盘等图标）。READ 模式行号+内容垂直布局，行号可点击切换编辑；EDIT 模式左侧行号 Column + 1px 竖分界线 + TextArea，`onContentScroll` 同步行号滚动。`onTextSelectionChange` 跟踪光标 Ln/Col 位置。
+
+## 构建脚本
+
+- `scripts/build_local.ps1`：本地构建脚本，支持 `--full`（默认，中间版本号+1）和 `--incremental`（末尾版本号+1）两种模式。
+- `scripts/update_build_version.js`：版本号管理，`--full` 时 `state.full += 1; state.incremental = 0`，`--incremental` 时 `state.incremental += 1`。
+- `version.json`：当前版本状态文件，记录 major/full/incremental/buildType/buildTime。
 
 ## 当前分支和备份
 

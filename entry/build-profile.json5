@@ -5,6 +5,10 @@
   },
   "buildOptionSet": [
     {
+      "name": "debug",
+      "arkOptions": {}
+    },
+    {
       "name": "release",
       "arkOptions": {
         "obfuscation": {

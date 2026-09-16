@@ -106,3 +106,46 @@
 - 原因二：公共 API 查询虽然附加漫画词，但解析阶段未再次核对结果是否命中用户原始关键词。
 - 处理：取消搜索引擎宽松回退；Internet Archive、Wikimedia、Open Library 和 Library of Congress 的解析结果必须在标题或元数据中命中规范化后的原始关键词。
 - 当前状态：已修复，站内规则继续执行标题关键词过滤以保留正常漫画名称召回率。
+
+### 15. 搜索覆盖域名不足（乐搜分析后补充）
+
+- 现象：搜索结果覆盖的漫画站点域名偏少，与乐搜免费漫画阅站相比缺少多个热门站点。
+- 原因：`GeneratedSourceRules.ets` 和 `SourceRules.ets` 未覆盖乐搜动态观察到的部分漫画站点。
+- 处理：通过分析乐搜 APK（com.nw.cleansite.novel v1.1.157）的动态行为，识别出 14 个缺失域名，在 `SourceRules.ets` 中新增 `publicAccessRule()` 条目并附带 `domainApplicabilityList`：
+  - baozimh.com（包子漫画）、duokanmh.com（多看漫画）、kukuc.co（酷酷漫画）、bzmgcn.com、manhuafree.com、g-mh.org、amh1234.com、yumanhua.com（漫画客）、lmanhua.com（来漫画）、labimanhua.com（蜡笔漫画）、liumanhua.com（六漫画）、mangapill.com、comics.inkr.com（INKR Comics）、dou-luodalumanhua.com.cn
+- 同时修改 `publicAccessRule()` 函数以接受可选的 `domainApplicabilityList` 参数，使新规则能精确匹配域名。
+- 当前状态：已完成，构建验证 0 ERROR。
+
+### 16. 自动探测与 Toggle 开关修复后的功能审计缺陷
+
+- 现象：实现"自动探测未知来源"功能和修复 Toggle 开关 bug 后，全面审计发现 5 个功能逻辑缺陷。
+- 缺陷1（中等）：`autoProbeUnknownUrls` 缺少 try-finally 保护，异常退出时 `isProbing` 永久为 true，导致后续搜索无法触发探测。
+- 缺陷2（中等）：`DialogToggleRow` 中 `engine.enabled = isOn` 直接修改对象属性，ArkUI `@State` 数组不触发状态更新，Toggle 切换后 UI 不刷新。
+- 缺陷3（低）：`splitEngineResults` 在 broadComicKeyword 场景下被多次调用，`probeQueue` 可能包含重复 URL，导致同一页面被重复探测。
+- 缺陷4（低）：`index > 0 || true` 恒为 true，所有引擎 Toggle 都显示分隔线，包括第一个。
+- 缺陷5（低）：`genericRule()` 作为未知 URL 兜底解析器的限制未在代码中标注，后续维护者可能误以为通用规则能解析所有站点。
+- 处理：
+  - 缺陷1：将 `autoProbeUnknownUrls` 主体包裹在 try-finally 中，finally 块重置 `probeQueue` 和 `isProbing`。
+  - 缺陷2：改为 `this.searchEngines = updated` 数组替换方式，构造新 SearchEngineConfig 对象替换整个数组，触发 ArkUI 状态更新。
+  - 缺陷3：在 `splitEngineResults` 中添加 `probeQueue.some()` 去重检查，已存在的 URL 不再重复入队。
+  - 缺陷4：改为 `index > 0`，仅从第二个引擎起显示分隔线。
+  - 缺陷5：在 `genericRule()` 定义前添加注释，说明其使用宽泛 CSS 选择器、可能遗漏非标准 markup 的站点，专用规则始终优先。
+- 当前状态：5 个缺陷全部修复，构建验证 0 ERROR。
+
+### 17. 搜索特定漫画标题无结果（搜索逻辑优化）
+
+- 现象：搜索"掌门低调点"等特定漫画标题时完全无结果返回，搜索引擎明明有相关页面但被过滤逻辑拒绝。
+- 原因分析（5 个关键问题）：
+  1. `looksComicRelated` 过滤太严格：对非泛化关键词，要求同时满足关键词匹配和漫画相关关键词（comic/manga/漫画/章节等），导致描述中无明确漫画关键词的有效结果被拒绝。
+  2. `parseGenericHtmlResults` 只用 strict 模式：strict 过滤后结果为0时无 fallback，直接返回空列表。
+  3. `fetchHtmlRuleResults` 关键词匹配太严格：要求关键词作为精确子串出现在标题或描述中，"掌门低调点"无法匹配"掌门，低调点"等变体。
+  4. 搜索引擎查询词过于具体：`buildEngineQuery` 总是添加"漫画"等额外词，某些搜索引擎对长查询返回更少结果。
+  5. `searchHtmlRuleSources` 限制只尝试8个规则：可能遗漏包含该漫画的网站。
+- 处理：
+  - 修改1：放宽 `looksComicRelated` — 对于≥3字符的非泛化特定标题关键词，只要 `hasKeywordMatch` 为 true 就直接接受，不再强制要求漫画关键词。
+  - 修改2：`parseGenericHtmlResults` 添加非 strict fallback — strict 结果<5时追加非 strict 模式结果，合并去重后最多30条。
+  - 修改3：放宽 `fetchHtmlRuleResults` 关键词匹配 — 添加归一化比较（去除标点符号），"掌门低调点"可匹配"掌门，低调点"。
+  - 修改4：添加纯关键词查询 — 对非泛化关键词额外发送不带"漫画"等额外词的纯标题查询，增加搜索覆盖面。
+  - 修改5：提高 `searchHtmlRuleSources` 尝试限制从8增加到15。
+- 验证结果：模拟器搜索"掌门低调点"返回5条结果（ac.qq.com × 2、yumanhua.com、wmanhua.com 等），点击 ac.qq.com 和 yumanhua.com 来源均成功打开漫画详情页，显示14个章节（609~596章），无错误提示。
+- 当前状态：已完成，构建验证 0 ERROR，模拟器测试通过。

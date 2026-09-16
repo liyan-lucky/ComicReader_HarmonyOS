@@ -15,6 +15,10 @@
     {
       "name": "search_hint",
       "value": "漫画名 / 公开详情页URL / 章节URL"
+    },
+    {
+      "name": "pasteboard_reason",
+      "value": "用于代码编辑器复制粘贴功能"
     }
   ]
 }

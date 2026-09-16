@@ -180,3 +180,28 @@ export interface CoverAccuracyIndex {
   count: number;
   entries: CoverAccuracyEntry[];
 }
+
+export interface CoverDiscoveryRule {
+  id: string;
+  name: string;
+  description?: string;
+  homepage: string;
+  searchUrl: string;
+  itemRegex: string;
+  titleGroups: number[];
+  detailUrlGroups: number[];
+  coverGroups: number[];
+  detailCoverRegex?: string;
+  detailCoverGroups?: number[];
+  domainApplicabilityList?: string[];
+  userAgent: string;
+  referer: string;
+}
+
+export interface CoverDiscoveryRuleIndex {
+  schema: string;
+  version: string;
+  updatedAt: string;
+  count: number;
+  rules: CoverDiscoveryRule[];
+}

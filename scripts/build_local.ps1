@@ -10,12 +10,17 @@ $env:DEVECO_SDK_HOME = $DEVECO_SDK
 $env:HARMONYOS_SDK_ROOT = "$DEVECO_SDK\default"
 $env:PATH = "$DEVECO_JBR\bin;$DEVECO_TOOLS\hvigor\bin;$env:PATH"
 
+$BUILD_MODE = 'full'
+if ($args -contains '--incremental') { $BUILD_MODE = 'incremental' }
+if ($args -contains '--full') { $BUILD_MODE = 'full' }
+
 Write-Host "[本地构建] 项目目录: $ROOT_DIR"
 Write-Host "[本地构建] 产物目录: $TEMP_DIR"
+Write-Host "[本地构建] 构建模式: $BUILD_MODE"
 
 Set-Location $ROOT_DIR
 
-node scripts/update_build_version.js --incremental --target local-build
+node scripts/update_build_version.js --$BUILD_MODE --target local-build
 if ($LASTEXITCODE -ne 0) { throw "版本号更新失败，退出码: $LASTEXITCODE" }
 
 Write-Host "[本地构建] 直接调用hvigor构建HAP..." -ForegroundColor Cyan

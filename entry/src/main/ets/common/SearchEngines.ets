@@ -10,13 +10,20 @@ const BLOCKED_SEARCH_DOMAINS: string[] = [
   'tieba.baidu.com', 'zhihu.com', 'baike.baidu.com', 'baike.sogou.com', 'wikipedia.org', 'wikiwand.com', 'fandom.com',
   'facebook.com', 'instagram.com', 'twitter.com', 'x.com', 'reddit.com', 'pinterest.com',
   'amazon.', 'taobao.com', 'tmall.com', 'jd.com', 'dangdang.com',
-  'hanyuguoxue.com', 'cidian.', 'zdic.net', 'zidian.', 'guoxue.', '5156edu.com'
+  'hanyuguoxue.com', 'cidian.', 'zdic.net', 'zidian.', 'guoxue.', '5156edu.com',
+  'toutiao.com', '360kuai.com', 'so.com', 'haosou.com', 'chinaso.com', 'shenma.cn',
+  'sina.com.cn', 'sina.cn', '163.com', 'sohu.com', 'qq.com',
+  // 屏蔽搜索引擎内部功能页面
+  'help.sogou.com', 'fankui.sogou.com', 'pic.sogou.com', 'weixin.sogou.com', 'fanyi.sogou.com',
+  'help.baidu.com', 'fankui.baidu.com', 'pic.baidu.com', 'weixin.baidu.com', 'fanyi.baidu.com'
 ];
 
 const BLOCKED_SEARCH_WORDS: string[] = [
   '抖音', '短视频', '视频', '动画', '电视剧', '真人版', '百科', '词条', '贴吧', '知乎', '小红书', '微博',
   'bilibili', 'youtube', 'tiktok', 'wiki', 'wikipedia', 'facebook', 'instagram', 'reddit',
-  '意思', '解释', '拼音', '读音', '汉语', '国学', '字典', '词典', '成语', '造句', '近义词', '反义词'
+  '意思', '解释', '拼音', '读音', '汉语', '国学', '字典', '词典', '成语', '造句', '近义词', '反义词',
+  '信用', '广告', '推广', '赞助', '充值', '下载', '安装', 'APP', '官网', '登录', '注册',
+  '弹窗', '红包', '礼包', '兑换', '代充', 'VIP', '会员', '免费', '高清', '完整版', '精校版', 'txt'
 ];
 
 const PREFERRED_COMIC_DOMAINS: string[] = [
@@ -26,15 +33,15 @@ const PREFERRED_COMIC_DOMAINS: string[] = [
 ];
 
 export const DEFAULT_SEARCH_ENGINES: SearchEngineConfig[] = [
-  { id: 'duckduckgo_html', name: 'DuckDuckGo 网页结果', description: '无 API Key 模式，读取 DuckDuckGo HTML/Lite 搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'duckduckgo-html', searchUrl: 'https://duckduckgo.com/html/?q={query}', requiresKey: false, enabled: true },
-  { id: 'bing_web_html', name: 'Bing 网页结果', description: '无 API Key 模式，读取 Bing 网页搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'bing-html', searchUrl: 'https://www.bing.com/search?q={query}', requiresKey: false, enabled: true },
-  { id: 'baidu_web_html', name: '百度网页结果', description: '中文公开网页搜索，用于补充国内漫画平台和聚合站点结果。', engineType: 'baidu-html', searchUrl: 'https://www.baidu.com/s?rn=50&wd={query}', requiresKey: false, enabled: true },
-  { id: 'sogou_web_html', name: '搜狗网页结果', description: '中文公开网页搜索，用于补充书名别名和国内站点结果。', engineType: 'sogou-html', searchUrl: 'https://www.sogou.com/web?num=30&query={query}', requiresKey: false, enabled: true },
-  { id: 'so_web_html', name: '360 网页结果', description: '中文公开网页搜索，作为国内漫画资源召回补充。', engineType: 'so-html', searchUrl: 'https://www.so.com/s?q={query}', requiresKey: false, enabled: true },
-  { id: 'google_web_html', name: 'Google 网页结果', description: '读取 Google 普通网页结果页；稳定性取决于网络与搜索页是否允许直接访问。', engineType: 'google-html', searchUrl: 'https://www.google.com/search?q={query}', requiresKey: false, enabled: true },
-  { id: 'yandex_web_html', name: 'Yandex 网页结果', description: '读取 Yandex 网页搜索结果页，适合英文/多语言兜底检索。', engineType: 'yandex-html', searchUrl: 'https://yandex.com/search/?text={query}', requiresKey: false, enabled: true },
-  { id: 'brave_search_api', name: 'Brave Search API', description: '官方 Brave Search API，需要在设置里填写 API Key。', engineType: 'brave-api', searchUrl: 'https://api.search.brave.com/res/v1/web/search?q={query}&count=20', requiresKey: true, enabled: false },
-  { id: 'google_cse_api', name: 'Google Programmable Search API', description: '官方 Google Programmable Search JSON API，需要 API Key 和 CX。', engineType: 'google-cse-api', searchUrl: 'https://www.googleapis.com/customsearch/v1?key={googleKey}&cx={googleCx}&q={query}&num=10', requiresKey: true, enabled: false }
+  { id: 'duckduckgo_html', name: 'DuckDuckGo', description: '无 API Key 模式，读取 DuckDuckGo HTML/Lite 搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'duckduckgo-html', searchUrl: 'https://duckduckgo.com/html/?q={query}', requiresKey: false, enabled: true },
+  { id: 'bing_web_html', name: 'Bing', description: '无 API Key 模式，读取 Bing 网页搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'bing-html', searchUrl: 'https://www.bing.com/search?q={query}', requiresKey: false, enabled: true },
+  { id: 'baidu_web_html', name: '百度', description: '中文公开网页搜索，用于补充国内漫画平台和聚合站点结果。', engineType: 'baidu-html', searchUrl: 'https://www.baidu.com/s?rn=50&wd={query}', requiresKey: false, enabled: true },
+  { id: 'sogou_web_html', name: '搜狗', description: '中文公开网页搜索，用于补充书名别名和国内站点结果。', engineType: 'sogou-html', searchUrl: 'https://www.sogou.com/web?num=30&query={query}', requiresKey: false, enabled: true },
+  { id: 'so_web_html', name: '360', description: '中文公开网页搜索，作为国内漫画资源召回补充。', engineType: 'so-html', searchUrl: 'https://www.so.com/s?q={query}', requiresKey: false, enabled: true },
+  { id: 'google_web_html', name: 'Google', description: '读取 Google 普通网页结果页；稳定性取决于网络与搜索页是否允许直接访问。', engineType: 'google-html', searchUrl: 'https://www.google.com/search?q={query}', requiresKey: false, enabled: true },
+  { id: 'yandex_web_html', name: 'Yandex', description: '读取 Yandex 网页搜索结果页，适合英文/多语言兜底检索。', engineType: 'yandex-html', searchUrl: 'https://yandex.com/search/?text={query}', requiresKey: false, enabled: true },
+  { id: 'brave_search_api', name: 'Brave API', description: '官方 Brave Search API，需要在设置里填写 API Key。', engineType: 'brave-api', searchUrl: 'https://api.search.brave.com/res/v1/web/search?q={query}&count=20', requiresKey: true, enabled: false },
+  { id: 'google_cse_api', name: 'Google API', description: '官方 Google Programmable Search JSON API，需要 API Key 和 CX。', engineType: 'google-cse-api', searchUrl: 'https://www.googleapis.com/customsearch/v1?key={googleKey}&cx={googleCx}&q={query}&num=10', requiresKey: true, enabled: false }
 ];
 
 export function searchEngineUserAgent(): string { return SEARCH_UA; }
@@ -138,9 +145,22 @@ function stripRedirect(url: string): string {
     if (q && q.length > 1) next = decodeURIComponent(q[1]);
   }
   const uddg = /[?&]uddg=([^&]+)/.exec(next);
-  if (uddg && uddg.length > 1) next = decodeURIComponent(uddg[1]);
+  if (uddg && uddg.length > 1) next = safeDecodeUrlComponent(uddg[1]);
+  // Mobile search pages expose the destination in an encoded url/pcurl
+  // parameter. Keeping the tracker URL makes a valid result look like
+  // another search page, so it is filtered before it reaches the UI.
+  const target = /[?&](?:url|pcurl)=([^&]+)/i.exec(next);
+  if (target && target.length > 1) next = safeDecodeUrlComponent(target[1]);
   if (next.startsWith('//')) next = 'https:' + next;
   return next;
+}
+
+function safeDecodeUrlComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch (_err) {
+    return value;
+  }
 }
 
 function hostOf(url: string): string {
@@ -174,30 +194,90 @@ function keywordAliases(keyword: string): string[] {
   return aliases;
 }
 
+function normalizedSearchText(value: string): string {
+  return value.toLowerCase()
+    .replace(/[\s\-_|\u2014\u2013\u00b7\u300a\u300b\u201c\u201d"'\uff0c\u3002\uff01\uff1f\u3001:\uff1a()\uff08\uff09\[\]\u3010\u3011]/g, '')
+    .replace(/(?:\u6f2b\u753b|\u5168\u96c6|\u5728\u7ebf|\u514d\u8d39|\u9605\u8bfb|\u4e0b\u62c9\u5f0f)$/g, '');
+}
+
+function withinOneEdit(left: string, right: string): boolean {
+  if (left === right) return true;
+  if (left.length < 4 || right.length < 4 || Math.abs(left.length - right.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < left.length && j < right.length) {
+    if (left.charAt(i) === right.charAt(j)) {
+      i++;
+      j++;
+      continue;
+    }
+    edits++;
+    if (edits > 1) return false;
+    if (left.length > right.length) i++;
+    else if (right.length > left.length) j++;
+    else {
+      i++;
+      j++;
+    }
+  }
+  if (i < left.length || j < right.length) edits++;
+  return edits <= 1;
+}
+
+function containsWithinOneEdit(text: string, query: string): boolean {
+  if (query.length < 4 || text.length < 4) return false;
+  if (text.indexOf(query) >= 0) return true;
+  const minimum = Math.max(4, query.length - 1);
+  const maximum = Math.min(text.length, query.length + 1);
+  for (let size = minimum; size <= maximum; size++) {
+    for (let start = 0; start + size <= text.length; start++) {
+      if (withinOneEdit(text.substring(start, start + size), query)) return true;
+    }
+  }
+  return false;
+}
+
 function hasKeywordMatch(title: string, url: string, desc: string, keyword: string): boolean {
   const text = (title + ' ' + url + ' ' + desc).toLowerCase();
+  const normalizedTitle = normalizedSearchText(title);
   const aliases = keywordAliases(keyword);
   for (let i = 0; i < aliases.length; i++) {
     const alias = aliases[i].toLowerCase().trim();
     if (alias.length > 0 && text.indexOf(alias) >= 0) return true;
+    if (containsWithinOneEdit(normalizedTitle, normalizedSearchText(alias))) return true;
   }
   return false;
 }
 
 function isPreferredComicDomain(url: string): boolean { return containsAny(hostOf(url), PREFERRED_COMIC_DOMAINS); }
 
+function isBroadDiscoveryKeyword(keyword: string): boolean {
+  const value = normalizedSearchText(keyword);
+  return /^(恋爱|爱情|言情|玄幻|奇幻|异能|恐怖|剧情|科幻|悬疑|冒险|犯罪|动作|日常|竞技|武侠|历史|战争|校园|都市|霸总|热血|搞笑|国漫|漫画|全部)$/.test(value);
+}
+
 function isBlockedSearchResult(title: string, url: string, desc: string): boolean {
   const lowerUrl = url.toLowerCase();
   const host = hostOf(url);
   const text = (title + ' ' + desc + ' ' + url).toLowerCase();
+  
   // Official comic sections remain valid search resources even when their
   // parent domain also hosts video/community content or requires login/pay.
   const officialComic = lowerUrl.indexOf('ac.qq.com/') >= 0 || lowerUrl.indexOf('kuaikanmanhua.com/') >= 0 ||
     lowerUrl.indexOf('manga.bilibili.com/') >= 0 || lowerUrl.indexOf('bilibili.com/manga') >= 0 ||
     lowerUrl.indexOf('bilibilicomics.com/') >= 0 || lowerUrl.indexOf('u17.com/') >= 0 ||
     lowerUrl.indexOf('manhuadao') >= 0 || lowerUrl.indexOf('dongmanmanhua.cn/') >= 0;
+  
   if (!officialComic && (containsAny(host, BLOCKED_SEARCH_DOMAINS) || containsAny(lowerUrl, BLOCKED_SEARCH_DOMAINS))) return true;
   if (containsAny(text, BLOCKED_SEARCH_WORDS) && !isPreferredComicDomain(url)) return true;
+  
+  // 智能URL模式识别：自动过滤搜索引擎内部页面
+  // 匹配模式：searchengine.com/help, searchengine.com/fankui, searchengine.com/pic 等
+  if (/(?:help|fankui|pic|weixin|fanyi|support|contact|about|terms|privacy|cookies|faq|sitemap|archive)\.[a-z]+\.[a-z]+(?:\/|$)/i.test(url)) return true;
+  // 匹配模式：searchengine.com/search?q=..., searchengine.com/web?query=..., searchengine.com/html/?q=...
+  if (/\/(?:search|web|s|html)(?:\/)?\?(?:query|q|wd|text|keyword)=/i.test(url) && /(?:sogou\.|baidu\.|so\.|bing\.|duckduckgo\.|google\.|yandex\.)/i.test(host)) return true;
+  
   return false;
 }
 
@@ -225,18 +305,86 @@ function canonicalSearchTitle(raw: string, keyword: string): string {
     .replace(/\s*(?:[-_|—–·]\s*)?(?:漫画)?(?:全集)?(?:免费)?(?:在线)?阅读.*$/i, '')
     .replace(/\s*第\s*[0-9一二三四五六七八九十百千零〇两]+\s*(?:话|章|回|卷).*$/i, '')
     .replace(/\s*(?:腾讯动漫|快看漫画|哔哩哔哩漫画|漫画岛|看漫画)(?:官网)?\s*.*$/i, '')
+    .replace(/\s+(?:图片|举报|帮助|百科|贴吧|知道|经验|视频|下载|登录|注册|关于|反馈|设置|意见|投诉|版权|免责|隐私|条款|协议).*$/i, '')
+    .replace(/\s*[-_|—–·]\s*$/i, '')
     .replace(/\s+/g, ' ').trim();
   if (title.length === 0) return '';
-  // A search provider sometimes puts the whole result container into the
-  // anchor match. Do not expose a paragraph as a book name.
   if (title.length > 96) return '';
   return title;
 }
 
+const NOISE_TITLE_WORDS: string[] = [
+  '图片', '举报', '帮助', '百科', '贴吧', '知道', '视频', '下载', '登录', '注册',
+  '关于', '反馈', '设置', '意见', '投诉', '版权', '免责', '隐私', '条款', '协议',
+  '广告', '推广', '赞助', '充值', '安装', 'APP', '官网', '弹窗', '红包', '礼包',
+  '兑换', '代充', 'VIP', '会员', '首页', '分类', '排行', '榜单', '收藏', '书架',
+  '搜索', '更多', '详情', '目录', '评论', '留言', '评分', '打分', '人气', '热度',
+  '推荐', '精选', '公告', '通知', '新闻', '动态', '活动', '专题', '话题', '社区',
+  '论坛', '群组', '聊天', '讨论', '问答', '求助', '教程', '攻略', '技巧', '秘籍',
+  '破解', '修改', '辅助', '脚本', '插件', '工具', '软件', '应用', '游戏', '小说',
+  '影视', '电影', '电视剧', '综艺', '动漫', '动画', '漫画家', '画家', '作者', '工作室',
+  // 搜索引擎功能页面
+  '微信', '翻译', '图片', '帮助', '举报', '反馈', '登录', '注册', '更多',
+  // 英文噪音词
+  'help', 'support', 'contact', 'about', 'terms', 'privacy', 'faq', 'sitemap', 'archive'
+];
+
+function containsNoiseTitleWord(title: string): boolean {
+  const cleaned = title.trim();
+  if (cleaned.length === 0) return true;
+  // 如果标题完全等于噪音词，过滤
+  for (let i = 0; i < NOISE_TITLE_WORDS.length; i++) {
+    if (cleaned === NOISE_TITLE_WORDS[i]) return true;
+  }
+  // 如果标题以噪音词开头（如"帮助中心"），过滤
+  for (let i = 0; i < NOISE_TITLE_WORDS.length; i++) {
+    const noise = NOISE_TITLE_WORDS[i];
+    if (cleaned.startsWith(noise)) return true;
+  }
+  // 如果标题以"关键词 + 噪音词"结尾（如"掌门低调点 图片"），过滤
+  for (let i = 0; i < NOISE_TITLE_WORDS.length; i++) {
+    const noise = NOISE_TITLE_WORDS[i];
+    if (cleaned.endsWith(' ' + noise) || cleaned.endsWith('-' + noise) || cleaned.endsWith('—' + noise)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function looksComicRelated(title: string, url: string, desc: string, keyword: string): boolean {
   const text = (title + ' ' + url + ' ' + desc).toLowerCase();
+  const cleanTitle = title.trim();
+  
+  // 1. 过滤标题中的噪音词（图片、举报、帮助、百科等非漫画内容）
+  if (containsNoiseTitleWord(title)) return false;
+  
+  // 2. 智能过滤纯URL形式的标题（但漫画网站的URL不过滤）
+  // 匹配以域名结尾的形式：https://example.com, https://example.com/page.html, example.com 等
+  const isPureUrl = /^https?:\/\/[^\s]+\.(com|cn|net|org|io|co|info|biz|xyz|top|club|vip|pro|shop|store|app|site|page|web)(\/|$)/i.test(cleanTitle);
+  const isPureDomain = /^[^\s]+\.(com|cn|net|org|io|co|info|biz|xyz|top|club|vip|pro|shop|store|app|site|page|web)$/i.test(cleanTitle);
+  if ((isPureUrl || isPureDomain) && !isPreferredComicDomain(url)) return false;
+  
+  // 3. 智能过滤过短且无中文的标题
+  if (cleanTitle.length < 4 && !/[\u4e00-\u9fa5]/.test(title)) return false;
+  
+  // 4. 智能URL模式识别：过滤搜索引擎内部页面
+  if (/(?:help|fankui|pic|weixin|fanyi|support|contact|about|terms|privacy|cookies|faq|sitemap|archive)\.[a-z]+\.[a-z]+(?:\/|$)/i.test(url)) return false;
+  
+  // 5. 智能过滤包含明显非漫画关键词的内容（基于内容特征而非硬编码列表）
+  // 过滤工具类、技术类、管理类页面
+  const toolKeywords = /\b(help|support|contact|about|terms|privacy|cookies|faq|sitemap|archive|category|tag|search|filter|sort|page|pagination|load|update|save|submit|upload|print|pdf|json|xml|zip|rar|exe|app|css|js|html|react|vue|angular|node|electron|flutter)\b/i;
+  const comicKeywords = /(?:comic|comics|manga|manhua|manhwa|webtoon|webcomic|chapter|read|reader|episode|scan|漫画|漫话|章节|在线|阅读|下拉式|免费漫画|看漫画|动漫)/i;
+  // 检查title和text，但title中的工具类关键词优先级更高
+  if (toolKeywords.test(title) && !comicKeywords.test(title)) return false;
+  
+  // 6. 基于可信度的评分系统
+  if (isBroadDiscoveryKeyword(keyword)) {
+    if (isPreferredComicDomain(url)) return true;
+    return /(comic|comics|manga|manhua|manhwa|webtoon|webcomic|graphic novel|chapter|read|reader|episode|scan|漫画|漫话|章节|在线|阅读|下拉式|免费漫画|看漫画|动漫)/i.test(text);
+  }
   if (isPreferredComicDomain(url) && hasKeywordMatch(title, url, desc, keyword)) return true;
   if (!hasKeywordMatch(title, url, desc, keyword)) return false;
+  if (keyword.trim().length >= 3) return true;
   return /(comic|comics|manga|manhua|manhwa|webtoon|webcomic|graphic novel|chapter|read|reader|episode|scan|漫画|漫话|章节|在线|阅读|マンガ|漫画家|코믹|만화)/i.test(text);
 }
 
@@ -294,8 +442,8 @@ function parseByPatterns(html: string, engine: SearchEngineConfig, keyword: stri
   const patterns: RegExp[] = [
     /<li[^>]+class=["'][^"']*b_algo[^"']*["'][\s\S]*?<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<p[^>]*>([\s\S]{0,520}?)<\/p>[\s\S]*?<\/li>/gim,
     /<li[^>]+class=["'][^"']*b_algo[^"']*["'][\s\S]*?<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<\/li>/gim,
-    /<a[^>]+class=["'][^"']*(?:result__a|result-link|result-title|organic__url|serp-item__title-link|vr-title|res-title|c-title|result_title)[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
-    /<a[^>]+href=["']([^"']+)["'][^>]+class=["'][^"']*(?:result__a|result-link|result-title|organic__url|serp-item__title-link|vr-title|res-title|c-title|result_title)[^"']*["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
+    /<a[^>]+class=["'][^"']*(?:result__a|result-link|resultLink|result-title|organic__url|serp-item__title-link|vr-title|res-title|c-title|result_title)[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
+    /<a[^>]+href=["']([^"']+)["'][^>]+class=["'][^"']*(?:result__a|result-link|resultLink|result-title|organic__url|serp-item__title-link|vr-title|res-title|c-title|result_title)[^"']*["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
     /<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<\/h2>/gim,
     /<h3[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<\/h3>/gim,
     /<a[^>]+href=["']((?:https?:\/\/|\/url\?q=|\/l\/\?kh=|[^"']*uddg=)[^"']+)["'][^>]*>([\s\S]{1,300}?)<\/a>/gim
@@ -317,7 +465,12 @@ function parseByPatterns(html: string, engine: SearchEngineConfig, keyword: stri
 
 function parseGenericHtmlResults(html: string, engine: SearchEngineConfig, keyword: string, baseUrl: string): SearchResultItem[] {
   const strictItems = parseByPatterns(html, engine, keyword, baseUrl, true);
-  return strictItems.slice(0, 30);
+  if (strictItems.length > 0) return strictItems.slice(0, 30);
+  // Only fall back to loose parsing when strict mode returned nothing at all.
+  // Using loose results when strict already found some introduces noise like
+  // "帮助" and "举报" links from search engine chrome.
+  const looseItems = parseByPatterns(html, engine, keyword, baseUrl, false);
+  return looseItems.slice(0, 30);
 }
 
 function parseGoogleCseResults(jsonText: string, engine: SearchEngineConfig, keyword: string): SearchResultItem[] {
