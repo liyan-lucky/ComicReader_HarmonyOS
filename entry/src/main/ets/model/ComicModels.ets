@@ -63,6 +63,8 @@ export interface SearchResultItem {
   updateTime?: string;
   /** 题材分类，搜索页不再按此分组，后续用于书架题材推荐。 */
   category?: string;
+  /** 调试命中信息，仅在调试模式下显示，记录过滤判断过程。 */
+  debugMatchInfo?: string;
 }
 
 export interface ResultGroup {

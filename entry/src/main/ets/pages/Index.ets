@@ -1,9 +1,10 @@
+import webview from '@ohos.web.webview';
 import { ComicSourceRule, SearchResultItem, ChapterItem, ReaderImageItem, ReadingHistoryItem, BookshelfItem, SearchEngineConfig, RemoteCatalog, CatalogCategory, CatalogItem, CatalogSource, CoverAccuracyIndex, CoverAccuracyEntry } from '../model/ComicModels';
-import { DEFAULT_SOURCES, RULE_TEMPLATE, ruleForPublicUrl, VERIFIED_DOMAIN_COUNT, PUBLIC_ACCESS_DOMAIN_COUNT } from '../common/SourceRules';
+import { DEFAULT_SOURCES, SEARCHABLE_COMIC_SOURCES, RULE_TEMPLATE, ruleForPublicUrl, VERIFIED_DOMAIN_COUNT, PUBLIC_ACCESS_DOMAIN_COUNT, isComicDomain } from '../common/SourceRules';
 import { HttpClient } from '../common/HttpClient';
 import { parseSearchResults, parseComicListingResults, parseChapters, parseChaptersFallback, parseImages, parseNextPageUrl } from '../common/HtmlParser';
 import { looksLikeUrl, normalizeUserUrl } from '../common/UrlUtil';
-import { DEFAULT_SEARCH_ENGINES, buildEngineQuery, buildSearchEngineUrl, parseSearchEngineResults, isEngineConfigured, engineHeaders, searchEngineUserAgent } from '../common/SearchEngines';
+import { DEFAULT_SEARCH_ENGINES, buildEngineQuery, buildSearchEngineUrl, parseSearchEngineResults, isEngineConfigured, engineHeaders, searchEngineUserAgent, searchFilterConfig, buildDebugMatchInfo, setSearchResultFilterMode } from '../common/SearchEngines';
 import { RemoteRuleService, DEFAULT_REMOTE_RULE_URL } from '../common/RemoteRuleService';
 import { CatalogService } from '../common/CatalogService';
 import { APP_VERSION, APP_BUILD_TIME } from '../common/BuildInfo';
@@ -21,13 +22,15 @@ import {
 } from '../common/ApiSources';
 import drawing from '@ohos.graphics.drawing';
 import common from '@ohos.app.ability.common';
+import router from '@ohos.router';
 import window from '@ohos.window';
 import dataPreferences from '@ohos.data.preferences';
 import util from '@ohos.util';
 import fs from '@ohos.file.fs';
 import inputMethod from '@ohos.inputMethod';
-import { CodeEditorTheme, defaultEditorTheme, highlightJsonLine, HighlightSegment,
-  findSearchMatches, SearchMatch, formatJson, validateJson, LineDataSource } from '../common/CodeEditor';
+import pasteboard from '@ohos.pasteboard';
+import { CodeEditorTheme, defaultEditorTheme, highlightLine, HighlightSegment,
+  findSearchMatches, SearchMatch, formatJson, LineDataSource } from '../common/CodeEditor';
 
 function toArgbColor(color: string): number {
   const normalized = color.trim().startsWith('#') ? color.trim().substring(1) : color.trim();
@@ -58,6 +61,7 @@ struct Index {
   @State private editorMode: string = 'advanced';
   @State private editorScrollY: number = 0;
   @State private editorEditable: boolean = false;
+  @State private editorLanguage: string = 'text';
   @State private searchEngines: SearchEngineConfig[] = DEFAULT_SEARCH_ENGINES;
   @State private selectedEngineIndex: number = 0;
   @State private results: SearchResultItem[] = [];
@@ -76,6 +80,11 @@ struct Index {
   @State private catalogReceivedBytes: number = 0;
   @State private catalogTotalBytes: number = 0;
   @State private catalogProgressPercent: number = 0;
+  @State private remoteCatalogItemCount: number = 0;
+  @State private ruleProgressPercent: number = 0;
+  @State private ruleProgressStatus: string = '';
+  @State private ruleReceivedBytes: number = 0;
+  @State private ruleTotalBytes: number = 0;
   @State private shelfPanOffset: number = 0;
   @State private shelfPanStartX: number = 0;
   @State private shelfIsPanning: boolean = false;
@@ -97,12 +106,86 @@ struct Index {
   @State @Watch('onLoadingChanged') private isLoading: boolean = false;
   @State private loadingAngle: number = 0;
   private loadingTimerId: number = -1;
+  private scrollTimerId: number = -1;
+  private webLoadTimerId: number = -1;
+  private webLoadingTimeoutId: number = -1;
+  private readerHintTimerId: number = -1;
+  private focusTimerId: number = -1;
+  private shelfCategoryTimerId: number = -1;
+  private cachedReadingOrder: ChapterItem[] = [];
+  private cachedDisplayedChapters: ChapterItem[] = [];
+  private chaptersCacheDirty: boolean = true;
+  private loadChapterGeneration: number = 0;
+  private searchGeneration: number = 0;
   private canvasSettings: RenderingContextSettings = new RenderingContextSettings(true);
   private canvasCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.canvasSettings);
 
   @State private searchMode: string = 'mixed';
   @State private searchAllEngines: boolean = true;
   @State private languageMode: string = 'chinese';
+  @State private searchResultMode: string = 'rule_filter';
+  @State private searchPage: number = 1;
+  @State private hasMoreResults: boolean = false;
+  @State private loadingMore: boolean = false;
+  @State private searchEngineUrl: string = '';
+  @State @Watch('onLoadingChanged') private webLoading: boolean = false;
+  @State private webDarkOverlay: boolean = false;
+  @State private webErrorText: string = '';
+  @State private showReaderHint: boolean = false;
+  private webController: webview.WebviewController = new webview.WebviewController();
+  private webLastSuccessUrl: string = '';
+  private webMainFrameFailed: boolean = false;
+  private darkModeCssScript: string =
+    "(function(){" +
+    "var h=window.location.hostname.toLowerCase();" +
+    "if(h.indexOf('bing.com')>=0||h.indexOf('baidu.com')>=0||h.indexOf('duckduckgo.com')>=0||h.indexOf('sogou.com')>=0||h.indexOf('yandex.com')>=0||h.indexOf('google.com')>=0||h.indexOf('so.com')>=0)return;" +
+    "var s=document.createElement('style');" +
+    "s.id='hw-dark-inject';" +
+    "s.textContent='html,body,div,section,article,main,aside,nav,header,footer,figure,figcaption,table,tr,td,th,thead,tbody,tfoot,ul,ol,li,dl,dt,dd,p,blockquote,pre,code,form,fieldset,legend,label,option,optgroup,caption,h1,h2,h3,h4,h5,h6{background-color:#1a1a1a !important;color:#e0e0e0 !important;border-color:#333 !important;}a,a *{color:#4a9eff !important;}input,textarea,select,button{background-color:#2a2a2a !important;color:#e0e0e0 !important;border-color:#444 !important;}img,video,canvas{opacity:0.92;}';" +
+    "document.documentElement.appendChild(s);" +
+    "})();";
+  private adBlockScript: string =
+    "(function(){" +
+    "var s=document.createElement('style');" +
+    "s.id='hw-adblock';" +
+    "s.textContent='" +
+    "ins.adsbygoogle,[id*=\"google_ads\"],[id*=\"div-gpt-ad\"],[id*=\"div-gpt-ad-\"]," +
+    "iframe[src*=\"doubleclick.net\"],iframe[src*=\"googlesyndication.com\"],iframe[src*=\"adserver\"],iframe[src*=\"adition\"]," +
+    "iframe[src*=\"ad.\"],iframe[src*=\"/ad/\"],iframe[src*=\"_ad_\"],iframe[src*=\"adbanner\"]," +
+    "[class*=\"float-ad\"],[class*=\"floatad\"],[class*=\"float_ad\"]," +
+    "#coupletLeft,#coupletRight,#fixedAd,#floatAd,#ad_header,#ad_footer,#ad_top,#ad_bottom," +
+    "#adContainer,#adBox,#ad_banner,#ad_area,#ad_zone,#ad_region,#ad-slot,#ad-unit," +
+    "#ad-1,#ad-2,#ad-3,#ad-slot1,#ad-slot2,#ad-slot3," +
+    "[class*=\"sticky-ad\"],[class*=\"fixed-ad\"],[class*=\"popup-ad\"],[class*=\"ad-popup\"],[class*=\"ad-modal\"]," +
+    "[class*=\"ad-overlay\"],[id*=\"ad-overlay\"],[class*=\"ad-mask\"],[id*=\"ad-mask\"]," +
+    "[class*=\"sponsored\"],[id*=\"sponsored\"],[class*=\"promotion-box\"],[class*=\"promo-ad\"]," +
+    "[class*=\"ad-banner\"],[class*=\"ad-container\"],[class*=\"ad-wrapper\"],[class*=\"ad-slot\"],[class*=\"ad-unit\"]," +
+    "[class*=\"banner-ad\"],[id*=\"banner-ad\"],[class*=\"ad-float\"],[id*=\"ad-float\"]," +
+    "[class*=\"advertisement\"],[id*=\"advertisement\"]," +
+    "[class*=\"ad-300\"],[class*=\"ad-728\"],[class*=\"ad-970\"]," +
+    "[class*=\"ad-top\"],[class*=\"ad-bottom\"],[class*=\"ad-side\"],[class*=\"ad-left\"],[class*=\"ad-right\"]," +
+    "[class*=\"top-ad\"],[class*=\"bottom-ad\"],[class*=\"side-ad\"],[class*=\"left-ad\"],[class*=\"right-ad\"]," +
+    "[class*=\"ad-interstitial\"],[class*=\"ad-between\"],[class*=\"ad-inline\"]," +
+    "[class*=\"ad-refresh\"],[class*=\"ad-show\"],[class*=\"ad-display\"],[class*=\"ad-view\"],[class*=\"ad-render\"]," +
+    "[class*=\"adsbygoogle\"],[class*=\"ad-area\"],[class*=\"ad-zone\"],[class*=\"ad-region\"]," +
+    "[class*=\"ad-refresh\"],[class*=\"ad-rect\"],[class*=\"ad-rectangle\"],[class*=\"ad-leaderboard\"]," +
+    "[class*=\"dfp-ad\"],[id*=\"dfp-ad\"],[class*=\"adg-comp\"],[id*=\"adg-comp\"]," +
+    "[data-ad],[data-ads],[data-ad-slot],[data-ad-unit],[data-ad-client]," +
+    "[class*=\"commercial-unit\"],[id*=\"commercial-unit\"]," +
+    "[class*=\"recommend-ad\"],[class*=\"hot-ad\"],[class*=\"trend-ad\"]," +
+    "#ad1,#ad2,#ad3,#ad4,#ad5,#ad6,#ad7,#ad8,#ad9,#ad0," +
+    ".topad,.bottomad,.leftad,.rightad,.adbox,.ad_box,.adarea,.ad_zone," +
+    ".ad-banner,.ad-slot,.ad-unit,.ad-wrap,.ad-container,.ad-holder," +
+    ".ads,.adsbox,.ad_box,.adblock,.ad_block,.adblockdiv," +
+    ".gg_ad,.ggad,.google-ad,.googlead,.gad," +
+    ".bd_ad,.bdad,.baidu-ad,.sogou-ad,.sogouad," +
+    ".cm_ad,.cmad,.comic-ad,.comicad," +
+    ".m-ad,.m_ad,.mobile-ad,.mobilead," +
+    ".app-ad,.appad,.inapp-ad,.inappad" +
+    "{display:none !important;}" +
+    "';" +
+    "document.documentElement.appendChild(s);" +
+    "})();";
   // Language-specific terms are appended by buildEngineQuery. Keeping this
   // empty avoids an accidental AND query that requires Chinese pages to also
   // contain every English term (the main cause of one-result genre searches).
@@ -113,6 +196,17 @@ struct Index {
   @State private googleCx: string = '';
   @State private enableSearchEngines: boolean = true;
   @State private enableHtmlRules: boolean = true;
+  @State private debugRuleTried: number = 0;
+  @State private debugRuleSkipped: number = 0;
+  @State private debugRuleSuccess: number = 0;
+  @State private debugRuleFailed: number = 0;
+  @State private debugEngineResults: number = 0;
+  @State private debugEngineTried: number = 0;
+  @State private debugEngineSuccess: number = 0;
+  @State private debugSearchQueries: string = '';
+  @State private customBlockedDomains: string = '';
+  @State private customBlockedWords: string = '';
+  @State private customNoiseWords: string = '';
   @State private autoCoverEnabled: boolean = false;
   @State private maxSearchResults: number = 80;
   @State private maxReaderPages: number = 30;
@@ -133,7 +227,7 @@ struct Index {
   private readerPanStartX: number = 0;
   private readerViewportWidth: number = 0;
   private readerGestureEndedAt: number = 0;
-  @State private appTheme: string = 'light';
+  @State private appTheme: string = 'system';
   @State private appLanguage: string = 'zh';
   @StorageProp('systemColorMode') private systemColorMode: string = 'light';
   @StorageProp('uiVersion') @Watch('onUiVersionChanged') private uiRefresh: number = 0;
@@ -146,6 +240,11 @@ struct Index {
   @State private updatingCoverAccuracy: boolean = false;
   @State private updatingCatalog: boolean = false;
   @State private updatingRules: boolean = false;
+  @State private syncingFilterWords: boolean = false;
+  @State private filterWordsStatus: string = '';
+  @State private filterWordsProgressPercent: number = 0;
+  @State private filterWordsReceivedBytes: number = 0;
+  @State private filterWordsTotalBytes: number = 0;
   @State private updateDialogVisible: boolean = false;
   @State private customRuleText: string = RULE_TEMPLATE;
   @State private ruleViewerText: string = '';
@@ -204,6 +303,7 @@ struct Index {
   @State private rulesExpanded: boolean = false;
   @State private dlgSearchModeExpanded: boolean = false;
   @State private dlgLangExpanded: boolean = false;
+  @State private dlgResultModeExpanded: boolean = false;
   @State private dlgReaderBgExpanded: boolean = false;
   @State private dlgMaxResultsExpanded: boolean = false;
   @State private dlgMaxPagesExpanded: boolean = false;
@@ -211,11 +311,6 @@ struct Index {
   @State private themeRowBottom: number = 0;
   @State private languageRowBottom: number = 0;
   @State private iconColorRowBottom: number = 0;
-  @State private searchRowBottom: number = 0;
-  @State private sourcesRowBottom: number = 0;
-  @State private readerRowBottom: number = 0;
-  @State private enginesRowBottom: number = 0;
-  @State private rulesRowBottom: number = 0;
   @State private settingsStackTop: number = 0;
   @State private avoidStatusBarHeight: number = 0;
   @State private bottomSafeInset: number = 28;
@@ -225,10 +320,8 @@ struct Index {
   @State private historyViewMode: string = 'grid';
   @State private historyMenuVisible: boolean = false;
   @State private shelfMenuVisible: boolean = false;
-  @State private shelfViewMode: string = 'catalog';
   @State private shelfDisplayMode: string = 'grid';
   @State private lastOpenedSearchUrl: string = '';
-  @State private searchResultsOffset: number = 0;
   @State private revealedDeleteUrl: string = '';
   @State private bookLongPressVisible: boolean = false;
   @State private bookLongPressTitle: string = '';
@@ -267,13 +360,13 @@ struct Index {
     const chapters = this.readerPanelChapters();
     const currentIndex = chapters.findIndex((chapter: ChapterItem) => chapter.url === this.currentUrl);
     if (currentIndex < 0) return;
-    setTimeout(() => {
+    this.scrollTimerId = setTimeout(() => {
       this.readerChapterScroller.scrollToIndex(currentIndex, false, ScrollAlign.CENTER);
     }, 60);
   }
 
   private resetChapterScroll(): void {
-    setTimeout(() => {
+    this.scrollTimerId = setTimeout(() => {
       this.chapterScroller.scrollEdge(Edge.Top);
     }, 0);
   }
@@ -282,7 +375,7 @@ struct Index {
     const chapters = this.displayedChapters();
     const currentIndex = chapters.findIndex((chapter: ChapterItem) => chapter.url === this.currentUrl);
     if (currentIndex < 0) return;
-    setTimeout(() => {
+    this.scrollTimerId = setTimeout(() => {
       this.chapterScroller.scrollToIndex(currentIndex, false, ScrollAlign.CENTER);
     }, 100);
   }
@@ -340,7 +433,7 @@ struct Index {
       }
       const recentJson = await this.preferencesStore.get('recent_searches', '[]') as string;
       if (typeof recentJson === 'string' && recentJson.length > 2) this.recentSearches = JSON.parse(recentJson) as string[];
-      const appTheme = await this.preferencesStore.get('app_theme', 'light') as string;
+      const appTheme = await this.preferencesStore.get('app_theme', 'system') as string;
       if (typeof appTheme === 'string' && appTheme.length > 0) {
         this.appTheme = appTheme;
         this.updateSystemBarColors();
@@ -357,8 +450,6 @@ struct Index {
       this.chapterReversed = await this.preferencesStore.get('chapter_reversed', true) as boolean;
       this.fullscreenReader = await this.preferencesStore.get('fullscreen_reader', true) as boolean;
       this.floatingReaderControls = await this.preferencesStore.get('floating_reader_controls', true) as boolean;
-      const savedShelfView = await this.preferencesStore.get('shelf_view_mode', 'catalog') as string;
-      if (typeof savedShelfView === 'string' && savedShelfView.length > 0) this.shelfViewMode = savedShelfView;
       const savedShelfDisplay = await this.preferencesStore.get('shelf_display_mode', 'grid') as string;
       if (typeof savedShelfDisplay === 'string' && savedShelfDisplay.length > 0) this.shelfDisplayMode = savedShelfDisplay;
       const savedBraveKey = await this.preferencesStore.get('brave_api_key', '') as string;
@@ -370,10 +461,13 @@ struct Index {
       this.autoCoverEnabled = await this.preferencesStore.get('auto_cover_enabled', false) as boolean;
       const savedSearchMode = await this.preferencesStore.get('search_mode', 'mixed') as string;
       if (typeof savedSearchMode === 'string' && savedSearchMode.length > 0) this.searchMode = savedSearchMode;
-      this.selectedEngineIndex = await this.preferencesStore.get('selected_engine_index', 0) as number;
-      this.searchAllEngines = await this.preferencesStore.get('search_all_engines', true) as boolean;
+      this.selectedEngineIndex = await this.preferencesStore.get('selected_engine_index', 1) as number;
+      this.searchAllEngines = true;
       const savedLangMode = await this.preferencesStore.get('language_mode', 'chinese') as string;
       if (typeof savedLangMode === 'string' && savedLangMode.length > 0) this.languageMode = savedLangMode;
+      const savedResultMode = await this.preferencesStore.get('search_result_mode', 'rule_filter') as string;
+      if (typeof savedResultMode === 'string' && savedResultMode.length > 0) this.searchResultMode = savedResultMode;
+    setSearchResultFilterMode('rule_filter');
       const savedExtraTerms = await this.preferencesStore.get('extra_search_terms', '') as string;
       if (typeof savedExtraTerms === 'string') this.extraSearchTerms = savedExtraTerms;
       const savedSiteHint = await this.preferencesStore.get('site_hint', '') as string;
@@ -384,12 +478,27 @@ struct Index {
       this.maxReaderPages = await this.preferencesStore.get('max_reader_pages', 30) as number;
       this.showImageIndex = await this.preferencesStore.get('show_image_index', true) as boolean;
       this.readerDarkMode = await this.preferencesStore.get('reader_dark_mode', true) as boolean;
+      const savedBlockedDomains = await this.preferencesStore.get('custom_blocked_domains', '') as string;
+      if (typeof savedBlockedDomains === 'string' && savedBlockedDomains.length > 0) {
+        this.customBlockedDomains = savedBlockedDomains;
+        searchFilterConfig.blockedDomains = savedBlockedDomains.split('\n').filter((s: string) => s.trim().length > 0);
+      }
+      const savedBlockedWords = await this.preferencesStore.get('custom_blocked_words', '') as string;
+      if (typeof savedBlockedWords === 'string' && savedBlockedWords.length > 0) {
+        this.customBlockedWords = savedBlockedWords;
+        searchFilterConfig.blockedWords = savedBlockedWords.split('\n').filter((s: string) => s.trim().length > 0);
+      }
+      const savedNoiseWords = await this.preferencesStore.get('custom_noise_words', '') as string;
+      if (typeof savedNoiseWords === 'string' && savedNoiseWords.length > 0) {
+        this.customNoiseWords = savedNoiseWords;
+        searchFilterConfig.noiseTitleWords = savedNoiseWords.split('\n').filter((s: string) => s.trim().length > 0);
+      }
       this.applyKeepScreenOn();
     } catch (e) {
     }
   }
 
-  private async persistData(): Promise<void> {
+  private async persistDataImmediate(): Promise<void> {
     if (this.preferencesStore === null) return;
     try {
       await this.preferencesStore.put('reading_history', JSON.stringify(this.history));
@@ -405,7 +514,6 @@ struct Index {
       await this.preferencesStore.put('floating_reader_controls', this.floatingReaderControls);
       await this.preferencesStore.put('advanced_rules', JSON.stringify(this.advancedRules));
       await this.preferencesStore.put('blocked_urls', JSON.stringify(this.blockedUrls));
-      await this.preferencesStore.put('shelf_view_mode', this.shelfViewMode);
       await this.preferencesStore.put('shelf_display_mode', this.shelfDisplayMode);
       await this.preferencesStore.put('brave_api_key', this.braveApiKey);
       await this.preferencesStore.put('google_api_key', this.googleApiKey);
@@ -415,6 +523,7 @@ struct Index {
       await this.preferencesStore.put('selected_engine_index', this.selectedEngineIndex);
       await this.preferencesStore.put('search_all_engines', this.searchAllEngines);
       await this.preferencesStore.put('language_mode', this.languageMode);
+      await this.preferencesStore.put('search_result_mode', this.searchResultMode);
       await this.preferencesStore.put('extra_search_terms', this.extraSearchTerms);
       await this.preferencesStore.put('site_hint', this.siteHint);
       await this.preferencesStore.put('enable_search_engines', this.enableSearchEngines);
@@ -423,9 +532,16 @@ struct Index {
       await this.preferencesStore.put('max_reader_pages', this.maxReaderPages);
       await this.preferencesStore.put('show_image_index', this.showImageIndex);
       await this.preferencesStore.put('reader_dark_mode', this.readerDarkMode);
+      await this.preferencesStore.put('custom_blocked_domains', this.customBlockedDomains);
+      await this.preferencesStore.put('custom_blocked_words', this.customBlockedWords);
+      await this.preferencesStore.put('custom_noise_words', this.customNoiseWords);
       await this.preferencesStore.flush();
     } catch (e) {
     }
+  }
+
+  private async persistData(): Promise<void> {
+    await this.persistDataImmediate();
   }
 
   aboutToAppear(): void {
@@ -448,6 +564,29 @@ struct Index {
     console.info(`ComicReader avoidStatusBarHeight final=${this.avoidStatusBarHeight}`);
     this.initPreferences();
     this.loadRemoteCatalog();
+  }
+
+  private lastReaderUrlFromBrowser: string = '';
+
+  onPageShow(): void {
+    try {
+      const params = router.getParams() as Record<string, Object>;
+      if (params === undefined) return;
+      const readerUrl = params['readerUrl'] as string;
+      if (readerUrl === undefined || readerUrl.length === 0 || readerUrl === this.lastReaderUrlFromBrowser) return;
+      if (!readerUrl.startsWith('http://') && !readerUrl.startsWith('https://')) return;
+      this.lastReaderUrlFromBrowser = readerUrl;
+      const readerTitle = (params['readerTitle'] ?? '') as string;
+      const rule = this.findRuleByUrl(readerUrl);
+      this.loadDetailAndRead(readerUrl, readerTitle, rule);
+    } catch (e) {}
+  }
+
+  private async loadDetailAndRead(url: string, title: string, rule: ComicSourceRule): Promise<void> {
+    await this.loadDetail(url, title, rule);
+    if (this.chapters.length > 0) {
+      this.loadChapter(this.chapters[0], this.findRule(this.chapters[0].sourceId));
+    }
   }
 
   private applyCatalog(catalog: RemoteCatalog): void {
@@ -754,6 +893,24 @@ struct Index {
     return this.catalogUpdateStatus;
   }
 
+  private ruleProgressText(): string {
+    if (this.ruleTotalBytes > 0) {
+      return this.ruleProgressPercent + '% · ' + this.formatBytes(this.ruleReceivedBytes) +
+        ' / ' + this.formatBytes(this.ruleTotalBytes);
+    }
+    if (this.ruleReceivedBytes > 0) return this.ruleProgressPercent + '% · ' + this.formatBytes(this.ruleReceivedBytes);
+    return this.ruleProgressStatus;
+  }
+
+  private filterWordsProgressText(): string {
+    if (this.filterWordsTotalBytes > 0) {
+      return this.filterWordsProgressPercent + '% · ' + this.formatBytes(this.filterWordsReceivedBytes) +
+        ' / ' + this.formatBytes(this.filterWordsTotalBytes);
+    }
+    if (this.filterWordsReceivedBytes > 0) return this.filterWordsProgressPercent + '% · ' + this.formatBytes(this.filterWordsReceivedBytes);
+    return this.filterWordsStatus;
+  }
+
   private async loadRemoteCatalog(): Promise<void> {
     const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     this.catalogCachePath = context.filesDir + '/catalog.zh-Hans.cache.json';
@@ -878,13 +1035,13 @@ struct Index {
         this.scrollToCurrentChapter();
       }
       else if (this.results.length > 0) this.returnToSearchResults();
-      else this.mode = 'home';
+      else { this.stopSearch(); this.mode = 'home'; }
       this.activeTab = 'search';
       return true;
     }
     if (this.mode === 'chapters') {
       if (this.results.length > 0) this.returnToSearchResults();
-      else this.mode = 'home';
+      else { this.stopSearch(); this.mode = 'home'; }
       this.activeTab = 'search';
       return true;
     }
@@ -894,6 +1051,17 @@ struct Index {
       return true;
     }
     if (this.mode === 'results') {
+      if (this.searchResultMode === 'browser') {
+        try {
+          if (this.webController.accessBackward()) {
+            this.webErrorText = '';
+            this.webLoading = true;
+            this.webController.backward();
+            return true;
+          }
+        } catch (error) {}
+      }
+      this.stopSearch();
       this.mode = 'home';
       return true;
     }
@@ -937,12 +1105,6 @@ struct Index {
     }
   }
 
-  private toggleDebugKeepScreenOn(): void {
-    this.debugKeepScreenOn = !this.debugKeepScreenOn;
-    this.applyKeepScreenOn();
-    this.persistData();
-  }
-
   private isEn(): boolean {
     return this.appLanguage === 'en';
   }
@@ -966,6 +1128,7 @@ struct Index {
       if (key === 'latest_chapter') return 'Latest: ';
       if (key === 'update_time') return 'Updated: ';
       if (key === 'comic_tag') return 'Comic';
+      if (key === 'url_copied') return 'URL copied';
       if (key === 'search_results') return 'Results';
       if (key === 'search_prefix') return 'Search: ';
       if (key === 'results_hint') return 'Default list view. Categories moved to shelf.';
@@ -1129,6 +1292,7 @@ struct Index {
     if (key === 'latest_chapter') return '最新章节：';
     if (key === 'update_time') return '更新时间：';
     if (key === 'comic_tag') return '漫画';
+    if (key === 'url_copied') return '网址已复制';
     if (key === 'search_results') return '漫画结果';
     if (key === 'search_prefix') return '搜索：';
     if (key === 'results_hint') return '默认列表显示，分类推荐已移动到书架。';
@@ -1294,6 +1458,10 @@ struct Index {
     return this.t('auto');
   }
 
+  private searchResultModeDisplay(): string {
+    return this.searchResultMode === 'browser' ? '浏览器' : '规则筛选';
+  }
+
   private themeDisplay(): string {
     if (this.appTheme === 'light') return this.t('theme_light');
     if (this.appTheme === 'dark') return this.t('theme_dark');
@@ -1313,13 +1481,12 @@ struct Index {
     if (this.iconColorMode !== 'colorful') return this.iconModeColor(this.iconColorMode);
     return this.colorfulValue(key);
   }
-  private accentBg(): string { return this.isDark() ? '#1A34C759' : '#0D34C759'; }
   private primaryText(): string { return this.isDark() ? '#E8ECF4' : '#111827'; }
   private secondaryText(): string { return this.isDark() ? '#B6BFCC' : '#667085'; }
   private iconColor(icon: string): string {
     if (this.iconColorMode !== 'colorful') return this.iconModeColor(this.iconColorMode);
     if (icon === 'ic_search' || icon === 'ic_globe' || icon === 'ic_web') return '#0A84FF';
-    if (icon === 'ic_shelf' || icon === 'ic_book' || icon === 'ic_add_shelf') return '#FF9500';
+    if (icon === 'ic_shelf' || icon === 'ic_book' || icon === 'ic_add_shelf' || icon === 'ic_star_filled' || icon === 'ic_star_outline') return '#FF9500';
     if (icon === 'ic_history' || icon === 'ic_clock') return '#AF52DE';
     if (icon === 'ic_settings' || icon === 'ic_tune') return '#34C759';
     if (icon === 'ic_refresh' || icon === 'ic_engine') return '#00C7BE';
@@ -1376,16 +1543,12 @@ struct Index {
     return 'ic_settings';
   }
   private actionBg(): string { return '#167A36'; }
-  private warnBg(): string { return this.isDark() ? '#2A2210' : '#FFF7E8'; }
   private warnText(): string { return this.isDark() ? '#F0C060' : '#8A5A12'; }
-  private selectedSoftBg(): string { return this.isDark() ? '#1A3020' : '#E9FFF0'; }
-  private glassBg(): string { return this.isDark() ? '#AA1E232F' : '#FFFFFFEE'; }
   private borderSubtle(): string { return this.isDark() ? '#2A2E3A' : '#F0F0F0'; }
+  private scrollBarColor(): string { return this.isDark() ? '#CCCCCC' : '#444444'; }
   private dialogOverlay(): string { return this.isDark() ? '#88000000' : '#66000000'; }
   private inputBg(): string { return this.isDark() ? '#2A2E3A' : '#F2F4F7'; }
-  private searchInputBg(): string { return this.isDark() ? '#2A2E3A' : '#F0F3F6'; }
   private coverPlaceholderBg(): string { return this.isDark() ? '#1A3020' : '#ECFFF1'; }
-  private readerBarBg(): string { return this.isDark() ? '#1E232F' : '#FFFFFF'; }
 
   private selectedEngine(): SearchEngineConfig {
     if (this.selectedEngineIndex < 0 || this.selectedEngineIndex >= this.searchEngines.length) return this.searchEngines[0];
@@ -1501,6 +1664,86 @@ struct Index {
     return host.startsWith('www.') ? host.substring(4) : host;
   }
 
+  private siteTypeTag(url: string, title: string): string {
+    if (title.indexOf('漫画') >= 0 || title.indexOf('漫話') >= 0) return '漫画';
+    const host = this.hostOf(url).toLowerCase();
+    const lowerUrl = url.toLowerCase();
+    if (lowerUrl.indexOf('ac.qq.com/') >= 0 || lowerUrl.indexOf('kuaikanmanhua') >= 0 ||
+      lowerUrl.indexOf('manga.bilibili') >= 0 || lowerUrl.indexOf('bilibilicomics') >= 0 ||
+      lowerUrl.indexOf('u17.com') >= 0 || lowerUrl.indexOf('manhuadao') >= 0 ||
+      lowerUrl.indexOf('dongmanmanhua') >= 0 || lowerUrl.indexOf('manhuagui') >= 0 ||
+      lowerUrl.indexOf('dm5.cn') >= 0 || lowerUrl.indexOf('manhuaren') >= 0 ||
+      lowerUrl.indexOf('ikanman') >= 0 || lowerUrl.indexOf('57mh') >= 0 ||
+      lowerUrl.indexOf('aikanmanhua') >= 0 || lowerUrl.indexOf('mangakakalot') >= 0 ||
+      lowerUrl.indexOf('manganato') >= 0 || lowerUrl.indexOf('mh160') >= 0 ||
+      lowerUrl.indexOf('dmzj') >= 0 || lowerUrl.indexOf('comic') >= 0 ||
+      lowerUrl.indexOf('manga') >= 0 || lowerUrl.indexOf('manhua') >= 0 ||
+      lowerUrl.indexOf('webtoon') >= 0) return '漫画';
+    if (host.indexOf('baike.') >= 0 || host.indexOf('wikipedia') >= 0 ||
+      host.indexOf('wiki') >= 0 || host.indexOf('fandom') >= 0) return '百科';
+    if (host.indexOf('cidian') >= 0 || host.indexOf('zidian') >= 0 ||
+      host.indexOf('shidianguji') >= 0 || host.indexOf('hanyuguoxue') >= 0 ||
+      host.indexOf('guoxue') >= 0 || host.indexOf('zdic') >= 0) return '字典';
+    if (host.indexOf('apps.microsoft') >= 0 || host.indexOf('appstore') >= 0 ||
+      host.indexOf('play.google') >= 0) return '应用';
+    if (host.indexOf('douyin') >= 0 || host.indexOf('tiktok') >= 0 ||
+      host.indexOf('youtube') >= 0 || host.indexOf('bilibili') >= 0 ||
+      host.indexOf('ixigua') >= 0 || host.indexOf('kuaishou') >= 0) return '视频';
+    if (host.indexOf('weibo') >= 0 || host.indexOf('twitter') >= 0 ||
+      host.indexOf('facebook') >= 0 || host.indexOf('instagram') >= 0 ||
+      host.indexOf('reddit') >= 0 || host.indexOf('xiaohongshu') >= 0) return '社交';
+    if (host.indexOf('toutiao') >= 0 || host.indexOf('news') >= 0 ||
+      host.indexOf('36kr') >= 0) return '资讯';
+    if (host.indexOf('taobao') >= 0 || host.indexOf('tmall') >= 0 ||
+      host.indexOf('jd.com') >= 0 || host.indexOf('amazon') >= 0 ||
+      host.indexOf('pinduoduo') >= 0) return '购物';
+    if (host.indexOf('tieba') >= 0 || host.indexOf('zhihu') >= 0 ||
+      host.indexOf('forum') >= 0 || host.indexOf('bbs') >= 0) return '社区';
+    if (host.indexOf('gov.cn') >= 0) return '政府';
+    return '网页';
+  }
+
+  private copyToClipboard(text: string): void {
+    try {
+      const pasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      const systemPasteboard = pasteboard.getSystemPasteboard();
+      systemPasteboard.setData(pasteData);
+    } catch (e) {}
+  }
+
+  private debugSourceKind(item: SearchResultItem): string {
+    if (item.resultType === 'catalog') return '本地目录';
+    if (item.resultType === 'search-engine') return '搜索引擎';
+    const apiIds: string[] = ['internet_archive_iiif_api', 'wikimedia_commons_api',
+      'pepper_carrot_public_catalog', 'open_library_public_api', 'library_of_congress_public_api'];
+    for (let i = 0; i < apiIds.length; i++) {
+      if (item.sourceId === apiIds[i]) return 'API源';
+    }
+    for (let i = 0; i < this.advancedRules.length; i++) {
+      if (this.advancedRules[i].id === item.sourceId) return '自定义';
+    }
+    for (let i = 0; i < this.onlineRules.length; i++) {
+      if (this.onlineRules[i].id === item.sourceId) return '远程';
+    }
+    for (let i = 0; i < DEFAULT_SOURCES.length; i++) {
+      if (DEFAULT_SOURCES[i].id === item.sourceId) return '内置';
+    }
+    if (item.sourceId.endsWith('_public_access')) return '内置';
+    const dotIndex = item.sourceId.indexOf('.');
+    const underscoreIndex = item.sourceId.indexOf('_');
+    if (dotIndex < 0 && underscoreIndex > 0) return '内置';
+    return '兜底';
+  }
+
+  private debugResultTypeCN(resultType: string | undefined): string {
+    if (resultType === undefined) return '未知';
+    if (resultType === 'search-engine') return '搜索引擎';
+    if (resultType === 'html-rule') return 'HTML规则';
+    if (resultType === 'catalog') return '本地目录';
+    if (resultType === 'archive-iiif') return '档案API';
+    return resultType;
+  }
+
   private cleanTitle(raw: string): string {
     let title = raw.trim().replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     return title.length > 0 ? title : this.t('unnamed_comic');
@@ -1585,6 +1828,24 @@ struct Index {
     this.results = next;
   }
 
+  private stopSearch(): void {
+    this.searchGeneration++;
+    this.isLoading = false;
+    this.webLoading = false;
+    if (this.webLoadingTimeoutId !== -1) {
+      clearTimeout(this.webLoadingTimeoutId);
+      this.webLoadingTimeoutId = -1;
+    }
+  }
+
+  private clearSearchAndReset(): void {
+    this.stopSearch();
+    this.queryText = '';
+    this.results = [];
+    this.mode = 'home';
+    this.statusText = '';
+  }
+
   private resetSearchState(keyword: string): void {
     this.activeTab = 'search';
     this.mode = 'results';
@@ -1659,35 +1920,51 @@ struct Index {
     this.persistData();
   }
 
-  private handleRecordSwipe(url: string, isBookshelf: boolean, offsetX: number): void {
-    if (offsetX <= -36) {
-      this.revealedDeleteUrl = url;
-    } else if (offsetX >= 48) {
-      this.revealedDeleteUrl = '';
-      if (isBookshelf) this.removeBookshelfItem(url);
-      else this.removeHistoryItem(url);
-    }
-  }
-
   private async searchKeyword(keyword: string): Promise<void> {
     this.resetSearchState(keyword);
     this.isLoading = true;
+    this.searchGeneration++;
+    const gen = this.searchGeneration;
+    setSearchResultFilterMode('rule_filter');
+    this.searchPage = 1;
+    this.hasMoreResults = false;
+    this.debugEngineResults = 0;
+    this.debugEngineTried = 0;
+    this.debugSearchQueries = '';
+    this.debugEngineSuccess = 0;
+    const query = buildEngineQuery(keyword, this.extraSearchTerms, this.languageMode, this.siteHint);
+    const baseEngineUrl = buildSearchEngineUrl(this.selectedEngine(), query, this.braveApiKey, this.googleApiKey, this.googleCx);
+    this.searchEngineUrl = baseEngineUrl + (baseEngineUrl.indexOf('?') >= 0 ? '&' : '?') + '_t=' + Date.now();
+    this.webLoading = true;
+    this.webErrorText = '';
+    this.showReaderHint = false;
+    this.webMainFrameFailed = false;
+    if (this.searchResultMode === 'browser') this.webDarkOverlay = true;
+    console.info(`ComicReader[debug] searchKeyword: "${keyword}" mode=${this.searchMode} htmlEnabled=${this.enableHtmlRules} rules=${this.rules.length} online=${this.onlineRules.length} custom=${this.advancedRules.length} domainMatch=${VERIFIED_DOMAIN_COUNT + PUBLIC_ACCESS_DOMAIN_COUNT}`);
     try {
-      this.searchLocalCatalog(keyword);
-      // Local replay-validated entries appear immediately. Web search is a
-      // discovery function: official, paid, login-gated or partially free
-      // resources remain valid matches. Readability is evaluated only after a
-      // result is opened and must not hide Tencent/Kuaikan/etc. search hits.
-      if (this.searchMode !== 'api_only') await this.searchSelectedEngines(keyword);
-      if (this.searchMode !== 'engine_only') {
-        await this.searchHtmlRuleSources(keyword);
-        if (this.appLanguage === 'en') await this.searchApiSources(keyword);
+      if (this.searchResultMode === 'browser') {
+        this.debugSearchQueries = query;
+        this.statusText = this.t('searching_keyword') + ' "' + keyword + '"...';
+      } else {
+        this.searchLocalCatalog(keyword);
+        if (this.searchGeneration !== gen) return;
+        if (this.searchMode !== 'api_only') await this.searchSelectedEngines(keyword);
+        if (this.searchGeneration !== gen) return;
+        if (this.searchMode !== 'engine_only') {
+          await this.searchHtmlRuleSources(keyword);
+          if (this.searchGeneration !== gen) return;
+          if (this.appLanguage === 'en') await this.searchApiSources(keyword);
+        }
+        if (this.searchGeneration !== gen) return;
+        if (this.autoCoverEnabled) await this.enrichResultCovers(8);
+        this.applyCoverAccuracy();
       }
-      if (this.autoCoverEnabled) await this.enrichResultCovers(8);
-      this.applyCoverAccuracy();
+      console.info(`ComicReader[debug] searchComplete: results=${this.results.length} engine=${this.results.filter((r: SearchResultItem) => r.resultType === 'search-engine').length} htmlRule=${this.results.filter((r: SearchResultItem) => r.resultType === 'html-rule').length} catalog=${this.results.filter((r: SearchResultItem) => r.resultType === 'catalog').length}`);
     } finally {
-      this.isLoading = false;
-      this.statusText = this.results.length > 0 ? this.t('search_complete') + this.results.length + this.t('results_suffix') : this.t('no_comic_results');
+      if (this.searchGeneration === gen) {
+        this.isLoading = false;
+        this.statusText = this.results.length > 0 ? this.t('search_complete') + this.results.length + this.t('results_suffix') : this.t('no_comic_results');
+      }
     }
   }
 
@@ -1734,14 +2011,7 @@ struct Index {
     if (!this.enableSearchEngines) return;
     const queries: string[] = [];
     queries.push(buildEngineQuery(keyword, this.extraSearchTerms, this.languageMode, this.siteHint));
-    // Search providers rank landing pages and actual book/detail pages under
-    // different intents. Query both and merge by the final result URL.
-    queries.push(buildEngineQuery(keyword,
-      (this.extraSearchTerms + ' 在线阅读 章节').trim(), this.languageMode, this.siteHint));
-    if (this.isBroadComicKeyword(keyword)) {
-      queries.push(buildEngineQuery(keyword,
-        (this.extraSearchTerms + ' 作品 推荐 大全').trim(), this.languageMode, this.siteHint));
-    }
+    this.debugSearchQueries = queries.join(' | ');
     const engines: SearchEngineConfig[] = [];
     if (this.searchAllEngines) {
       for (let i = 0; i < this.searchEngines.length; i++) {
@@ -1751,10 +2021,13 @@ struct Index {
       engines.push(this.selectedEngine());
     }
     const pending: Promise<SearchResultItem[]>[] = [];
+    const browserPages = this.searchResultMode === 'browser' ? 10 : 1;
     for (let i = 0; i < engines.length; i++) {
       if (isEngineConfigured(engines[i], this.braveApiKey, this.googleApiKey, this.googleCx)) {
         for (let queryIndex = 0; queryIndex < queries.length; queryIndex++) {
-          pending.push(this.fetchSearchEngineResults(engines[i], keyword, queries[queryIndex]));
+          for (let p = 1; p <= browserPages; p++) {
+            pending.push(this.fetchSearchEngineResults(engines[i], keyword, queries[queryIndex], p));
+          }
         }
       }
     }
@@ -1764,20 +2037,30 @@ struct Index {
     // several serial 20-second timeouts.
     const batches = await Promise.all(pending);
     const discovered: SearchResultItem[] = [];
+    let engineSuccess = 0;
     for (let i = 0; i < batches.length; i++) {
+      console.info(`ComicReader[debug] engineBatch: index=${i} count=${batches[i].length}`);
+      if (batches[i].length > 0) engineSuccess++;
       for (let itemIndex = 0; itemIndex < batches[i].length; itemIndex++) {
         const item = batches[i][itemIndex];
         if (!discovered.some((old: SearchResultItem) => old.url === item.url)) discovered.push(item);
       }
     }
-    if (this.isBroadComicKeyword(keyword)) {
+    if (this.searchResultMode !== 'browser' && this.isBroadComicKeyword(keyword)) {
       const expanded = await this.expandBroadComicResults(discovered);
       this.appendResults(expanded);
       this.appendResults(discovered.filter((item: SearchResultItem) => !this.isBroadLandingResult(item)));
     } else {
       this.appendResults(discovered);
     }
+    this.debugEngineResults = discovered.length;
+    this.debugEngineTried = engines.length;
+    this.debugEngineSuccess = engineSuccess;
     this.statusText = this.t('engine_returned') + this.results.length + this.t('items_unit');
+    if (this.searchResultMode === 'browser') {
+      this.searchPage = browserPages;
+      this.hasMoreResults = discovered.length > 0;
+    }
   }
 
   private isBroadLandingResult(item: SearchResultItem): boolean {
@@ -1826,9 +2109,18 @@ struct Index {
   }
 
   private async fetchSearchEngineResults(engine: SearchEngineConfig, keyword: string,
-    query: string): Promise<SearchResultItem[]> {
+    query: string, page: number): Promise<SearchResultItem[]> {
     try {
-      const url = buildSearchEngineUrl(engine, query, this.braveApiKey, this.googleApiKey, this.googleCx);
+      let url = buildSearchEngineUrl(engine, query, this.braveApiKey, this.googleApiKey, this.googleCx);
+      if (page > 1) {
+        const offset = (page - 1) * 10;
+        if (engine.engineType === 'bing-html') url += '&first=' + (offset + 1);
+        else if (engine.engineType === 'baidu-html') url += '&pn=' + (offset * 5);
+        else if (engine.engineType === 'google-html') url += '&start=' + offset;
+        else if (engine.engineType === 'sogou-html') url += '&page=' + page;
+        else if (engine.engineType === 'so-html') url += '&pn=' + (offset + 1);
+        else if (engine.engineType === 'yandex-html') url += '&p=' + page;
+      }
       const body = await HttpClient.getTextWithHeaders(url, searchEngineUserAgent(), '',
         engineHeaders(engine, this.braveApiKey));
       return parseSearchEngineResults(body, engine, keyword, url);
@@ -1838,23 +2130,31 @@ struct Index {
   }
 
   private async searchHtmlRuleSources(keyword: string): Promise<void> {
-    if (!this.enableHtmlRules) return;
+    if (!this.enableHtmlRules) {
+      this.debugRuleTried = 0; this.debugRuleSkipped = this.rules.length; this.debugRuleSuccess = 0; this.debugRuleFailed = 0;
+      return;
+    }
     let success = 0;
     let failed = 0;
-    const maxPerGroup = 10;
+    const maxPerGroup = 15;
     const pending: Promise<SearchResultItem[]>[] = [];
+    const pendingRuleNames: string[] = [];
     let attempted = 0;
+    let skipped = 0;
     for (let i = 0; i < this.rules.length; i++) {
       const rule = this.rules[i];
-      if (rule.searchUrl.trim().length === 0) continue;
-      if (rule.searchMethod === 'url-only') continue;
-      if (attempted >= maxPerGroup * 3) break;
+      if (rule.searchUrl.trim().length === 0) { skipped++; continue; }
+      if (rule.searchMethod === 'url-only') { skipped++; continue; }
+      if (attempted >= maxPerGroup * 3) { skipped++; continue; }
       attempted++;
       pending.push(this.fetchHtmlRuleResults(rule, keyword));
+      pendingRuleNames.push(rule.name);
     }
+    console.info(`ComicReader[debug] searchHtmlRuleSources: attempted=${attempted} skipped=${skipped} rules=${this.rules.length} searchable=${pendingRuleNames.join(', ')}`);
     const batches = await Promise.all(pending);
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const parsed = batches[batchIndex];
+      console.info(`ComicReader[debug] htmlRuleResult: rule="${pendingRuleNames[batchIndex]}" count=${parsed.length}`);
       if (parsed.length > 0) {
         success++;
         this.appendResults(parsed);
@@ -1863,6 +2163,11 @@ struct Index {
         failed++;
       }
     }
+    this.debugRuleTried = attempted;
+    this.debugRuleSkipped = skipped;
+    this.debugRuleSuccess = success;
+    this.debugRuleFailed = failed;
+    console.info(`ComicReader[debug] searchHtmlRuleSources: tried=${attempted} skipped=${skipped} success=${success} failed=${failed} rules=${this.rules.length} online=${this.onlineRules.length} custom=${this.advancedRules.length} mode=${this.searchMode} htmlEnabled=${this.enableHtmlRules}`);
     if (failed > 0 && success === 0) {
       this.statusText = this.t('chapter_failed');
     }
@@ -1871,14 +2176,24 @@ struct Index {
   private async fetchHtmlRuleResults(rule: ComicSourceRule, keyword: string): Promise<SearchResultItem[]> {
     try {
       const searchUrl = rule.searchUrl.replace('{keyword}', encodeURIComponent(keyword));
+      console.info(`ComicReader[debug] fetchHtmlRule: rule="${rule.name}" url=${searchUrl}`);
       const html = await HttpClient.getTextWithTimeout(searchUrl, rule.userAgent,
         rule.referer.length > 0 ? rule.referer : rule.homepage, 8000);
-      return parseSearchResults(html, rule, searchUrl, keyword).filter((item: SearchResultItem) => {
-        const expected = keyword.toLowerCase().replace(/\s+/g, '');
-        const actual = (item.title + ' ' + (item.description ?? '')).toLowerCase().replace(/\s+/g, '');
-        return expected.length > 0 && actual.indexOf(expected) >= 0;
+      const parsed = parseSearchResults(html, rule, searchUrl, keyword);
+      console.info(`ComicReader[debug] fetchHtmlRule: rule="${rule.name}" parsed=${parsed.length} htmlLen=${html.length}`);
+      const expected = keyword.toLowerCase().replace(/\s+/g, '');
+      const filtered = parsed.filter((item: SearchResultItem) => {
+        if (expected.length === 0) return true;
+        const actual = (item.title + ' ' + (item.description ?? '') + ' ' + item.url).toLowerCase().replace(/\s+/g, '');
+        return actual.indexOf(expected) >= 0;
       });
+      const result = filtered.length === 0 && parsed.length > 0 ? parsed.slice(0, 5) : filtered;
+      for (let i = 0; i < result.length; i++) {
+        result[i].debugMatchInfo = buildDebugMatchInfo(result[i].title, result[i].url, result[i].description ?? '', keyword);
+      }
+      return result;
     } catch (err) {
+      console.info(`ComicReader[debug] fetchHtmlRule: rule="${rule.name}" error=${err}`);
       return [];
     }
   }
@@ -2338,9 +2653,6 @@ struct Index {
       if (leftNumber >= 0 && rightNumber >= 0 && leftNumber !== rightNumber) {
         return leftNumber - rightNumber;
       }
-      // Preserve source order when either title cannot be parsed. The final
-      // whole-array reversal below still guarantees that the toggle works for
-      // arbitrary original chapter names.
       return 0;
     });
     if (!this.chapterReversed) source.reverse();
@@ -2378,8 +2690,371 @@ struct Index {
     }
   }
 
+  private openInBrowser(url: string, title: string): void {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) return;
+    router.pushUrl({ url: 'pages/WebBrowserPage', params: { url: url, title: title, isDark: this.isDark(), statusBarHeight: this.avoidStatusBarHeight } });
+  }
+
+  private handleWebError(errorInfo: string): void {
+    this.webMainFrameFailed = true;
+    if (errorInfo.indexOf('ERR_CONNECTION_CLOSED') >= 0 && this.webLastSuccessUrl.length > 0) {
+      this.webLoading = true;
+      this.webErrorText = '';
+      const restoreUrl: string = this.webLastSuccessUrl;
+      this.webLoadTimerId = setTimeout((): void => {
+        try { this.webController.loadUrl(restoreUrl); }
+        catch (error) { this.webLoading = false; this.webErrorText = errorInfo; }
+      }, 1500);
+      return;
+    }
+    this.webLoading = false;
+    this.webErrorText = errorInfo;
+  }
+
+  private webOpenInReader(): void {
+    const url: string = this.webLastSuccessUrl.length > 0 ? this.webLastSuccessUrl : this.searchEngineUrl;
+    if (url.length === 0) return;
+    this.openSearchResult({ title: this.searchTitle, url: url, cover: '', sourceId: '', sourceName: '', isChapter: false, resultType: 'search-engine', groupName: this.searchTitle, description: '', category: '' });
+  }
+
+  private injectSearchPageStyles(): void {
+    const debugHtml = '';
+    const css = `
+      #sb_form,#b_header,.b_scopeTabs,#id_h,#b_notificationContainer,#b_context,.b_ans,.b_foot,
+      #search-form,.navbar,#s_topwrap,#u,#u1,#s_tab,.head_nums_cont_outer,#content_right,
+      #searchform,.gb_3d,#gb,.minidiv,.cOl5Id,#topstuff,.kpSBl,
+      .top-box,.logo-box,#searchForm,.header,
+      .serp-header,.search2,.navigation,.header__content,
+      #rs,#taw,#tadsform,.commercial-unit-top,.commercial-unit-desktop-rhs,
+      .b_pagination,#b_pagination,.pagination,#pagebar,.pagebar,.pager,#pg,
+      .page-inner,#page,.pagebox,.p-goto,#footcnt,.AaVjI,.pp-loading,
+      .page,#paging,.search-result-pagination,.results-pagination,
+      #nav,.nav,.pagebar_container,.page-nav,.p-nav,.sw_next,.sw_prev,
+      .sb_pagN,.sb_pagP,#pnnext,#sogou_next,#next,.pager__item_kind_next,
+      .search-filters,.filters,.side,.results--side,.js-result-aside,
+      .b_ad,#b_ad,.b_adlink,.b_adBottom,.b_adslim,.b_algoAns,.b_caption,.b_adGroup,
+      .ec_tvc,.ec_wise_ad,.ec_youxuan,.ec_im_container,.ec_bdtg,.ec_wise_box,
+      #content_right .result-op:not([tpl="recommend_list"]),
+      ins.adsbygoogle,[id*="google_ads"],[id*="div-gpt-ad"],
+      iframe[src*="doubleclick.net"],iframe[src*="googlesyndication.com"],iframe[src*="adserver"],
+      [class*="float-ad"],[class*="floatad"],[class*="float_ad"],
+      #coupletLeft,#coupletRight,#fixedAd,#floatAd,#ad_header,#ad_footer,
+      [class*="sticky-ad"],[class*="fixed-ad"],[class*="popup-ad"],[class*="ad-popup"],[class*="ad-modal"],
+      [class*="sponsored"],[id*="sponsored"],[class*="promotion-box"],
+      [class*="ad-banner"],[class*="ad-container"],[class*="ad-wrapper"],[class*="ad-slot"],[class*="ad-unit"],
+      [class*="banner-ad"],[id*="banner-ad"],[class*="ad-float"],[id*="ad-float"],
+      [class*="advertisement"],[id*="advertisement"],[class*="ad-300"],[class*="ad-728"],[class*="ad-970"],
+      [class*="ad-top"],[class*="ad-bottom"],[class*="ad-side"],[class*="ad-left"],[class*="ad-right"],
+      [class*="top-ad"],[class*="bottom-ad"],[class*="side-ad"],[class*="left-ad"],[class*="right-ad"],
+      [class*="ad-interstitial"],[class*="ad-between"],[class*="ad-inline"],
+      [class*="ad-overlay"],[id*="ad-overlay"],[class*="ad-mask"],[id*="ad-mask"],
+      [class*="commercial-unit"],[id*="commercial-unit"],[class*="promo-ad"],
+      [class*="recommend-ad"],[class*="hot-ad"],[class*="trend-ad"],
+      [data-ad],[data-ads],[data-ad-slot],[data-ad-unit],[data-ad-client],
+      #ad1,#ad2,#ad3,#ad4,#ad5,#ad6,#ad7,#ad8,#ad9,#ad0,
+      .topad,.bottomad,.leftad,.rightad,.adbox,.ad_box,.ads,.adsbox,.adblock,.ad_block
+      { display:none !important; }
+      body { padding-top:${this.headerOverlayHeight() + 25}px !important; padding-bottom:200px !important; margin-top:0 !important; box-sizing:border-box; }
+      #b_content,#results,.results,#search-results,.serp-list,#content_left,#rso
+      { width:100% !important; max-width:100% !important; }
+      html, body { background:${this.isDark() ? '#1a1a1a' : '#fff'} !important; color:${this.isDark() ? '#e0e0e0' : '#1a1a1a'} !important; }
+      #b_results,#b_content,#b_algo,#content_left,#rso,.results,.serp-list,#results
+      { background:${this.isDark() ? '#1a1a1a' : '#fff'} !important; }
+      #b_content * { background:transparent !important; }
+      #b_results * { color:${this.isDark() ? '#e0e0e0' : '#1a1a1a'} !important; }
+      #b_results a, #b_results a * { color:${this.isDark() ? '#4a9eff' : '#0066c0'} !important; }
+      .results .result, .results .result * { color:${this.isDark() ? '#e0e0e0' : '#1a1a1a'} !important; }
+      .results .result a, .results .result .result__a { color:${this.isDark() ? '#4a9eff' : '#0066c0'} !important; }
+      .results .result .result__url, .results .result .result__url * { color:${this.isDark() ? '#6a9955' : '#006621'} !important; font-size:13px !important; }
+      .results .result .result__snippet { color:${this.isDark() ? '#b0b0b0' : '#555555'} !important; }
+      #b_results > li.b_algo, #b_results > .b_algo, .result, .c-container, .vrwrap, .res-list, .serp-item
+      { background:${this.isDark() ? '#2a2a2a' : '#fff'} !important; margin:0 !important; padding:12px 16px !important; border-radius:0 !important; box-shadow:none !important; border:none !important; }
+      li.b_algo *, .b_algo *, .result *, .c-container *, .vrwrap *, .res-list *, .serp-item *
+      { border:none !important; background:transparent !important; }
+      #b_results > li.b_algo, #b_results > .b_algo, .result, .c-container, .vrwrap, .res-list, .serp-item
+      { background:${this.isDark() ? '#2a2a2a' : '#fff'} !important; }
+      li.b_algo cite, .b_algo cite, li.b_algo .b_caption, .b_algo .b_caption, li.b_algo .b_algoSlug, .b_algo .b_algoSlug
+      { color:${this.isDark() ? '#6a9955' : '#006621'} !important; }
+      li.b_algo h2, .b_algo h2
+      { background:transparent !important; }
+      #b_results strong, #b_results b, #b_results em
+      { font-weight:bold !important; }
+    `;
+    const js = `
+      if(!window._styleInjected){
+        window._styleInjected=true;
+        var s=document.createElement('style');
+        s.textContent=${JSON.stringify(css)};
+        document.head.appendChild(s);
+      }
+      var dbg=document.getElementById('app_debug');
+      if(!dbg && ${JSON.stringify(debugHtml)}.length>0){
+        dbg=document.createElement('div');
+        dbg.innerHTML=${JSON.stringify(debugHtml)};
+        var firstChild=document.body.firstChild;
+        if(firstChild) document.body.insertBefore(dbg,firstChild);
+        else document.body.appendChild(dbg);
+      }
+      if(!window._styleResults){
+        window._styleResults=function(scope){
+          var dark=${JSON.stringify(this.isDark())};
+          var C_TEXT=dark?'#e0e0e0':'#1a1a1a';
+          var C_LINK=dark?'#4a9eff':'#0066c0';
+          var C_URL=dark?'#6a9955':'#006621';
+          var C_DESC=dark?'#b0b0b0':'#555555';
+          var C_BG=dark?'#2a2a2a':'#ffffff';
+          var sel='li.b_algo,.b_algo,.result,.c-container,.vrwrap,.res-list,.serp-item';
+          var list=scope.querySelectorAll(sel);
+          for(var i=0;i<list.length;i++){
+            var it=list[i];
+            it.style.setProperty('background',C_BG,'important');
+            it.style.setProperty('margin','0','important');
+            it.style.setProperty('padding','10px 14px','important');
+            it.style.setProperty('border','none','important');
+            it.style.setProperty('border-radius','0','important');
+            it.style.setProperty('box-shadow','none','important');
+            var subs=it.querySelectorAll('*');
+            for(var j=0;j<subs.length;j++){
+              var el=subs[j];
+              var tag=el.tagName?el.tagName.toLowerCase():'';
+              el.style.setProperty('border','none','important');
+              el.style.setProperty('background-color','transparent','important');
+              el.style.setProperty('text-decoration','none','important');
+              el.style.setProperty('box-shadow','none','important');
+              el.style.setProperty('margin','0','important');
+              el.style.setProperty('padding','0','important');
+              if(tag==='strong'||tag==='b'||tag==='em'){
+                el.style.setProperty('font-weight','bold','important');
+                el.style.setProperty('color','#d32f2f','important');
+              }else if(tag==='a'){
+                el.style.setProperty('color',C_LINK,'important');
+                var hasTitle=el.querySelector?el.querySelector('h2,h3'):null;
+                if(hasTitle){
+                  el.style.setProperty('font-size','18px','important');
+                  el.style.setProperty('font-weight','600','important');
+                  el.style.setProperty('line-height','1.3','important');
+                  el.style.setProperty('display','block','important');
+                  el.style.setProperty('margin','0 0 3px 0','important');
+                }
+              }else if(tag==='cite'){
+                el.style.setProperty('color',C_URL,'important');
+                el.style.setProperty('font-size','13px','important');
+                el.style.setProperty('line-height','1.3','important');
+                el.style.setProperty('display','block','important');
+                el.style.setProperty('margin','0 0 3px 0','important');
+              }else if(tag==='h2'||tag==='h3'){
+                var inLink=el.closest?el.closest('a'):null;
+                if(!inLink){
+                  el.style.setProperty('color',C_LINK,'important');
+                  el.style.setProperty('font-size','18px','important');
+                  el.style.setProperty('font-weight','600','important');
+                  el.style.setProperty('line-height','1.3','important');
+                  el.style.setProperty('margin','0 0 3px 0','important');
+                }
+              }else if(el.closest&&(el.closest('a')||el.closest('h2')||el.closest('h3'))){
+              }else if(tag==='p'||tag==='span'||tag==='div'){
+                el.style.setProperty('color',C_DESC,'important');
+                el.style.setProperty('font-size','14px','important');
+                el.style.setProperty('line-height','1.4','important');
+              }else{
+                el.style.setProperty('color',C_TEXT,'important');
+              }
+            }
+          }
+        };
+      }
+      if(!window._hidePagination){
+        window._hidePagination=function(){
+          var sels='.b_pagination,#b_pagination,.pagination,#pagebar,.pagebar,.pager,#pg,.page-inner,#page,.pagebox,.p-goto,#footcnt,.page,#paging,.search-result-pagination,.results-pagination,#nav,.nav,.pagebar_container,.page-nav,.p-nav,.sb_pagN,.sb_pagP,#pnnext,#sogou_next,#next,.pager__item_kind_next,.sw_next,.sw_prev,.pp-loading,.foot,.footer,#footer,#foot';
+          var els=document.querySelectorAll(sels);
+          for(var i=0;i<els.length;i++){ els[i].style.display='none'; }
+          var nextKeywords=['下一页','下页','Next','Next page','>','→','›','»'];
+          var all=document.querySelectorAll('a,button,span,div,li');
+          for(var j=0;j<all.length;j++){
+            var t=all[j].textContent.trim();
+            var aria=all[j].getAttribute('aria-label')||'';
+            for(var ni=0;ni<nextKeywords.length;ni++){
+              if(t===nextKeywords[ni]||aria.indexOf('Next')>=0||aria.indexOf('下一页')>=0){
+                var p=all[j].parentElement;
+                if(p) p.style.display='none';
+                break;
+              }
+            }
+          }
+          var navs=document.querySelectorAll('[role="navigation"],[role="pager"]');
+          for(var m=0;m<navs.length;m++){
+            var nt=navs[m].textContent;
+            if(nt.indexOf('下一页')>=0||nt.indexOf('Next')>=0||nt.length<80){ navs[m].style.display='none'; }
+          }
+        };
+      }
+      window._hidePagination();
+      if(window._styleResults) window._styleResults(document);
+      if(!window._scrollListenerAdded){
+        window._scrollListenerAdded=true;
+        window._loadingNext=false;
+        window._nextUrl='';
+        window._pageCount=1;
+        window._constructNextUrl=function(url){
+          if(!url) return '';
+          if(url.indexOf('bing.com')>=0){
+            var m=url.match(/first=(\d+)/);
+            var cur=m?parseInt(m[1]):1;
+            var next=cur+10;
+            var sep=url.indexOf('?')>=0?'&':'?';
+            if(m) return url.replace(/first=\d+/,'first='+next);
+            return url+sep+'first='+next;
+          }
+          if(url.indexOf('baidu.com')>=0){
+            var m2=url.match(/pn=(\d+)/);
+            var cur2=m2?parseInt(m2[1]):0;
+            var next2=cur2+10;
+            var sep2=url.indexOf('?')>=0?'&':'?';
+            if(m2) return url.replace(/pn=\d+/,'pn='+next2);
+            return url+sep2+'pn='+next2;
+          }
+          if(url.indexOf('google.com')>=0||url.indexOf('google.cn')>=0){
+            var m3=url.match(/start=(\d+)/);
+            var cur3=m3?parseInt(m3[1]):0;
+            var next3=cur3+10;
+            var sep3=url.indexOf('?')>=0?'&':'?';
+            if(m3) return url.replace(/start=\d+/,'start='+next3);
+            return url+sep3+'start='+next3;
+          }
+          if(url.indexOf('sogou.com')>=0){
+            var m4=url.match(/page=(\d+)/);
+            var cur4=m4?parseInt(m4[1]):1;
+            var next4=cur4+1;
+            var sep4=url.indexOf('?')>=0?'&':'?';
+            if(m4) return url.replace(/page=\d+/,'page='+next4);
+            return url+sep4+'page='+next4;
+          }
+          return '';
+        };
+        window._findNextUrl=function(doc, fallbackUrl){
+          var links=doc.querySelectorAll('a');
+          for(var i=0;i<links.length;i++){
+            var t=links[i].textContent.trim();
+            var aria=links[i].getAttribute('aria-label')||'';
+            var rel=links[i].getAttribute('rel')||'';
+            var cls=links[i].className||'';
+            if(rel.indexOf('next')>=0||cls.indexOf('sb_pagN')>=0||cls.indexOf('sb_pagN')>=0){
+              var h=links[i].href||links[i].getAttribute('href')||'';
+              if(h.length>0 && h.indexOf('javascript:')<0 && h.indexOf('#')<0) return h;
+            }
+            if(t==='下一页'||t==='下页'||t==='Next'||t==='Next page'||aria==='Next page'||aria==='下一页'){
+              var h2=links[i].href||links[i].getAttribute('href')||'';
+              if(h2.length>0 && h2.indexOf('javascript:')<0 && h2.indexOf('#')<0) return h2;
+            }
+          }
+          return window._constructNextUrl(fallbackUrl||location.href);
+        };
+        window._debugMode=${this.showDebugInfo};
+        window._updateDebug=function(){
+          if(!window._debugMode){
+            var old=document.getElementById('app_debug');
+            if(old) old.remove();
+            return;
+          }
+          var dbg=document.getElementById('app_debug');
+          if(!dbg){
+            dbg=document.createElement('div');
+            dbg.id='app_debug';
+            dbg.style.cssText='background:#1a1a1a !important;color:#e0e0e0 !important;font-size:12px !important;padding:8px 12px !important;margin:8px !important;border-radius:8px !important;border:1px solid #444 !important;z-index:999999 !important;';
+            var fc=document.body.firstChild;
+            if(fc) document.body.insertBefore(dbg,fc);
+            else document.body.appendChild(dbg);
+          }
+          var remain=Math.round(document.body.scrollHeight-window.innerHeight-window.scrollY);
+          var nu=window._nextUrl||'';
+          if(nu.length>80) nu=nu.substring(0,80)+'...';
+          var qParam='';
+          try{
+            var u=new URL(location.href);
+            qParam=u.searchParams.get('q')||u.searchParams.get('wd')||u.searchParams.get('query')||'';
+          }catch(e){}
+          var searchBox='';
+          try{
+            var inputs=document.querySelectorAll('input[name="q"],input[name="wd"],#sb_form_q,textarea[name="q"]');
+            for(var si=0;si<inputs.length;si++){
+              if(inputs[si].value&&inputs[si].value.length>0){ searchBox=inputs[si].value; break; }
+            }
+          }catch(e){}
+          var lines=[
+            '<div style="color:#0066cc;">URL: '+location.href.substring(0,80)+'</div>',
+            '<div style="color:#0a0;">页面查询词(URL q参数): '+qParam+'</div>',
+            '<div style="color:#0a0;">搜索框文本: '+searchBox+'</div>',
+            '<div style="color:#e00;">滚动: remain='+remain+' page='+window._pageCount+' loading='+window._loadingNext+'</div>',
+            '<div style="color:#e00;">nextUrl: '+nu+'</div>'
+          ];
+          var extra=window._debugExtra||'';
+          var newHtml=lines.join('')+extra;
+          if(dbg.innerHTML!==newHtml) dbg.innerHTML=newHtml;
+        };
+        window._updateDebug();
+        window.addEventListener('scroll',function(){
+          var remain=document.body.scrollHeight-window.innerHeight-window.scrollY;
+          if(remain>500) return;
+          if(window._loadingNext) return;
+          if(!window._nextUrl) window._nextUrl=window._findNextUrl(document);
+          if(!window._nextUrl){
+            var dbg=document.getElementById('app_debug');
+            if(dbg) dbg.setAttribute('data-extra','<div style="color:#e00;">到底了但没找到nextUrl</div>');
+            window._debugExtra='到底了但没找到nextUrl';
+            return;
+          }
+          window._loadingNext=true;
+          if(window._updateDebug) window._updateDebug();
+          var ifr=document.createElement('iframe');
+          ifr.style.cssText='position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;';
+          ifr.onload=function(){
+            try{
+              var idoc=ifr.contentDocument||ifr.contentWindow.document;
+              var itemSel='li.b_algo,.b_algo,#b_results .b_algo,.result,.c-container,.vrwrap,.res-list,.serp-item,.g .rc,.results > div';
+              var items=idoc.querySelectorAll(itemSel);
+              var c=document.querySelector('#b_results,#b_content,#content_left,#rso,.results,.serp-list,#results');
+              var dbg2=document.getElementById('app_debug');
+              if(dbg2) dbg2.setAttribute('data-extra','<div style="color:#e00;">iframe加载: '+items.length+'条结果 container='+(c?'有':'无')+'</div>');
+              window._debugExtra='iframe加载: '+items.length+'条结果 container='+(c?'有':'无');
+              if(c && items.length>0){
+                if(window._debugMode){
+                  var sep=document.createElement('div');
+                  sep.style.cssText='padding:10px;text-align:center;color:#999;font-size:12px;border-top:1px solid #e5e5e5;';
+                  sep.textContent='— 第'+(window._pageCount+1)+'页 —';
+                  c.appendChild(sep);
+                }
+                for(var i=0;i<items.length;i++){
+                  var node=document.importNode(items[i],true);
+                  c.appendChild(node);
+                }
+                if(window._styleResults) window._styleResults(c);
+                window._pageCount++;
+              }
+              window._nextUrl=window._findNextUrl(idoc, window._nextUrl);
+            }catch(e){
+              var dbg3=document.getElementById('app_debug');
+              if(dbg3) dbg3.setAttribute('data-extra','<div style="color:#e00;">iframe错误: '+e+'</div>');
+              window._debugExtra='iframe错误: '+e;
+            }
+            ifr.remove();
+            window._loadingNext=false;
+            if(window._hidePagination) window._hidePagination();
+            if(window._updateDebug) window._updateDebug();
+          };
+          ifr.src=window._nextUrl;
+          document.body.appendChild(ifr);
+        },{passive:true});
+        setInterval(function(){
+          if(window._updateDebug) window._updateDebug();
+          if(window._styleResults) window._styleResults(document);
+        },5000);
+      }
+    `;
+    try { this.webController.runJavaScript(js); }
+    catch (error) { console.info('ComicReader[debug] injectJS failed: ' + error); }
+  }
+
   private openSearchResult(item: SearchResultItem): void {
-    this.searchResultsOffset = this.searchResultsScroller.currentOffset().yOffset;
     this.lastOpenedSearchUrl = item.url;
     const verifiedItem = this.catalogItemForExactTitle(item.title) ?? this.catalogItemForExactTitle(this.searchTitle);
     const verifiedSource = verifiedItem ? this.preferredCatalogSource(verifiedItem) : null;
@@ -2489,15 +3164,14 @@ struct Index {
       }
     }
     const queries: string[] = [
-      buildEngineQuery(keyword, '漫画', this.languageMode, this.siteHint),
-      buildEngineQuery(keyword, '漫画 在线阅读 章节', this.languageMode, this.siteHint)
+      buildEngineQuery(keyword, this.extraSearchTerms, this.languageMode, this.siteHint)
     ];
     const pending: Promise<SearchResultItem[]>[] = [];
     for (let i = 0; i < this.searchEngines.length; i++) {
       const engine = this.searchEngines[i];
       if (!engine.enabled || !isEngineConfigured(engine, this.braveApiKey, this.googleApiKey, this.googleCx)) continue;
       for (let queryIndex = 0; queryIndex < queries.length; queryIndex++) {
-        pending.push(this.fetchSearchEngineResults(engine, keyword, queries[queryIndex]));
+        pending.push(this.fetchSearchEngineResults(engine, keyword, queries[queryIndex], 1));
       }
     }
     const batches = await Promise.all(pending);
@@ -2564,17 +3238,6 @@ struct Index {
   }
 
   private async openHistoryItem(item: ReadingHistoryItem): Promise<void> {
-    let detailUrl = item.detailUrl;
-    if (!detailUrl || detailUrl.length === 0 || detailUrl === item.url) {
-      const shelfMatch = this.bookshelf.find((b: BookshelfItem) => b.title === item.title);
-      if (shelfMatch && shelfMatch.url && shelfMatch.url !== item.url) {
-        detailUrl = shelfMatch.url;
-      }
-    }
-    if (detailUrl && detailUrl.length > 0 && detailUrl !== item.url) {
-      await this.openBookUnified(detailUrl, item.title, item.sourceId, item.cover, item.url, item.chapterTitle);
-      return;
-    }
     this.chapters = [{ title: item.chapterTitle, url: item.url, index: 1,
       sourceId: item.sourceId, sourceName: item.sourceName }];
     this.currentCover = item.cover;
@@ -2682,7 +3345,7 @@ struct Index {
       if (fs.accessSync(localPath)) fs.unlinkSync(localPath);
     } catch (ignored) {
     }
-    this.cacheBookshelfCover(itemUrl, remoteCover);
+    await this.cacheBookshelfCover(itemUrl, remoteCover);
     this.statusText = this.t('cover_update_success');
     return true;
   }
@@ -2713,7 +3376,7 @@ struct Index {
     const engine = this.selectedEngine();
     if (isEngineConfigured(engine, this.braveApiKey, this.googleApiKey, this.googleCx)) {
       try {
-        const engineResults = await this.fetchSearchEngineResults(engine, title, title);
+        const engineResults = await this.fetchSearchEngineResults(engine, title, title, 1);
         const targetKey = this.searchTitleKey(title);
         for (let i = 0; i < engineResults.length && i < 10; i++) {
           const cand = engineResults[i];
@@ -2807,33 +3470,6 @@ struct Index {
     this.addCurrentToShelf();
   }
 
-  private cycleEngine(): void {
-    this.selectedEngineIndex = (this.selectedEngineIndex + 1) % this.searchEngines.length;
-  }
-
-  private closeAllExpandedExcept(keep: string): void {
-    if (keep !== 'theme') this.themeExpanded = false;
-    if (keep !== 'language') this.languageExpanded = false;
-    if (keep !== 'iconColor') this.iconColorExpanded = false;
-    if (keep !== 'search') this.searchExpanded = false;
-    if (keep !== 'sources') this.sourcesExpanded = false;
-    if (keep !== 'reader') this.readerExpanded = false;
-    if (keep !== 'engines') this.enginesExpanded = false;
-    if (keep !== 'rules') this.rulesExpanded = false;
-  }
-
-  private nextSearchMode(): void {
-    if (this.searchMode === 'mixed') this.searchMode = 'engine_only';
-    else if (this.searchMode === 'engine_only') this.searchMode = 'api_only';
-    else this.searchMode = 'mixed';
-  }
-
-  private nextLanguageMode(): void {
-    if (this.languageMode === 'chinese') this.languageMode = 'english';
-    else if (this.languageMode === 'english') this.languageMode = 'auto';
-    else this.languageMode = 'chinese';
-  }
-
   private applyCustomRule(): boolean {
     try {
       const value = JSON.parse(this.customRuleText) as ComicSourceRule | ComicSourceRule[];
@@ -2886,9 +3522,9 @@ struct Index {
     } else {
       text = this.settingsDialog === 'advanced' ? this.customRuleText : this.ruleViewerText;
     }
-    const result = validateJson(text);
-    this.editorIsValid = result.valid;
-    this.editorError = result.error;
+    this.editorLanguage = this.detectLanguage(text);
+    this.editorIsValid = true;
+    this.editorError = '';
   }
 
   private editorUpdateSearch() {
@@ -2907,8 +3543,10 @@ struct Index {
     if (this.editorReadOnly) return;
     if (this.settingsDialog !== 'advanced' && !this.editorFullscreen) return;
     this.editorPushUndo();
-    const formatted = formatJson(this.customRuleText, this.editorIndentSize);
-    this.customRuleText = formatted;
+    if (this.editorLanguage === 'json') {
+      const formatted = formatJson(this.customRuleText, this.editorIndentSize);
+      this.customRuleText = formatted;
+    }
     this.refreshEditorLines();
     this.editorValidate();
   }
@@ -2969,6 +3607,28 @@ struct Index {
         this.editorMode = 'advanced';
         this.applyReaderFullscreen(false);
       }
+      return;
+    }
+    if (this.editorMode === 'filter_domains' || this.editorMode === 'filter_words' || this.editorMode === 'filter_noise') {
+      const lines = this.customRuleText.split('\n').filter((s: string) => s.trim().length > 0);
+      if (this.editorMode === 'filter_domains') {
+        searchFilterConfig.blockedDomains = lines;
+        this.customBlockedDomains = this.customRuleText;
+        this.statusText = '已保存' + lines.length + '条屏蔽域名';
+      } else if (this.editorMode === 'filter_words') {
+        searchFilterConfig.blockedWords = lines;
+        this.customBlockedWords = this.customRuleText;
+        this.statusText = '已保存' + lines.length + '条屏蔽词';
+      } else {
+        searchFilterConfig.noiseTitleWords = lines;
+        this.customNoiseWords = this.customRuleText;
+        this.statusText = '已保存' + lines.length + '条噪音标题词';
+      }
+      this.persistData();
+      this.editorFullscreen = false;
+      this.settingsDialog = '';
+      this.editorMode = 'advanced';
+      this.applyReaderFullscreen(false);
       return;
     }
     if (this.applyCustomRule()) {
@@ -3047,6 +3707,16 @@ struct Index {
     this.editorStatsChars = text.length;
   }
 
+  private detectLanguage(text: string): string {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return 'text';
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try { JSON.parse(trimmed); return 'json'; } catch (e) { return 'text'; }
+    }
+    if (trimmed.startsWith('<')) return 'xml';
+    return 'text';
+  }
+
   private openEditorFullscreen(title: string, readOnly: boolean): void {
     this.settingsDialog = '';
     this.editorTitle = title;
@@ -3072,13 +3742,13 @@ struct Index {
     this.editorLineDataSource.updateData(this.editorLinesCache);
     this.editorLineNumberWidth = Math.max(12, this.editorLinesCache.length.toString().length * 8);
     const text = readOnly ? this.ruleViewerText : this.customRuleText;
-    const result = validateJson(text);
-    this.editorIsValid = result.valid;
-    this.editorError = result.error;
+    this.editorLanguage = this.detectLanguage(text);
+    this.editorIsValid = true;
+    this.editorError = '';
     this.editorFullscreen = true;
     this.applyReaderFullscreen(true);
     if (!readOnly) {
-      setTimeout(() => {
+      this.focusTimerId = setTimeout(() => {
         try {
           this.getUIContext().getFocusController().requestFocus('customRuleTextArea');
         } catch (e) {}
@@ -3087,22 +3757,26 @@ struct Index {
   }
 
   private rebuildEffectiveRules(): void {
-    const withAdvanced = RemoteRuleService.mergeRules(DEFAULT_SOURCES, this.advancedRules);
+    const withSearchable = RemoteRuleService.mergeRules(DEFAULT_SOURCES, SEARCHABLE_COMIC_SOURCES);
+    const withAdvanced = RemoteRuleService.mergeRules(withSearchable, this.advancedRules);
     this.rules = RemoteRuleService.mergeRules(this.onlineRules, withAdvanced);
-  }
-
-  private toggleTheme(): void {
-    this.appTheme = this.appTheme === 'light' ? 'dark' : 'light';
-    this.updateSystemBarColors();
-    this.statusText = this.t('theme_switched');
-    this.persistData();
   }
 
   private async updateRemoteRules(): Promise<void> {
     this.remoteRuleStatus = this.t('remote_updating');
     this.updatingRules = true;
+    this.ruleProgressPercent = 0;
+    this.ruleProgressStatus = this.catalogStage('正在连接规则服务器…', 'Connecting to rule server…');
     try {
-      const loaded = await RemoteRuleService.fetchRemoteRules(this.remoteRuleUrl);
+      this.ruleProgressStatus = this.catalogStage('正在下载规则…', 'Downloading rules…');
+      const loaded = await RemoteRuleService.fetchRemoteRules(this.remoteRuleUrl,
+        (received: number, total: number) => {
+          this.ruleReceivedBytes = received;
+          this.ruleTotalBytes = total;
+          this.ruleProgressPercent = total > 0 ? Math.min(90, Math.floor(received * 90 / total)) : 0;
+        });
+      this.ruleProgressPercent = 90;
+      this.ruleProgressStatus = this.catalogStage('正在解析并保存规则…', 'Parsing and saving rules…');
       if (loaded.length > 0) {
         let added = 0;
         let changed = 0;
@@ -3122,11 +3796,15 @@ struct Index {
         this.remoteRuleStatus = this.t('remote_updated') + loaded.length + this.t('rules_unit') +
           (this.isEn() ? ' (added ' + added + ', changed ' + changed + ', removed ' + removed + ')' :
             '（新增 ' + added + '，变更 ' + changed + '，移除 ' + removed + '）');
+        this.ruleProgressStatus = this.remoteRuleStatus;
       } else {
         this.remoteRuleStatus = this.t('remote_empty');
+        this.ruleProgressStatus = this.remoteRuleStatus;
       }
+      this.ruleProgressPercent = 100;
     } catch (err) {
       this.remoteRuleStatus = this.t('remote_failed');
+      this.ruleProgressStatus = this.remoteRuleStatus;
     }
     this.updatingRules = false;
   }
@@ -3152,12 +3830,14 @@ struct Index {
           });
         if (catalog.version === update.version) {
           this.catalogUpdateStatus = this.catalogStage('下载完成，正在校验并写入缓存…', 'Download complete. Validating and caching…');
+          this.remoteCatalogItemCount = CatalogService.getCategories(catalog).length;
           this.saveCatalogCache(catalog);
           this.applyCatalog(catalog);
           this.catalogProgressPercent = 100;
           this.catalogUpdateAvailable = false;
-          this.catalogUpdateStatus = this.catalogStage('目录已更新至 ' + update.version,
-            'Catalog updated to ' + update.version);
+          this.catalogUpdateStatus = this.catalogStage(
+            '目录已更新至 ' + update.version + '（' + this.remoteCatalogItemCount + '个分类）',
+            'Catalog updated to ' + update.version + ' (' + this.remoteCatalogItemCount + ' categories)');
         }
       } else {
         this.catalogUpdateStatus = this.catalogStage('目录已是最新，继续使用缓存',
@@ -3200,6 +3880,67 @@ struct Index {
     await Promise.all([this.updateRemoteRules(), this.updateCatalog()]);
   }
 
+  private async syncFilterWords(): Promise<void> {
+    if (this.syncingFilterWords) return;
+    this.syncingFilterWords = true;
+    this.filterWordsProgressPercent = 0;
+    this.filterWordsStatus = this.catalogStage('正在连接服务器…', 'Connecting…');
+    try {
+      this.filterWordsStatus = this.catalogStage('正在下载屏蔽词…', 'Downloading filter words…');
+      const content = await RemoteRuleService.fetchFilterWords(this.remoteRuleUrl,
+        (received: number, total: number) => {
+          this.filterWordsReceivedBytes = received;
+          this.filterWordsTotalBytes = total;
+          this.filterWordsProgressPercent = total > 0 ? Math.min(90, Math.floor(received * 90 / total)) : 0;
+        });
+      this.filterWordsProgressPercent = 90;
+      this.filterWordsStatus = this.catalogStage('正在解析并保存…', 'Parsing and saving…');
+      if (content.trim().length === 0) {
+        this.filterWordsStatus = this.catalogStage('远程屏蔽词文件为空', 'Remote filter words file is empty');
+        this.filterWordsProgressPercent = 100;
+        this.syncingFilterWords = false;
+        return;
+      }
+      const lines = content.split('\n');
+      const domains: string[] = [];
+      const words: string[] = [];
+      const noise: string[] = [];
+      let section = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line === '[DOMAINS]') { section = 1; continue; }
+        if (line === '[WORDS]') { section = 2; continue; }
+        if (line === '[NOISE]') { section = 3; continue; }
+        if (line.length === 0) continue;
+        if (section === 1) domains.push(line);
+        else if (section === 2) words.push(line);
+        else if (section === 3) noise.push(line);
+      }
+      if (domains.length === 0 && words.length === 0 && noise.length === 0) {
+        this.filterWordsStatus = this.catalogStage('未解析到有效屏蔽词', 'No valid filter words parsed');
+        this.filterWordsProgressPercent = 100;
+        this.syncingFilterWords = false;
+        return;
+      }
+      searchFilterConfig.blockedDomains = domains;
+      searchFilterConfig.blockedWords = words;
+      searchFilterConfig.noiseTitleWords = noise;
+      this.customBlockedDomains = domains.join('\n');
+      this.customBlockedWords = words.join('\n');
+      this.customNoiseWords = noise.join('\n');
+      this.persistData();
+      this.filterWordsStatus = this.catalogStage(
+        '已同步：域名' + domains.length + '条，屏蔽词' + words.length + '条，噪音词' + noise.length + '条',
+        'Synced: ' + domains.length + ' domains, ' + words.length + ' words, ' + noise.length + ' noise');
+      this.statusText = this.filterWordsStatus;
+      this.filterWordsProgressPercent = 100;
+    } catch (err) {
+      this.filterWordsStatus = this.catalogStage('同步失败', 'Sync failed');
+      console.error('ComicReader syncFilterWords failed: ' + JSON.stringify(err));
+    }
+    this.syncingFilterWords = false;
+  }
+
   private onStatusTextChanged(): void {
     if (this.statusMessageTimerId !== -1) clearTimeout(this.statusMessageTimerId);
     this.statusMessageVisible = this.statusText.trim().length > 0;
@@ -3226,7 +3967,7 @@ struct Index {
   }
 
   private onLoadingChanged(): void {
-    if (this.isLoading) {
+    if (this.isLoading || this.webLoading) {
       this.startLoadingAnimation();
     } else {
       this.stopLoadingAnimation();
@@ -3320,9 +4061,9 @@ struct Index {
         .backgroundColor(this.searchActionColor())
         .borderRadius(heightValue / 2)
         .padding({ left: 20, right: 20 })
-        .enabled(!this.isLoading)
+        .enabled(!(this.isLoading || this.webLoading))
         .onClick(() => { this.startSearch(); })
-      if (this.isLoading) {
+      if (this.isLoading || this.webLoading) {
         Canvas(this.canvasCtx)
           .width(76)
           .height(heightValue)
@@ -3348,7 +4089,9 @@ struct Index {
             .onClick(() => this.repeatSearch(keyword))
         }, (keyword: string) => keyword)
       }.width('100%').padding({ left: 14, right: 14, top: 8, bottom: 8 })
-        .backgroundColor(this.glassBg()).borderRadius(14).border({ width: 1, color: this.borderSubtle() })
+        .borderRadius(14).border({ width: 1, color: this.borderSubtle() })
+        .backgroundColor(this.isDark() ? '#CC1A1A1A' : '#CCFFFFFF')
+        .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THIN)
     }
   }
 
@@ -3371,51 +4114,12 @@ struct Index {
   }
 
   @Builder
-  private SearchHeader() {
-    Column() {
-      Column() {
-        Row() {
-          Stack() {
-            TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
-              .height(44)
-              .fontSize(15)
-              .fontColor(this.primaryText())
-              .placeholderColor(this.secondaryText())
-              .backgroundColor(Color.Transparent)
-              .borderRadius(22)
-              .border({ width: 1, color: this.secondaryText() })
-              .padding({ left: 14, right: this.queryText.length > 0 ? 40 : 14 })
-              .onChange((value: string) => { this.queryText = value; })
-              .onSubmit(() => { this.startSearch(); })
-            if (this.queryText.length > 0) {
-              Row() {
-                Column() {
-                  Image($rawfile('ic_x.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
-                }.width(32).height(32).justifyContent(FlexAlign.Center).margin({ right: 6 })
-                  .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
-              }.width('100%').justifyContent(FlexAlign.End)
-            }
-          }.layoutWeight(1)
-          Column() { this.SearchActionButton(44) }
-            .margin({ left: 8 })
-        }
-        .width('100%')
-        .padding({ left: 14, right: 14, bottom: 8 })
-      }
-      .width('100%')
-    }
-    .width('100%')
-    .padding({ top: this.avoidStatusBarHeight })
-    .linearGradient({ angle: 180, colors: this.headerGradientColors() })
-  }
-
-  @Builder
   private SearchHome() {
     Scroll() {
       Column() {
         Column() {}.width('100%').height(this.contentTopInset())
         Blank().layoutWeight(1)
-        Image($r('app.media.app_icon')).width(220).height(180).objectFit(ImageFit.Contain).margin({ bottom: 24 })
+        Image($r('app.media.internal_icon')).width(220).height(180).objectFit(ImageFit.Contain).margin({ bottom: 24 })
         Row() {
           Stack() {
             TextInput({ placeholder: this.t('search_placeholder'), text: this.queryText })
@@ -3428,8 +4132,8 @@ struct Index {
               Row() {
                 Column() { Image($rawfile('ic_x.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x'))) }
                   .width(36).height(36).justifyContent(FlexAlign.Center).margin({ right: 8 })
-                  .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
-              }.width('100%').justifyContent(FlexAlign.End)
+                  .onClick(() => { this.clearSearchAndReset(); })
+              }.width('100%').justifyContent(FlexAlign.End).hitTestBehavior(HitTestMode.Transparent)
             }
           }.layoutWeight(1)
           Column() { this.SearchActionButton(52) }.margin({ left: 10 })
@@ -3441,7 +4145,10 @@ struct Index {
     }
     .layoutWeight(1)
     .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+    .scrollBar(BarState.Auto)
+    .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
     .backgroundColor(this.appBg())
+    .onClick(() => { this.searchHistoryVisible = false; })
   }
 
   @Builder
@@ -3479,16 +4186,17 @@ struct Index {
         Text(this.t('latest_chapter') + this.resultLatest(item)).fontSize(12).fontColor(this.secondaryText()).margin({ top: 4 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         Text(this.t('update_time') + this.resultUpdate(item)).fontSize(12).fontColor(this.secondaryText()).margin({ top: 4 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         Row() {
-          Text(this.t('comic_tag')).fontSize(11).fontColor('#FFFFFF').padding({ left: 8, right: 8, top: 3, bottom: 3 }).backgroundColor(this.actionBg()).borderRadius(10)
-          Text(this.hostOf(item.url)).fontSize(11).fontColor(this.secondaryText()).layoutWeight(1).margin({ left: 8 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(this.siteTypeTag(item.url, item.title)).fontSize(11).fontColor('#FFFFFF').padding({ left: 8, right: 8, top: 3, bottom: 3 }).backgroundColor(this.actionBg()).borderRadius(10)
+          Text(item.url).fontSize(11).fontColor('#0A84FF').layoutWeight(1).margin({ left: 8 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).hitTestBehavior(HitTestMode.Block).onClick(() => this.openInBrowser(item.url, item.title))
+            .gesture(LongPressGesture().onAction(() => { this.statusText = this.t('url_copied'); this.copyToClipboard(item.url); }))
         }.width('100%').margin({ top: 7 })
         if (this.showDebugInfo) {
-          Text('来源: ' + item.sourceName + ' (' + item.sourceId + ')').fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').margin({ top: 3 })
+          Text('[' + this.debugSourceKind(item) + '] ' + item.sourceName + ' · ' + item.sourceId + ' · ' + this.debugResultTypeCN(item.resultType) + '\n' + buildDebugMatchInfo(item.title, item.url, item.description ?? '', this.searchTitle)).fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(5).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').margin({ top: 4 })
         }
       }.layoutWeight(1).margin({ left: 12 })
     }
     .width('100%')
-    .height(124)
+    .height(this.showDebugInfo ? undefined : 124)
     .padding(10)
     .backgroundColor(this.cardBg())
     .border({ width: 2,
@@ -3500,37 +4208,136 @@ struct Index {
 
   @Builder
   private ResultsPage() {
-    Scroll(this.searchResultsScroller) {
-      Column() {
-        Column() {}.width('100%').height(this.contentTopInset())
-        if (this.showDebugInfo) {
-          Row() {
-            Text('Results: ' + this.results.length).fontSize(10).fontColor(this.colorfulValue('debug-Results'))
-            Text('Loading: ' + this.isLoading).fontSize(10).fontColor(this.colorfulValue('debug-Loading')).margin({ left: 8 })
-            Text('Mode: ' + this.searchMode).fontSize(10).fontColor(this.colorfulValue('debug-SearchMode')).margin({ left: 8 })
-            Text('Engine: ' + this.selectedEngine().name).fontSize(10).fontColor(this.colorfulValue('debug-Engine')).margin({ left: 8 })
-            Text('Rules: ' + this.rules.length).fontSize(10).fontColor(this.colorfulValue('debug-Rules')).margin({ left: 8 })
-            Text('AllEng: ' + this.searchAllEngines).fontSize(10).fontColor(this.colorfulValue('debug-AllEng')).margin({ left: 8 })
-            Text('History: ' + this.history.length).fontSize(10).fontColor(this.colorfulValue('debug-History')).margin({ left: 8 })
-          }.width('100%').padding({ left: 14, right: 14, top: 2, bottom: 2 })
+    Stack() {
+      if (this.searchResultMode === 'browser' && this.searchEngineUrl.length > 0) {
+        Stack() {
+          Web({ src: this.searchEngineUrl, controller: this.webController, renderMode: RenderMode.SYNC_RENDER })
+            .width('100%').height('100%')
+            .backgroundColor(this.isDark() ? '#1a1a1a' : '#ffffff')
+            .javaScriptAccess(true).domStorageAccess(true)
+            .mixedMode(MixedMode.All).cacheMode(CacheMode.Default)
+            .imageAccess(true).zoomAccess(true)
+            .fileAccess(true).databaseAccess(true)
+            .userAgent(searchEngineUserAgent())
+            .darkMode(WebDarkMode.Off)
+            .forceDarkAccess(false)
+            .javaScriptOnDocumentStart(this.isDark() ? [{ script: this.darkModeCssScript, scriptRules: ['*'] }, { script: this.adBlockScript, scriptRules: ['*'] }] : [{ script: this.adBlockScript, scriptRules: ['*'] }])
+            .opacity(this.webErrorText.length > 0 ? 0 : 1)
+            .onPageBegin(() => {
+              this.webMainFrameFailed = false;
+              this.webLoading = true;
+              this.webErrorText = '';
+              try { this.webController.runJavaScript(this.adBlockScript); } catch (e) {}
+              if (this.isDark()) {
+                try { this.webController.runJavaScript(this.darkModeCssScript); } catch (e) {}
+              }
+              this.webLoadingTimeoutId = setTimeout((): void => { if (this.webLoading) this.webLoading = false; }, 15000);
+            })
+            .onPageEnd((event: OnPageEndEvent) => {
+              this.webLoading = false;
+              this.webDarkOverlay = false;
+              if (!this.webMainFrameFailed && event !== undefined && event.url !== undefined &&
+                (event.url.startsWith('http://') || event.url.startsWith('https://'))) {
+                this.webLastSuccessUrl = event.url;
+                const urlLower = event.url.toLowerCase();
+                const isSearchEngine = urlLower.indexOf('bing.com') >= 0 || urlLower.indexOf('baidu.com') >= 0 ||
+                  urlLower.indexOf('duckduckgo.com') >= 0 || urlLower.indexOf('sogou.com') >= 0 ||
+                  urlLower.indexOf('yandex.com') >= 0 || urlLower.indexOf('google.com') >= 0 ||
+                  urlLower.indexOf('so.com') >= 0;
+                if (isSearchEngine) {
+                  this.showReaderHint = false;
+                  this.injectSearchPageStyles();
+                } else {
+                  this.showReaderHint = isComicDomain(event.url);
+                  try { this.webController.runJavaScript(this.adBlockScript); } catch (e) {}
+                  if (this.isDark()) {
+                    try { this.webController.runJavaScript(this.darkModeCssScript); } catch (e) {}
+                  }
+                }
+              }
+            })
+            .onSslErrorEventReceive((event: OnSslErrorEventReceiveEvent) => {
+              if (event !== undefined && event.handler !== undefined) event.handler.handleConfirm();
+            })
+            .onErrorReceive((event: OnErrorReceiveEvent) => {
+              if (event !== undefined && event.request !== undefined && event.request.isMainFrame() &&
+                event.error !== undefined) {
+                this.handleWebError(event.error.getErrorInfo());
+              }
+            })
+
+          if (this.webDarkOverlay) {
+            Column().width('100%').height('100%').backgroundColor(this.isDark() ? '#1a1a1a' : '#ffffff')
+          }
+
+          if (this.webLoading) {
+            Column({ space: 12 }) {
+              LoadingProgress().width(36).height(36).color(this.secondaryText())
+              Text(this.t('searching_sources')).fontSize(14).fontColor(this.secondaryText())
+              if (this.showDebugInfo) {
+                Text(`[debug] URL=${this.searchEngineUrl.substring(0, 80)}`).fontSize(10).fontColor('#ff6600').padding({ left: 16, right: 16 })
+                Text(`[debug] mode=${this.searchResultMode} loading=${this.webLoading} err=${this.webErrorText.length} mainFail=${this.webMainFrameFailed}`).fontSize(10).fontColor('#ff6600')
+              }
+            }.width('100%').height('100%').justifyContent(FlexAlign.Center).backgroundColor(this.appBg())
+          }
+
+          if (this.webErrorText.length > 0) {
+            Column({ space: 12 }) {
+              Text(this.webErrorText).fontSize(14).fontColor(this.secondaryText()).textAlign(TextAlign.Center).padding({ left: 24, right: 24 })
+              Text('点击返回重试').fontSize(12).fontColor(this.secondaryText())
+            }.width('100%').height('100%').justifyContent(FlexAlign.Center).backgroundColor(this.appBg())
+          }
+        }.width('100%').height('100%')
+
+        if (this.showReaderHint) {
+          Stack({ alignContent: Alignment.Center }) {
+            Image($rawfile('ic_reader.svg')).width(26).height(26)
+              .colorFilter(createStrokeIconColorFilter(this.iconColor('ic_reader')))
+          }
+          .width(56).height(56)
+          .borderRadius(28)
+          .backgroundColor(this.isDark() ? '#40FFFFFF' : '#40FFFFFF')
+          .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THIN)
+          .border({ width: 1, color: this.isDark() ? '#30FFFFFF' : '#20000000' })
+          .shadow({ radius: 8, color: '#40000000', offsetY: 2 })
+          .position({ x: '82%', y: '70%' })
+          .onClick(() => { this.webOpenInReader(); })
         }
-        if (this.results.length === 0) {
-          Text(this.isLoading ? this.t('searching_sources') : this.t('no_results'))
-            .fontSize(14)
-            .fontColor(this.secondaryText())
-            .width('100%')
-            .padding(12)
-            .backgroundColor(this.cardBg())
-            .borderRadius(10)
-        } else {
-          ForEach(this.results, (item: SearchResultItem) => { this.ResultListCard(item) }, (item: SearchResultItem) => item.url)
+      } else {
+        Scroll(this.searchResultsScroller) {
+          Column() {
+            Column() {}.width('100%').height(this.contentTopInset())
+            if (this.showDebugInfo) {
+              Text('引擎' + this.debugEngineResults + '条(试' + this.debugEngineTried + '成' + this.debugEngineSuccess + ') | HTML可搜索' + this.debugRuleTried + ' 跳过' + this.debugRuleSkipped + ' 成功' + this.debugRuleSuccess + ' 失败' + this.debugRuleFailed + ' | 模式' + this.searchMode + ' | 全引擎' + (this.searchAllEngines ? '开' : '关') + ' 搜索引擎' + (this.enableSearchEngines ? '开' : '关') + ' | 规则' + this.rules.length + '条').fontSize(9).fontColor(this.secondaryText()).width('100%').padding({ left: 4, right: 4, top: 2, bottom: 4 })
+              if (this.debugSearchQueries.length > 0) {
+                Text('实际查询: ' + this.debugSearchQueries).fontSize(9).fontColor(this.colorfulValue('debug-queries')).width('100%').padding({ left: 4, right: 4, top: 2, bottom: 4 }).maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis })
+              }
+            }
+            if (this.results.length === 0) {
+              Text(this.isLoading ? this.t('searching_sources') : this.t('no_results'))
+                .fontSize(14)
+                .fontColor(this.secondaryText())
+                .width('100%')
+                .padding(12)
+                .backgroundColor(this.cardBg())
+                .borderRadius(10)
+            } else {
+              ForEach(this.results, (item: SearchResultItem) => {
+                this.ResultListCard(item)
+              }, (item: SearchResultItem) => item.url)
+            }
+            Blank().height(this.contentBottomInset())
+          }.width('100%').padding({ left: 14, right: 14 }).justifyContent(FlexAlign.Start)
         }
-        Blank().height(this.contentBottomInset())
-      }.width('100%').padding({ left: 14, right: 14 })
+        .width('100%').height('100%')
+        .align(Alignment.TopStart)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+        .scrollBar(BarState.Auto)
+        .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
+        .backgroundColor(this.appBg())
+      }
     }
-    .layoutWeight(1)
-    .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-    .backgroundColor(this.appBg())
+    .width('100%').height('100%')
   }
 
   @Builder
@@ -3547,7 +4354,7 @@ struct Index {
                 Text('SrcId: ' + this.currentSourceId).fontSize(10).fontColor(this.colorfulValue('debug-SrcId')).margin({ left: 8 })
                 Text('SrcName: ' + this.currentSourceName).fontSize(10).fontColor(this.colorfulValue('debug-SrcName')).margin({ left: 8 })
                 Text('DetailUrl: ' + this.currentDetailUrl).fontSize(10).fontColor(this.colorfulValue('debug-DetailUrl')).margin({ left: 8 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-              }.width('100%').padding({ left: 14, right: 14 })
+      }.width('100%').padding({ left: 14, right: 14 }).justifyContent(FlexAlign.Start)
             }
           }
           if (this.detailLoading) {
@@ -3579,7 +4386,7 @@ struct Index {
                 }
                 .width('100%')
                 .padding(12)
-                .backgroundColor(chapter.url === this.currentUrl ? this.selectedSoftBg() : this.cardBg())
+                .backgroundColor(this.cardBg())
                 .borderRadius(10)
                 .border({ width: chapter.url === this.currentUrl ? 2 : 0, color: this.colorfulAccent('chapter-' + chapter.url) })
               }
@@ -3590,6 +4397,8 @@ struct Index {
       .width('100%').height('100%')
       .padding({ left: 14, right: 14, bottom: 14 })
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+      .scrollBar(BarState.Auto)
+      .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
 
       Column() {
         Blank().height(this.avoidStatusBarHeight)
@@ -3603,8 +4412,8 @@ struct Index {
             .fontSize(13).fontColor(this.colorfulAccent('btn-chapter-order')).padding({ left: 10, right: 10, top: 6, bottom: 6 })
             .border({ width: 1, color: this.colorfulAccent('btn-chapter-order') }).borderRadius(14)
             .onClick(() => { this.chapterReversed = !this.chapterReversed; this.persistData(); })
-          Column() { Image($rawfile('ic_add_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_add_shelf'))) }
-            .padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.addCurrentToShelf())
+          Text(this.isCurrentFavorite() ? '★' : '☆').fontSize(20).fontColor(this.iconColor('ic_star_filled'))
+            .padding({ left: 8, right: 12, top: 6, bottom: 6 }).onClick(() => this.toggleCurrentFavorite())
         }.width('100%').padding({ left: 4, right: 4, top: 10, bottom: 8 })
       }.width('100%').height(this.headerOverlayHeight())
         .position({ x: 0, y: 0 })
@@ -3653,6 +4462,8 @@ struct Index {
       }
       .layoutWeight(1)
       .backgroundColor(this.readerDarkMode ? '#050505' : this.appBg())
+      .scrollBar(BarState.Auto)
+      .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
       .onAreaChange((_oldValue, newValue) => {
         const width = Number(newValue.width);
         if (width > 0) {
@@ -3734,7 +4545,7 @@ struct Index {
           Row({ space: 8 }) {
             Text(this.t('previous_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(-1) ? this.iconColor('ic_back') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.hasRelativeChapter(-1) ? this.iconColor('ic_back') : this.borderSubtle() }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').linearGradient({ angle: 145, colors: this.readerControlGradient() }).shadow({ radius: 7, color: '#22000000', offsetY: 2 }).onClick(() => this.loadRelativeChapter(-1))
             Text(this.t('chapter_list')).fontSize(13).fontColor(this.iconColor('ic_layout')).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.iconColor('ic_layout') }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').linearGradient({ angle: 145, colors: this.readerControlGradient() }).shadow({ radius: 7, color: '#22000000', offsetY: 2 }).onClick(() => this.openReaderChapterPanel())
-            Text(this.isCurrentFavorite() ? '♥' : '♡').fontSize(27).fontColor(this.iconColor('ic_add_shelf')).width(48).height(42).textAlign(TextAlign.Center).borderRadius(21).border({ width: 1, color: this.iconColor('ic_add_shelf') }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').linearGradient({ angle: 145, colors: this.readerControlGradient() }).shadow({ radius: 7, color: '#22000000', offsetY: 2 }).onClick(() => this.toggleCurrentFavorite())
+            Text(this.isCurrentFavorite() ? '★' : '☆').fontSize(24).fontColor(this.iconColor('ic_star_filled')).width(48).height(42).textAlign(TextAlign.Center).borderRadius(21).border({ width: 1, color: this.iconColor('ic_star_filled') }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').linearGradient({ angle: 145, colors: this.readerControlGradient() }).shadow({ radius: 7, color: '#22000000', offsetY: 2 }).onClick(() => this.toggleCurrentFavorite())
             Text(this.t('next_chapter')).fontSize(13).fontColor(this.hasRelativeChapter(1) ? this.iconColor('ic_reader') : this.secondaryText()).layoutWeight(1).textAlign(TextAlign.Center).padding({ top: 11, bottom: 11 }).borderRadius(20).border({ width: 1, color: this.hasRelativeChapter(1) ? this.iconColor('ic_reader') : this.borderSubtle() }).backgroundColor(this.isDark() ? '#381E232F' : '#48FFFFFF').linearGradient({ angle: 145, colors: this.readerControlGradient() }).shadow({ radius: 7, color: '#22000000', offsetY: 2 }).onClick(() => this.loadRelativeChapter(1))
           }.width('100%').padding({ left: 10, right: 10, bottom: 10 })
         }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)
@@ -3762,6 +4573,8 @@ struct Index {
           .linearGradient({ angle: 125, colors: this.readerPanelGradient() })
           .border({ width: { right: 1 }, color: this.borderSubtle() })
           .shadow({ radius: 14, color: '#30000000', offsetX: 4 })
+          .scrollBar(BarState.Auto)
+          .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
           Blank().layoutWeight(1).height('100%').onClick(() => { this.readerChapterPanelVisible = false; })
         }.width('100%').height('100%')
       }
@@ -3778,19 +4591,6 @@ struct Index {
       .width('100%')
       .padding({ left: 4 })
       .margin({ top: 4, bottom: 8 })
-  }
-
-  @Builder
-  private DebugInfoTag(info: string) {
-    if (this.showDebugInfo) {
-      Text(info)
-        .fontSize(10)
-        .fontColor(this.colorfulValue('debug-tag-' + info))
-        .backgroundColor(this.isDark() ? '#1A4CAF50' : '#0D4CAF50')
-        .borderRadius(4)
-        .padding({ left: 4, right: 4, top: 1, bottom: 1 })
-        .margin({ left: 4 })
-    }
   }
 
   @Builder
@@ -3920,27 +4720,26 @@ struct Index {
   }
 
   @Builder
-  private SettingCard(title: string, desc: string, value: string) {
+  private BookListCard(cover: string, title: string, desc: string, value: string) {
     Row() {
+      if (cover.length > 0) {
+        Image(cover).width(44).height(60).borderRadius(6).objectFit(ImageFit.Cover)
+      } else {
+        Column() {
+          Text(title.substring(0, 1)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(this.colorfulAccent('avatar-' + title))
+        }.width(44).height(60).borderRadius(6).justifyContent(FlexAlign.Center).backgroundColor(this.coverPlaceholderBg())
+      }
       Column() {
-        Text(title).fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%')
-        Text(desc).fontSize(12).fontColor(this.secondaryText()).lineHeight(18).margin({ top: 5 }).width('100%')
-      }.layoutWeight(1)
-      Text(value).fontSize(12).fontColor(this.secondaryText()).margin({ left: 10 })
+        Text(title).fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(desc).fontSize(12).fontColor(this.secondaryText()).width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 3 })
+        Text(value).fontSize(11).fontColor(this.secondaryText()).width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 3 })
+      }.layoutWeight(1).margin({ left: 10 }).alignItems(HorizontalAlign.Start)
     }
     .width('100%')
-    .padding(14)
+    .padding({ left: 10, right: 10, top: 4, bottom: 4 })
     .backgroundColor(this.cardBg())
-    .borderRadius(18)
-    .margin({ bottom: 10 })
-  }
-
-  @Builder
-  private InfoRow(title: string, value: string) {
-    Row() {
-      Text(title).fontSize(15).fontColor(this.primaryText()).layoutWeight(1)
-      Text(value).fontSize(13).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-    }.width('100%').padding({ top: 8, bottom: 8 })
+    .borderRadius(12)
+    .margin({ bottom: 8 })
   }
 
   @Builder
@@ -4008,12 +4807,8 @@ struct Index {
               Toggle({ type: ToggleType.Switch, isOn: this.debugKeepScreenOn })
                 .selectedColor(this.iconColor('ic_eye'))
                 .switchPointColor('#FFFFFF')
-                .onChange((isOn: boolean) => {
-                  this.debugKeepScreenOn = isOn;
-                  this.applyKeepScreenOn();
-                  this.persistData();
-                })
-            }.width('100%').height(50).onClick(() => { this.toggleDebugKeepScreenOn(); })
+                .onChange((isOn: boolean) => { this.debugKeepScreenOn = isOn; this.applyKeepScreenOn(); this.persistData(); })
+            }.width('100%').height(50)
             Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
             Row({ space: 12 }) {
               Image($rawfile('ic_bug.svg')).width(20).height(20)
@@ -4022,11 +4817,8 @@ struct Index {
               Toggle({ type: ToggleType.Switch, isOn: this.showDebugInfo })
                 .selectedColor(this.iconColor('ic_bug'))
                 .switchPointColor('#FFFFFF')
-                .onChange((isOn: boolean) => {
-                  this.showDebugInfo = isOn;
-                  this.persistData();
-                })
-            }.width('100%').height(50).onClick(() => { this.showDebugInfo = !this.showDebugInfo; this.persistData(); })
+                .onChange((isOn: boolean) => { this.showDebugInfo = isOn; this.persistData(); })
+            }.width('100%').height(50)
             Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
             Row({ space: 12 }) {
               Image($rawfile('ic_info.svg')).width(20).height(20)
@@ -4046,6 +4838,8 @@ struct Index {
         }.width('100%').constraintSize({ minHeight: '100%' }).padding(14)
         .onClick(() => { this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; this.searchExpanded = false; this.sourcesExpanded = false; this.readerExpanded = false; this.enginesExpanded = false; this.rulesExpanded = false; })
       }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+      .scrollBar(BarState.Auto)
+      .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
       if (this.themeExpanded) {
         Column({ space: 0 }) {
           this.ThemeOptionRow('light', this.t('light'), false)
@@ -4143,20 +4937,6 @@ struct Index {
   }
 
   @Builder
-  private DialogExpandRow(label: string, value: string, isExpanded: boolean, showTopBorder: boolean, onToggle: () => void) {
-    Row() {
-      Text(label).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
-      Text(value).fontSize(14).fontColor(this.colorfulAccent('dialog-value-' + label))
-      Image($rawfile(isExpanded ? 'ic_chevron_up.svg' : 'ic_chevron_down.svg')).width(16).height(16)
-        .colorFilter(createStrokeIconColorFilter(this.secondaryText()))
-    }
-    .width('100%')
-    .height(50)
-    .border(showTopBorder ? { width: { top: 1 }, color: this.borderSubtle() } : { width: 0 })
-    .onClick(onToggle)
-  }
-
-  @Builder
   private SettingsDialog() {
     Column() {
       Stack() {
@@ -4171,7 +4951,7 @@ struct Index {
                   .colorFilter(createStrokeIconColorFilter(this.secondaryText()))
               }
               .width('100%').height(50)
-              .onClick(() => { this.dlgSearchModeExpanded = !this.dlgSearchModeExpanded; this.dlgLangExpanded = false; this.dlgEngineExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
+              .onClick(() => { this.dlgSearchModeExpanded = !this.dlgSearchModeExpanded; this.dlgLangExpanded = false; this.dlgEngineExpanded = false; this.dlgResultModeExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
             }.width('100%')
             Column({ space: 0 }) {
               Row() {
@@ -4182,7 +4962,18 @@ struct Index {
               }
               .width('100%').height(50)
               .border({ width: { top: 1 }, color: this.borderSubtle() })
-              .onClick(() => { this.dlgLangExpanded = !this.dlgLangExpanded; this.dlgSearchModeExpanded = false; this.dlgEngineExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
+              .onClick(() => { this.dlgLangExpanded = !this.dlgLangExpanded; this.dlgSearchModeExpanded = false; this.dlgEngineExpanded = false; this.dlgResultModeExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
+            }.width('100%')
+            Column({ space: 0 }) {
+              Row() {
+                Text('结果筛选').fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+                Text(this.searchResultModeDisplay()).fontSize(14).fontColor(this.colorfulAccent('dialog-value-result_mode'))
+                Image($rawfile(this.dlgResultModeExpanded ? 'ic_chevron_up.svg' : 'ic_chevron_down.svg')).width(16).height(16)
+                  .colorFilter(createStrokeIconColorFilter(this.secondaryText()))
+              }
+              .width('100%').height(50)
+              .border({ width: { top: 1 }, color: this.borderSubtle() })
+              .onClick(() => { this.dlgResultModeExpanded = !this.dlgResultModeExpanded; this.dlgSearchModeExpanded = false; this.dlgLangExpanded = false; this.dlgEngineExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
             }.width('100%')
             Column({ space: 0 }) {
               Row() {
@@ -4193,7 +4984,7 @@ struct Index {
               }
               .width('100%').height(50)
               .border({ width: { top: 1 }, color: this.borderSubtle() })
-              .onClick(() => { this.dlgEngineExpanded = !this.dlgEngineExpanded; this.dlgSearchModeExpanded = false; this.dlgLangExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
+              .onClick(() => { this.dlgEngineExpanded = !this.dlgEngineExpanded; this.dlgSearchModeExpanded = false; this.dlgLangExpanded = false; this.dlgResultModeExpanded = false; this.themeExpanded = false; this.languageExpanded = false; this.iconColorExpanded = false; })
             }.width('100%')
             if (this.selectedEngine().requiresKey) {
               Column({ space: 8 }) {
@@ -4222,22 +5013,22 @@ struct Index {
               .borderRadius(12)
               .backgroundColor(this.inputBg())
             }
-            Column() { this.DialogToggleRow(this.t('all_engines'), this.searchAllEngines, true, (isOn: boolean) => { this.searchAllEngines = isOn; this.persistData(); }) }.onClick(() => { this.searchAllEngines = !this.searchAllEngines; this.persistData(); })
+            Column() { this.DialogToggleRow(this.t('all_engines'), this.searchAllEngines, true, (isOn: boolean) => { this.searchAllEngines = isOn; this.persistData(); }) }
             TextInput({ placeholder: this.t('extra_terms'), text: this.extraSearchTerms }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.extraSearchTerms = value; })
             TextInput({ placeholder: this.t('site_hint'), text: this.siteHint }).height(42).fontColor(this.primaryText()).placeholderColor(this.secondaryText()).backgroundColor(this.inputBg()).borderRadius(12).padding({ left: 10, right: 10 }).onChange((value: string) => { this.siteHint = value; })
           } else if (this.settingsDialog === 'sources') {
             this.DialogHeader(this.t('source_switch'))
             Column({ space: 0 }) {
-              Column() { this.DialogToggleRow(this.t('search_engine'), this.enableSearchEngines, false, (isOn: boolean) => { this.enableSearchEngines = isOn; this.persistData(); }) }.onClick(() => { this.enableSearchEngines = !this.enableSearchEngines; this.persistData(); })
-              Column() { this.DialogToggleRow(this.t('html_rules'), this.enableHtmlRules, true, (isOn: boolean) => { this.enableHtmlRules = isOn; this.persistData(); }) }.onClick(() => { this.enableHtmlRules = !this.enableHtmlRules; this.persistData(); })
+              Column() { this.DialogToggleRow(this.t('search_engine'), this.enableSearchEngines, false, (isOn: boolean) => { this.enableSearchEngines = isOn; this.persistData(); }) }
+              Column() { this.DialogLinkRow(this.t('html_rules'), this.enableHtmlRules ? this.t('on') : this.t('off'), true) }.onClick(() => { this.enableHtmlRules = !this.enableHtmlRules; this.persistData(); })
               Column() { this.DialogLinkRow(this.t('remote_rules'), this.remoteRuleCount + this.t('rules_unit'), true) }.onClick(() => this.updateRemoteRules())
             }.width('100%')
             Text(this.remoteRuleStatus).fontSize(12).fontColor(this.secondaryText()).width('100%')
           } else if (this.settingsDialog === 'reader') {
             this.DialogHeader(this.t('display_reading'))
             Column({ space: 0 }) {
-              Column() { this.DialogToggleRow(this.t('auto_cover'), this.autoCoverEnabled, false, (isOn: boolean) => { this.autoCoverEnabled = isOn; this.persistData(); }) }.onClick(() => { this.autoCoverEnabled = !this.autoCoverEnabled; this.persistData(); })
-              Column() { this.DialogToggleRow(this.t('show_page_num'), this.showImageIndex, true, (isOn: boolean) => { this.showImageIndex = isOn; this.persistData(); }) }.onClick(() => { this.showImageIndex = !this.showImageIndex; this.persistData(); })
+              Column() { this.DialogToggleRow(this.t('auto_cover'), this.autoCoverEnabled, false, (isOn: boolean) => { this.autoCoverEnabled = isOn; this.persistData(); }) }
+              Column() { this.DialogToggleRow(this.t('show_page_num'), this.showImageIndex, true, (isOn: boolean) => { this.showImageIndex = isOn; this.persistData(); }) }
             }.width('100%')
             Column({ space: 0 }) {
               Row() {
@@ -4296,13 +5087,22 @@ struct Index {
                 this.ruleViewerText = JSON.stringify(this.onlineRules, null, 2);
                 this.openEditorFullscreen(this.ruleViewerTitle, true);
               })
-              Column() { this.DialogLinkRow('屏蔽列表', this.blockedUrls.length + ' 条', true) }.onClick(() => {
-                this.editorMode = 'blocked';
-                this.editorEditable = true;
-                this.customRuleText = JSON.stringify(this.blockedUrls, null, 2);
-                this.openEditorFullscreen('屏蔽列表', false);
-              })
               Column() { this.DialogLinkRow(this.t('cover_accuracy'), this.coverAccuracyIndex === null ? '0' : this.coverAccuracyIndex.count.toString(), true) }.onClick(() => this.updateCoverAccuracy())
+              Column() { this.DialogLinkRow('屏蔽域名', searchFilterConfig.blockedDomains.length + '条', true) }.onClick(() => {
+                this.editorMode = 'filter_domains'; this.editorEditable = true;
+                this.customRuleText = searchFilterConfig.blockedDomains.join('\n');
+                this.openEditorFullscreen('屏蔽域名（每行一个）', false);
+              })
+              Column() { this.DialogLinkRow('屏蔽词', searchFilterConfig.blockedWords.length + '条', true) }.onClick(() => {
+                this.editorMode = 'filter_words'; this.editorEditable = true;
+                this.customRuleText = searchFilterConfig.blockedWords.join('\n');
+                this.openEditorFullscreen('屏蔽词（每行一个）', false);
+              })
+              Column() { this.DialogLinkRow('噪音标题词', searchFilterConfig.noiseTitleWords.length + '条', true) }.onClick(() => {
+                this.editorMode = 'filter_noise'; this.editorEditable = true;
+                this.customRuleText = searchFilterConfig.noiseTitleWords.join('\n');
+                this.openEditorFullscreen('噪音标题词（每行一个）', false);
+              })
             }.width('100%')
             Button(this.updatingRules ? '更新中...' : '更新远程规则')
               .width('100%').height(38).fontSize(14).fontColor('#FFFFFF')
@@ -4332,11 +5132,12 @@ struct Index {
         .borderRadius(16)
         .shadow({ radius: 20, color: '#18000000', offsetX: 0, offsetY: 4 })
         .onClick(() => {
-          if (this.dlgSearchModeExpanded || this.dlgLangExpanded || this.dlgEngineExpanded ||
+          if (this.dlgSearchModeExpanded || this.dlgLangExpanded || this.dlgEngineExpanded || this.dlgResultModeExpanded ||
             this.dlgReaderBgExpanded || this.dlgMaxResultsExpanded || this.dlgMaxPagesExpanded) {
             this.dlgSearchModeExpanded = false;
             this.dlgLangExpanded = false;
             this.dlgEngineExpanded = false;
+            this.dlgResultModeExpanded = false;
             this.dlgReaderBgExpanded = false;
             this.dlgMaxResultsExpanded = false;
             this.dlgMaxPagesExpanded = false;
@@ -4371,6 +5172,19 @@ struct Index {
           .position({ x: '63%', y: 128 })
           .zIndex(9999)
         }
+        if (this.dlgResultModeExpanded) {
+          Column({ space: 0 }) {
+            this.SelectOptionRow('规则筛选', this.searchResultMode === 'rule_filter', false, () => { this.searchResultMode = 'rule_filter'; setSearchResultFilterMode('rule_filter'); this.persistData(); this.dlgResultModeExpanded = false; })
+            this.SelectOptionRow('浏览器', this.searchResultMode === 'browser', true, () => { this.searchResultMode = 'browser'; setSearchResultFilterMode('browser'); this.persistData(); this.dlgResultModeExpanded = false; })
+          }
+          .width('35%')
+          .backgroundColor(this.cardBg())
+          .borderRadius(12)
+          .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
+          .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
+          .position({ x: '63%', y: 178 })
+          .zIndex(9999)
+        }
         if (this.dlgEngineExpanded) {
           Scroll() {
             Column({ space: 0 }) {
@@ -4382,13 +5196,14 @@ struct Index {
           }
           .scrollable(ScrollDirection.Vertical)
           .scrollBar(BarState.Auto)
+          .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
           .constraintSize({ maxHeight: 300 })
           .width('35%')
           .backgroundColor(this.cardBg())
           .borderRadius(12)
           .border({ width: 1, color: this.isDark() ? '#33FFFFFF' : '#33000000' })
           .shadow({ radius: 8, color: '#10000000', offsetX: 0, offsetY: 2 })
-          .position({ x: '63%', y: 178 })
+          .position({ x: '63%', y: 228 })
           .zIndex(9999)
         }
         if (this.dlgReaderBgExpanded) {
@@ -4440,10 +5255,11 @@ struct Index {
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
     .onClick(() => {
-      if (this.dlgSearchModeExpanded || this.dlgLangExpanded || this.dlgEngineExpanded || this.dlgReaderBgExpanded || this.dlgMaxResultsExpanded || this.dlgMaxPagesExpanded) {
+      if (this.dlgSearchModeExpanded || this.dlgLangExpanded || this.dlgEngineExpanded || this.dlgResultModeExpanded || this.dlgReaderBgExpanded || this.dlgMaxResultsExpanded || this.dlgMaxPagesExpanded) {
         this.dlgSearchModeExpanded = false;
         this.dlgLangExpanded = false;
         this.dlgEngineExpanded = false;
+        this.dlgResultModeExpanded = false;
         this.dlgReaderBgExpanded = false;
         this.dlgMaxResultsExpanded = false;
         this.dlgMaxPagesExpanded = false;
@@ -4451,72 +5267,6 @@ struct Index {
         this.settingsDialog = '';
       }
     })
-  }
-
-  @Builder
-  private ThemeDialog() {
-    Column() {
-      Column({ space: 20 }) {
-        Row() {
-          Text(this.t('theme'))
-            .fontSize(20)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.primaryText())
-          Blank()
-          Image($rawfile('ic_close.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close'))).onClick(() => { this.themeDialogVisible = false; })
-        }.width('100%')
-        Column({ space: 0 }) {
-          this.ThemeOptionRow('light', this.t('light'), false)
-          this.ThemeOptionRow('dark', this.t('dark'), true)
-          this.ThemeOptionRow('system', this.t('follow_system'), true)
-        }.width('100%')
-      }
-      .width('58%')
-      .padding(14)
-      .backgroundColor(this.cardBg())
-      .borderRadius(16)
-      .shadow({ radius: 20, color: '#18000000', offsetX: 0, offsetY: 4 })
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(this.dialogOverlay())
-    .justifyContent(FlexAlign.Start)
-    .alignItems(HorizontalAlign.End)
-    .padding({ top: this.headerOverlayHeight() + 20, right: 14 })
-    .onClick(() => { this.themeDialogVisible = false; })
-  }
-
-  @Builder
-  private LanguageDialog() {
-    Column() {
-      Column({ space: 20 }) {
-        Row() {
-          Text(this.t('language'))
-            .fontSize(20)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.primaryText())
-          Blank()
-          Image($rawfile('ic_close.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_close'))).onClick(() => { this.languageDialogVisible = false; })
-        }.width('100%')
-        Column({ space: 0 }) {
-          this.LanguageOptionRow('system', this.t('follow_system'), false)
-          this.LanguageOptionRow('zh', this.t('lang_zh'), true)
-          this.LanguageOptionRow('en', this.t('lang_en'), true)
-        }.width('100%')
-      }
-      .width('58%')
-      .padding(14)
-      .backgroundColor(this.cardBg())
-      .borderRadius(16)
-      .shadow({ radius: 20, color: '#18000000', offsetX: 0, offsetY: 4 })
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(this.dialogOverlay())
-    .justifyContent(FlexAlign.Start)
-    .alignItems(HorizontalAlign.End)
-    .padding({ top: this.headerOverlayHeight() + 70, right: 14 })
-    .onClick(() => { this.languageDialogVisible = false; })
   }
 
   @Builder
@@ -4535,7 +5285,7 @@ struct Index {
           Row() {
             Image($rawfile('ic_refresh.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_refresh'))).margin({ right: 10 })
             Text(this.t('update_all')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
-            if (this.updatingRules || this.updatingCatalog) {
+            if (this.updatingRules || this.updatingCatalog || this.syncingFilterWords) {
               LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
             }
           }.width('100%').height(50).onClick(() => { this.updateAll(); })
@@ -4549,6 +5299,16 @@ struct Index {
               Text(this.remoteRuleCount + this.t('rules_unit')).fontSize(13).fontColor(this.secondaryText())
             }
           }.width('100%').height(50).onClick(() => { this.updateRemoteRules(); })
+          if (this.updatingRules || this.ruleProgressPercent > 0) {
+            Column({ space: 4 }) {
+              Progress({ value: this.ruleProgressPercent, total: 100, type: ProgressType.Linear })
+                .width('100%').height(5).color(this.colorfulAccent('progress-catalog'))
+              Text(this.ruleProgressText()).fontSize(11).fontColor(this.secondaryText()).width('100%')
+            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
+          } else if (this.remoteRuleStatus.length > 0 && this.remoteRuleStatus !== this.t('remote_not_updated')) {
+            Text(this.remoteRuleStatus).fontSize(11).fontColor(this.secondaryText())
+              .width('100%').padding({ left: 30, right: 4, bottom: 6 })
+          }
           Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
           Row() {
             Image($rawfile('ic_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shelf'))).margin({ right: 10 })
@@ -4557,26 +5317,43 @@ struct Index {
               LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
             } else {
               Text(this.catalogUpdateAvailable
-                ? this.catalogStage('有更新', 'Update available')
+                ? (this.remoteCatalogItemCount > 0
+                  ? this.catalogCategories.length + ' → ' + this.remoteCatalogItemCount + this.t('items_unit')
+                  : this.catalogStage('有更新', 'Update available'))
                 : this.catalogCategories.length + this.t('items_unit'))
                 .fontSize(13)
                 .fontColor(this.catalogUpdateAvailable ? this.warnText() : this.secondaryText())
             }
-          }.width('100%').height(50).onClick(() => { this.updateAll(); })
+          }.width('100%').height(50).onClick(() => { this.updateCatalog(); })
           if (this.updatingCatalog || this.catalogProgressPercent > 0) {
-            Column({ space: 6 }) {
+            Column({ space: 4 }) {
               Progress({ value: this.catalogProgressPercent, total: 100, type: ProgressType.Linear })
-                .width('100%')
-                .height(6)
-                .color(this.colorfulAccent('progress-catalog'))
-              Text(this.catalogProgressText())
-                .fontSize(12)
-                .fontColor(this.secondaryText())
-                .width('100%')
-            }.width('100%').padding({ left: 30, right: 4, bottom: 8 })
+                .width('100%').height(5).color(this.colorfulAccent('progress-catalog'))
+              Text(this.catalogProgressText()).fontSize(11).fontColor(this.secondaryText()).width('100%')
+            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
           } else if (this.catalogUpdateStatus.length > 0) {
-            Text(this.catalogUpdateStatus).fontSize(12).fontColor(this.secondaryText())
-              .width('100%').padding({ left: 30, right: 4, bottom: 8 })
+            Text(this.catalogUpdateStatus).fontSize(11).fontColor(this.secondaryText())
+              .width('100%').padding({ left: 30, right: 4, bottom: 6 })
+          }
+          Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
+          Row() {
+            Image($rawfile('ic_block.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_block'))).margin({ right: 10 })
+            Text(this.catalogStage('同步屏蔽词', 'Sync Filter Words')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
+            if (this.syncingFilterWords) {
+              LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
+            } else {
+              Text((searchFilterConfig.blockedDomains.length + searchFilterConfig.blockedWords.length + searchFilterConfig.noiseTitleWords.length) + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText())
+            }
+          }.width('100%').height(50).onClick(() => { this.syncFilterWords(); })
+          if (this.syncingFilterWords || this.filterWordsProgressPercent > 0) {
+            Column({ space: 4 }) {
+              Progress({ value: this.filterWordsProgressPercent, total: 100, type: ProgressType.Linear })
+                .width('100%').height(5).color(this.colorfulAccent('progress-catalog'))
+              Text(this.filterWordsProgressText()).fontSize(11).fontColor(this.secondaryText()).width('100%')
+            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
+          } else if (this.filterWordsStatus.length > 0) {
+            Text(this.filterWordsStatus).fontSize(11).fontColor(this.secondaryText())
+              .width('100%').padding({ left: 30, right: 4, bottom: 6 })
           }
         }.width('100%')
       }
@@ -4591,6 +5368,69 @@ struct Index {
     .backgroundColor(this.dialogOverlay())
     .justifyContent(FlexAlign.Center)
     .onClick(() => { this.updateDialogVisible = false; })
+  }
+
+  @Builder
+  private CatalogListCard(item: CatalogItem) {
+    Row() {
+      if (this.catalogItemCover(item).length > 0) {
+        Image(this.catalogItemCover(item)).width(56).height(76).borderRadius(8).objectFit(ImageFit.Cover)
+      } else {
+        Column() {
+          Text(item.title.substring(0, 1)).fontSize(22).fontWeight(FontWeight.Bold).fontColor(this.colorfulAccent('catalog-avatar-' + item.title))
+        }.width(56).height(76).borderRadius(8).justifyContent(FlexAlign.Center).backgroundColor(this.coverPlaceholderBg())
+      }
+      Column() {
+        Text(item.title).fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(item.sources.length + ' 来源 · ' + (item.verifiedChapterCount !== undefined ? item.verifiedChapterCount + ' 章' : '未知')).fontSize(12).fontColor(this.secondaryText()).width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 4 })
+        Text(item.sources.length > 0 ? (item.sources[0].domain ?? '') : '').fontSize(11).fontColor(this.secondaryText()).width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 4 })
+      }.layoutWeight(1).margin({ left: 12 }).alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .padding(12)
+    .backgroundColor(this.cardBg())
+    .borderRadius(14)
+    .margin({ bottom: 10 })
+    .onClick(() => {
+      if (!this.isLongPressing) {
+        const source = this.preferredCatalogSource(item);
+        if (source?.detailUrl) {
+          const cover = source.coverUrl ? source.coverUrl : this.catalogItemCover(item);
+          const shelfMatch = this.bookshelf.find((b: BookshelfItem) => b.url === source!.detailUrl ||
+            (b.title === item.title && b.lastChapterUrl.length > 0));
+          if (shelfMatch && shelfMatch.lastChapterUrl.length > 0) {
+            this.openBookUnified(shelfMatch.url, shelfMatch.title, shelfMatch.sourceId, cover,
+              shelfMatch.lastChapterUrl, shelfMatch.lastChapterTitle);
+            return;
+          }
+          const histMatch = this.history.find((h: ReadingHistoryItem) =>
+            (h.detailUrl !== undefined && h.detailUrl.length > 0 && h.detailUrl === source!.detailUrl) ||
+            (h.title === item.title && h.url.length > 0));
+          if (histMatch && histMatch.detailUrl !== undefined && histMatch.detailUrl.length > 0 &&
+            histMatch.detailUrl !== histMatch.url) {
+            this.openBookUnified(histMatch.detailUrl!, histMatch.title, histMatch.sourceId, cover,
+              histMatch.url, histMatch.chapterTitle);
+            return;
+          }
+          this.currentCover = cover;
+          this.loadDetail(source.detailUrl, item.title, this.findRuleByUrl(source.detailUrl));
+        } else if (source?.searchUrl) {
+          this.queryText = item.title;
+          this.activeTab = 'search';
+          this.startSearch();
+        }
+      }
+    })
+    .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent) => {
+      this.isLongPressing = true;
+      this.bookLongPressTitle = item.title;
+      this.bookLongPressUrl = '';
+      this.bookLongPressCover = this.catalogItemCover(item);
+      this.bookLongPressIsFavorite = this.bookshelf.some((b: BookshelfItem) => b.title === item.title);
+      this.bookLongPressSourceName = item.sources.length > 0 ? (item.sources[0].domain ?? '') : '';
+      this.setLongPressPosition(event.fingerList[0].globalX, event.fingerList[0].globalY);
+      this.bookLongPressVisible = true;
+    }))
   }
 
   @Builder
@@ -4670,35 +5510,51 @@ struct Index {
             Text('CoverCache: ' + this.coverCacheDir).fontSize(10).fontColor(this.colorfulValue('debug-CoverCache')).margin({ left: 8 }).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           }.width('100%').padding({ left: 14, right: 14, top: 2, bottom: 2 })
         }
-        if (this.catalogLoading && this.shelfViewMode === 'catalog') {
+        if (this.catalogLoading) {
           Column() {
             LoadingProgress().width(24).height(24).color(this.colorfulAccent('loading-catalog'))
             Text(this.catalogUpdateStatus.length > 0 ? this.catalogUpdateStatus : (this.t('catalog_loading') ?? '加载目录中...')).fontSize(14).fontColor(this.secondaryText()).margin({ top: 8 })
           }.width('100%').height(200).justifyContent(FlexAlign.Center)
-        } else if (this.shelfViewMode === 'catalog' && this.catalogCategories.length > 0) {
+        } else if (this.catalogCategories.length > 0) {
           if (this.selectedCatalogCategory.length > 0 && this.catalogItems.length > 0) {
             Stack() {
               Column() {
-                Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
-                  ForEach(this.catalogItems, (item: CatalogItem) => {
-                    this.CatalogItemCard(item)
-                  }, (item: CatalogItem) => item.id)
+                if (this.shelfDisplayMode === 'grid') {
+                  Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+                    ForEach(this.catalogItems, (item: CatalogItem) => {
+                      this.CatalogItemCard(item)
+                    }, (item: CatalogItem) => item.id)
+                  }
+                  .width('100%')
+                  .padding({ left: 10, right: 10, top: 4, bottom: 14 })
+                } else {
+                  Column() {
+                    ForEach(this.catalogItems, (item: CatalogItem) => {
+                      this.CatalogListCard(item)
+                    }, (item: CatalogItem) => item.id)
+                  }.width('100%').padding({ left: 4, right: 4, top: 4 })
                 }
-                .width('100%')
-                .padding({ left: 10, right: 10, top: 4, bottom: 14 })
               }
               .width('100%')
               .translate({ x: this.shelfPanOffset })
 
               if (this.shelfAdjacentDir !== 0 && this.shelfAdjacentItems.length > 0) {
                 Column() {
-                  Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
-                    ForEach(this.shelfAdjacentItems, (item: CatalogItem) => {
-                      this.CatalogItemCard(item)
-                    }, (item: CatalogItem) => item.id)
+                  if (this.shelfDisplayMode === 'grid') {
+                    Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
+                      ForEach(this.shelfAdjacentItems, (item: CatalogItem) => {
+                        this.CatalogItemCard(item)
+                      }, (item: CatalogItem) => item.id)
+                    }
+                    .width('100%')
+                    .padding({ left: 10, right: 10, top: 4, bottom: 14 })
+                  } else {
+                    Column() {
+                      ForEach(this.shelfAdjacentItems, (item: CatalogItem) => {
+                        this.CatalogListCard(item)
+                      }, (item: CatalogItem) => item.id)
+                    }.width('100%').padding({ left: 4, right: 4, top: 4 })
                   }
-                  .width('100%')
-                  .padding({ left: 10, right: 10, top: 4, bottom: 14 })
                 }
                 .width('100%')
                 .translate({ x: this.shelfAdjacentDir * this.shelfViewportWidth + this.shelfPanOffset })
@@ -4731,7 +5587,7 @@ struct Index {
                   animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
                     this.shelfPanOffset = -this.shelfViewportWidth;
                   });
-                  setTimeout(() => {
+                  this.shelfCategoryTimerId = setTimeout(() => {
                     this.shelfSwitchCategory(1);
                     this.shelfPanOffset = 0;
                     this.shelfAdjacentItems = [];
@@ -4741,7 +5597,7 @@ struct Index {
                   animateTo({ duration: 250, curve: Curve.EaseInOut }, () => {
                     this.shelfPanOffset = this.shelfViewportWidth;
                   });
-                  setTimeout(() => {
+                  this.shelfCategoryTimerId = setTimeout(() => {
                     this.shelfSwitchCategory(-1);
                     this.shelfPanOffset = 0;
                     this.shelfAdjacentItems = [];
@@ -4762,61 +5618,7 @@ struct Index {
             }.width('100%').justifyContent(FlexAlign.Center)
           }
         } else {
-          if (this.bookshelf.length === 0) {
-            Text(this.t('shelf_empty')).fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
-          } else if (this.shelfDisplayMode === 'grid') {
-            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
-              ForEach(this.bookshelf, (item: BookshelfItem) => {
-                Column() {
-                  if (item.cover.length > 0) {
-                    Image(item.cover).width('100%').height(140).borderRadius({ topLeft: 12, topRight: 12 }).objectFit(ImageFit.Cover)
-                  } else {
-                    Column() { Text(item.title.substring(0, 1)).fontSize(28).fontWeight(FontWeight.Bold).fontColor(this.colorfulAccent('shelf-avatar-' + item.title)) }.width('100%').height(140).justifyContent(FlexAlign.Center).backgroundColor(this.coverPlaceholderBg()).borderRadius({ topLeft: 12, topRight: 12 })
-                  }
-                  Row() {
-                    Text(item.title).fontSize(12).fontColor(this.colorfulValue(item.title)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-                  }.width('100%').padding({ left: 6, top: 4 })
-                  Text(item.lastChapterTitle.length > 0 ? item.lastChapterTitle : item.sourceName).fontSize(10).fontColor(this.secondaryText()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 2 })
-                  if (this.showDebugInfo) {
-                    Text(item.sourceName).fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 6, right: 6, bottom: 6 })
-                  } else {
-                    Text(item.progressPercent + '%').fontSize(9).fontColor(this.colorfulAccent('shelf-progress-' + item.url)).width('100%').padding({ left: 6, right: 6, bottom: 6 })
-                  }
-                }.width('31%').margin({ bottom: 8, right: '2%' }).backgroundColor(this.cardBg()).borderRadius(12)
-                  .onClick(() => { if (!this.isLongPressing) this.openBookshelfItem(item); })
-                  .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent) => {
-                    this.isLongPressing = true;
-                    this.bookLongPressTitle = item.title;
-                    this.bookLongPressUrl = item.url;
-                    this.bookLongPressCover = item.cover;
-                    this.bookLongPressIsFavorite = true;
-                    this.bookLongPressSourceName = item.sourceName;
-                    this.setLongPressPosition(event.fingerList[0].globalX, event.fingerList[0].globalY);
-                    this.bookLongPressVisible = true;
-                  }))
-              }, (item: BookshelfItem) => item.url + item.title)
-            }.width('100%')
-          } else {
-            ForEach(this.bookshelf, (item: BookshelfItem) => {
-              Column() {
-                this.SettingCard(item.title, (item.lastChapterTitle.length > 0 ? item.lastChapterTitle : item.sourceName) + ' · ' + item.lastReadAt, item.progressPercent + '%')
-                if (this.showDebugInfo) {
-                  Text('来源: ' + item.sourceName + ' (' + item.sourceId + ')').fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 14, top: 2 })
-                }
-              }
-                .onClick(() => { if (!this.isLongPressing) this.openBookshelfItem(item); })
-                .parallelGesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent) => {
-                  this.isLongPressing = true;
-                  this.bookLongPressTitle = item.title;
-                  this.bookLongPressUrl = item.url;
-                  this.bookLongPressCover = item.cover;
-                  this.bookLongPressIsFavorite = true;
-                  this.bookLongPressSourceName = item.sourceName;
-                  this.setLongPressPosition(event.fingerList[0].globalX, event.fingerList[0].globalY);
-                  this.bookLongPressVisible = true;
-                }))
-            }, (item: BookshelfItem) => item.url + item.title)
-          }
+          Text(this.t('shelf_empty') ?? '暂无目录数据').fontSize(14).fontColor(this.secondaryText()).width('100%').padding(14).backgroundColor(this.cardBg()).borderRadius(16)
         }
         Blank().height(this.contentBottomInset())
       }.width('100%').constraintSize({ minHeight: '100%' }).padding({ left: 10, right: 10 }).alignItems(HorizontalAlign.Start)
@@ -4824,6 +5626,7 @@ struct Index {
     .layoutWeight(1)
     .scrollable(ScrollDirection.Vertical)
     .scrollBar(BarState.Auto)
+    .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
     .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     .backgroundColor(this.appBg())
     .onAreaChange((_oldValue: Area, newValue: Area) => {
@@ -4905,6 +5708,7 @@ struct Index {
     this.rulesExpanded = false;
     this.dlgSearchModeExpanded = false;
     this.dlgLangExpanded = false;
+    this.dlgResultModeExpanded = false;
     this.dlgReaderBgExpanded = false;
     this.dlgMaxResultsExpanded = false;
     this.dlgMaxPagesExpanded = false;
@@ -4926,8 +5730,12 @@ struct Index {
       .alignItems(HorizontalAlign.Start)
 
       Column() {
-        Text(this.bookLongPressIsFavorite ? this.t('remove_favorite') : this.t('add_favorite'))
-          .fontSize(13).fontColor(this.primaryText()).width('100%').padding({ left: 14, top: 10, bottom: 10 })
+        Row({ space: 8 }) {
+          Text(this.bookLongPressIsFavorite ? '★' : '☆').fontSize(16).fontColor(this.iconColor('ic_star_filled'))
+          Text(this.bookLongPressIsFavorite ? this.t('remove_favorite') : this.t('add_favorite'))
+            .fontSize(13).fontColor(this.primaryText())
+        }
+        .width('100%').padding({ left: 14, top: 10, bottom: 10 })
       }
       .width('100%')
       .onClick(() => {
@@ -5012,7 +5820,9 @@ struct Index {
     .alignItems(HorizontalAlign.Center)
     .padding({ top: 4, bottom: 4 })
     .onClick(() => {
-      if (this.activeTab !== tab) this.closeAllDialogsAndMenus();
+      const switchingFromOtherTab = this.activeTab !== tab;
+      if (switchingFromOtherTab) this.closeAllDialogsAndMenus();
+      if (tab !== 'search' && (this.isLoading || this.webLoading)) this.stopSearch();
       this.activeTab = tab;
       if (tab === 'shelf') this.checkCatalogUpdateOnShelfEntry();
       if (tab === 'search' && this.mode === 'reader') this.mode = this.results.length > 0 ? 'results' : 'home';
@@ -5117,7 +5927,7 @@ struct Index {
               ForEach(this.history, (item: ReadingHistoryItem) => {
                 Row() {
                   Column() {
-                    this.SettingCard(item.title, item.chapterTitle + ' · ' + item.lastReadAt, item.imageCount + this.t('images_unit'))
+                    this.BookListCard(item.cover, item.title, item.chapterTitle + ' · ' + item.lastReadAt, item.imageCount + this.t('images_unit'))
                     if (this.showDebugInfo) {
                       Text('来源: ' + item.sourceName + ' (' + item.sourceId + ')').fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 14, top: 2 })
                     }
@@ -5187,7 +5997,7 @@ struct Index {
               ForEach(this.bookshelf, (item: BookshelfItem) => {
                 Row() {
                   Column() {
-                    this.SettingCard(item.title, (item.lastChapterTitle.length > 0 ? item.lastChapterTitle : item.sourceName) + ' · ' + item.lastReadAt, item.progressPercent + '%')
+                    this.BookListCard(item.cover, item.title, (item.lastChapterTitle.length > 0 ? item.lastChapterTitle : item.sourceName) + ' · ' + item.lastReadAt, item.progressPercent + '%')
                     if (this.showDebugInfo) {
                       Text('来源: ' + item.sourceName + ' (' + item.sourceId + ')').fontSize(9).fontColor(this.colorfulValue('src-' + item.sourceId)).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').padding({ left: 14, top: 2 })
                     }
@@ -5245,6 +6055,8 @@ struct Index {
         Blank().height(this.contentBottomInset())
       }.width('100%').constraintSize({ minHeight: '100%' }).padding({ left: 14, right: 14 })
     }.layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true }).backgroundColor(this.appBg())
+    .scrollBar(BarState.Auto)
+    .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
     .onAreaChange((_oldValue, newValue) => {
       const width = Number(newValue.width);
       if (width > 0) this.historyViewportWidth = width;
@@ -5260,13 +6072,6 @@ struct Index {
         this.EditorTopBar()
         if (this.editorSearchVisible) this.EditorSearchBar()
         if (this.editorShowIndent && !this.editorReadOnly) this.EditorIndentBar()
-        if (!this.editorIsValid && !this.editorReadOnly) {
-          Text(this.editorError)
-            .fontSize(10).fontColor('#F38BA8').width('100%')
-            .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-            .backgroundColor('#311428')
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        }
       }
       .width('100%')
       .height('100%')
@@ -5401,17 +6206,18 @@ struct Index {
             ListItem() {
               Row() {
                 Text((index + 1).toString())
-                  .fontSize(10).fontFamily('monospace')
+                  .fontSize(13).fontFamily('monospace').lineHeight(20)
                   .fontColor(index === this.editorCursorLine ? this.editorThemeCache.text : this.editorThemeCache.lineNumber)
                   .width(this.editorLineNumberWidth)
                   .textAlign(TextAlign.End)
                   .padding({ right: 4 })
                   .onClick(() => {
+                    this.editorCursorLine = index;
+                    this.editorSelectedLine = index;
                     if (this.editorEditable) this.editorEditAtLine(index);
-                    else { this.editorCursorLine = index; this.editorSelectedLine = index; }
                   })
                 Text() {
-                  ForEach(highlightJsonLine(line, this.editorThemeCache), (seg: HighlightSegment) => {
+                  ForEach(highlightLine(line, this.editorThemeCache, this.editorLanguage), (seg: HighlightSegment) => {
                     Span(seg.text)
                       .fontColor(seg.color)
                       .fontSize(13)
@@ -5419,6 +6225,7 @@ struct Index {
                   }, (seg: HighlightSegment, idx: number) => `${index}_${idx}`)
                 }
                 .layoutWeight(1)
+                .lineHeight(20)
                 .copyOption(CopyOptions.LocalDevice)
                 .maxLines(this.editorWordWrap ? Infinity : 1)
                 .textOverflow({ overflow: this.editorWordWrap ? TextOverflow.None : TextOverflow.Ellipsis })
@@ -5436,6 +6243,7 @@ struct Index {
         }
         .width('100%').height('100%')
         .scrollBar(BarState.Auto)
+        .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
         .backgroundColor(this.editorThemeCache.background)
         .contentStartOffset(this.avoidStatusBarHeight + 40)
         .contentEndOffset(this.editorToolBarVisible ? 60 : 0)
@@ -5453,11 +6261,15 @@ struct Index {
         Column() {
           ForEach(this.editorLinesCache, (line: string, index: number) => {
             Text((index + 1).toString())
-              .fontSize(10).fontFamily('monospace')
+              .fontSize(13).fontFamily('monospace').lineHeight(20)
               .fontColor(index === this.editorCursorLine ? this.editorThemeCache.text : this.editorThemeCache.lineNumber)
               .width(this.editorLineNumberWidth)
               .textAlign(TextAlign.End)
-              .height(18)
+              .height(20)
+              .onClick(() => {
+                this.editorCursorLine = index;
+                this.editorSelectedLine = index;
+              })
           }, (line: string, index: number) => 'ln_' + index)
         }
         .width(this.editorLineNumberWidth + 8)
@@ -5473,14 +6285,15 @@ struct Index {
 
         TextArea({ text: this.customRuleText })
           .fontSize(13).fontFamily('monospace')
+          .lineHeight(20)
           .fontColor(this.editorThemeCache.text)
           .backgroundColor(this.editorThemeCache.background)
           .caretStyle({ color: this.editorThemeCache.keyword })
           .layoutWeight(1).height('100%')
           .padding({ top: this.avoidStatusBarHeight + 40, bottom: this.editorToolBarVisible ? 60 : 0, left: 4 })
-          .focusOnTouch(true)
+          .focusOnTouch(false)
           .enableKeyboardOnFocus(true)
-          .defaultFocus(!this.editorReadOnly)
+          .defaultFocus(false)
           .id('customRuleTextArea')
           .onFocus(() => {
             if (this.editorToolBarVisible) {
@@ -5591,11 +6404,7 @@ struct Index {
           .fontSize(10).fontColor(this.editorTheme().keyword).margin({ left: 8 })
       }
       Blank()
-      if (this.editorIsValid) {
-        Text('JSON Valid').fontSize(10).fontColor('#A6E3A1')
-      } else {
-        Text('JSON Invalid').fontSize(10).fontColor('#F38BA8')
-      }
+      Text(this.editorLanguage === 'json' ? 'JSON' : this.editorLanguage === 'xml' ? 'XML' : 'Text').fontSize(10).fontColor('#A6E3A1')
       Text(`${this.editorIndentSize} ${this.editorUseTab ? 'Tab' : '空格'}`)
         .fontSize(10).fontColor(this.editorTheme().nullColor).margin({ left: 8 })
     }
@@ -5622,7 +6431,7 @@ struct Index {
           this.editorSearchVisible = true;
           this.editorMenuVisible = false;
         })
-        this.EditorMenuItem('格式化 JSON', 'ic_align_left', !this.editorReadOnly, () => {
+        this.EditorMenuItem(this.editorLanguage === 'json' ? '格式化 JSON' : '格式化', 'ic_align_left', !this.editorReadOnly && this.editorLanguage === 'json', () => {
           this.editorFormat();
           this.editorMenuVisible = false;
         })
@@ -5640,10 +6449,6 @@ struct Index {
         })
         this.EditorMenuItem('下一个书签', 'ic_nav_arrow_down', this.editorBookmarks.length > 0, () => {
           this.nextBookmark();
-          this.editorMenuVisible = false;
-        })
-        this.EditorMenuItem('验证 JSON', 'ic_check_circle', true, () => {
-          this.editorValidate();
           this.editorMenuVisible = false;
         })
         this.EditorMenuItem('链接（JSON键）', 'ic_link', true, () => {
@@ -5730,7 +6535,7 @@ struct Index {
         if (this.editorReadOnly && this.editorEditable) {
                   this.editorScroller.scrollTo({ xOffset: 0, yOffset: (ln - 1) * 20 });
                 } else {
-                  setTimeout(() => {
+                  this.focusTimerId = setTimeout(() => {
                     try {
                       this.getUIContext().getFocusController().requestFocus('customRuleTextArea');
                     } catch (e) {}
@@ -5793,6 +6598,7 @@ struct Index {
         .width('100%')
         .layoutWeight(1)
         .scrollBar(BarState.Auto)
+        .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
       }
       .width('70%')
       .height('60%')
@@ -5921,7 +6727,7 @@ struct Index {
                   .fontSize(10).fontColor(this.editorTheme().lineNumber)
                   .width(30).textAlign(TextAlign.End)
                 Row() {
-                  ForEach(highlightJsonLine(line, this.editorThemeCache), (seg: HighlightSegment) => {
+                  ForEach(highlightLine(line, this.editorThemeCache, this.editorLanguage), (seg: HighlightSegment) => {
                     Text(seg.text).fontSize(12).fontColor(seg.color).fontFamily('monospace')
                   }, (seg: HighlightSegment, si: number) => 'pv_' + index + '_' + si)
                 }
@@ -5939,6 +6745,7 @@ struct Index {
         }
         .layoutWeight(1)
         .scrollBar(BarState.Auto)
+        .scrollBarColor(this.scrollBarColor()).scrollBarWidth(6)
       }
       .width('80%')
       .height('70%')
@@ -5977,8 +6784,8 @@ struct Index {
                 Column() {
                   Image($rawfile('ic_x.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_x')))
                 }.width(32).height(32).justifyContent(FlexAlign.Center).margin({ right: 6 })
-                  .onClick(() => { this.isLoading = false; this.queryText = ''; this.results = []; this.mode = 'home'; })
-              }.width('100%').justifyContent(FlexAlign.End)
+                  .onClick(() => { this.clearSearchAndReset(); })
+              }.width('100%').justifyContent(FlexAlign.End).hitTestBehavior(HitTestMode.Transparent)
             }
           }.layoutWeight(1)
           Column() { this.SearchActionButton(44) }
@@ -6087,30 +6894,49 @@ struct Index {
     Stack() {
       ForEach([`${this.uiVersion}`], (_: string) => {
         Column() {
-          if (this.activeTab === 'search') {
-            if (this.mode === 'home') this.SearchHome()
-            else {
-              Stack() {
-                // Keep the result Scroll mounted while reading. Recreating it
-                // caused a visible jump followed by a delayed offset restore.
-                Column() { this.ResultsPage() }
-                  .width('100%').height('100%')
-                  .visibility(this.mode === 'results' ? Visibility.Visible : Visibility.Hidden)
-                if (this.mode === 'chapters') this.ChaptersPage()
-                else if (this.mode === 'reader') this.ReaderPage()
-              }.width('100%').height('100%')
+          Stack() {
+            Column() {
+              if (this.mode === 'home') this.SearchHome()
+              else {
+                Stack() {
+                  // Keep the result Scroll mounted while reading. Recreating it
+                  // caused a visible jump followed by a delayed offset restore.
+                  Column() { this.ResultsPage() }
+                    .width('100%').height('100%')
+                    .visibility(this.mode === 'results' ? Visibility.Visible : Visibility.Hidden)
+                  if (this.mode === 'chapters') this.ChaptersPage()
+                  else if (this.mode === 'reader') this.ReaderPage()
+                }.width('100%').height('100%')
+              }
             }
-          } else if (this.activeTab === 'shelf') {
-            this.ShelfPage()
-          } else if (this.activeTab === 'history') {
-            this.HistoryPage()
-          } else {
-            this.SettingsPage()
+            .width('100%').height('100%')
+            .visibility(this.activeTab === 'search' ? Visibility.Visible : Visibility.Hidden)
+            .hitTestBehavior(this.activeTab === 'search' ? HitTestMode.Default : HitTestMode.None)
+
+            if (this.activeTab === 'shelf') {
+              this.ShelfPage()
+            } else if (this.activeTab === 'history') {
+              this.HistoryPage()
+            } else if (this.activeTab === 'settings') {
+              this.SettingsPage()
+            }
           }
+          .width('100%').height('100%')
         }
         .width('100%')
         .height('100%')
         .backgroundColor(this.appBg())
+
+        if (this.mode !== 'reader' && this.mode !== 'chapters') {
+          Column() {
+            this.BottomTabs()
+          }
+          .width('100%')
+          .padding({ left: 10, right: 10, bottom: Math.max(0, this.bottomSafeInset - 2) })
+          .backgroundColor(Color.Transparent)
+          .markAnchor({ x: 0, y: '100%' })
+          .position({ x: 0, y: '100%' })
+        }
 
         if (this.mode !== 'reader' && this.mode !== 'chapters') {
           Column() {
@@ -6123,19 +6949,6 @@ struct Index {
           .position({ x: 0, y: 0 })
         }
 
-        if (this.mode !== 'reader' && this.mode !== 'chapters') {
-          Column() {
-            Blank()
-            this.BottomTabs()
-          }
-          .width('100%')
-          .height('100%')
-          .justifyContent(FlexAlign.End)
-          .padding({ left: 10, right: 10, bottom: Math.max(0, this.bottomSafeInset - 2) })
-          .backgroundColor(Color.Transparent)
-          .hitTestBehavior(HitTestMode.Transparent)
-        }
-
         if (this.statusMessageVisible) {
           Column() { this.StatusMessageOverlay() }
             .width('100%').height('100%')
@@ -6145,6 +6958,11 @@ struct Index {
         }
 
         if (this.activeTab === 'search' && this.mode === 'results' && this.searchHistoryVisible && this.recentSearches.length > 0) {
+          Column() {}
+            .width('100%')
+            .height('100%')
+            .position({ x: 0, y: this.headerOverlayHeight() })
+            .onClick(() => { this.searchHistoryVisible = false; })
           Column() { this.RecentSearchPanel() }
             .width('100%').padding({ left: 14, right: 14 })
             .position({ x: 0, y: this.headerOverlayHeight() })
@@ -6182,22 +7000,13 @@ struct Index {
           Column() {
             Column() {
               Row({ space: 8 }) {
-                Image($rawfile('ic_globe.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_globe')))
-                Text(this.isEn() ? 'Catalog' : '分类浏览').fontSize(14).fontColor(this.shelfViewMode === 'catalog' ? this.colorfulAccent('shelf-catalog') : this.primaryText())
-              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.shelfViewMode = 'catalog'; this.shelfMenuVisible = false; })
-              Row({ space: 8 }) {
-                Image($rawfile('ic_book.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_book')))
-                Text(this.isEn() ? 'Favorites' : '收藏').fontSize(14).fontColor(this.shelfViewMode === 'bookshelf' ? this.colorfulAccent('shelf-bookshelf') : this.primaryText())
-              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.shelfViewMode = 'bookshelf'; this.shelfMenuVisible = false; })
-              Divider().color(this.borderSubtle()).width('100%').padding({ left: 14, right: 14 })
-              Row({ space: 8 }) {
                 Image($rawfile('ic_layout.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_layout')))
                 Text(this.t('list_view')).fontSize(14).fontColor(this.shelfDisplayMode === 'list' ? this.colorfulAccent('shelf-list') : this.primaryText())
-              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.shelfDisplayMode = 'list'; this.shelfMenuVisible = false; })
+              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.shelfDisplayMode = 'list'; this.shelfMenuVisible = false; this.persistData(); })
               Row({ space: 8 }) {
                 Image($rawfile('ic_shelf.svg')).width(16).height(16).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shelf')))
                 Text(this.t('grid_view')).fontSize(14).fontColor(this.shelfDisplayMode === 'grid' ? this.colorfulAccent('shelf-grid') : this.primaryText())
-              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.shelfDisplayMode = 'grid'; this.shelfMenuVisible = false; })
+              }.width('100%').height(44).padding({ left: 14, right: 14 }).onClick(() => { this.shelfDisplayMode = 'grid'; this.shelfMenuVisible = false; this.persistData(); })
             }
             .width(140)
             .backgroundColor(this.cardBg())

@@ -1,6 +1,6 @@
 # ComicReader 功能规格文档
 
-> 版本: 0.5.0 | 更新日期: 2026-09-12
+> 版本: 0.88.5 | 更新日期: 2026-09-20
 
 ## 1. 设置页面下拉列表优化
 
@@ -213,5 +213,222 @@
 ### 验证结果（2026-09-12 虚拟机实测）
 - 从书架进入《不存在的人》→ 章节列表自动框选第3话（上次阅读位置）✓
 - 从书架进入《万人之上》→ 章节列表自动框选第20话 + 自动滚动到可见区域（第11~27话范围）✓
+
+---
+
+## 11. 搜索结果筛选模式切换（规则筛选 / 浏览器）
+
+### 功能描述
+设置页新增"结果筛选"选项，支持两种模式切换：
+- **规则筛选**（默认）：经 `looksComicRelated` + `isBlockedSearchResult` 筛选，只展示漫画相关结果，APP 卡片样式。
+- **浏览器**：不筛选，直接显示搜索引擎返回的全部结果，浏览器原样条目样式。
+
+### 实现要点
+- `SearchEngines.ets` 导出 `searchResultFilterMode` 全局变量 + `setSearchResultFilterMode()` 函数。
+- `makeSearchItem()` 在浏览器模式下跳过 `isBlockedSearchResult` 和 `looksComicRelated` 筛选。
+- `Index.ets` `@State searchResultMode` 驱动 UI 渲染分支。
+- 设置持久化到 `@ohos.data.preferences`。
+
+### 关键代码位置
+- `SearchEngines.ets` — `searchResultFilterMode` + `setSearchResultFilterMode()`
+- `SearchEngines.ets` — `makeSearchItem()` 浏览器模式跳过筛选
+- `Index.ets` — 设置对话框"结果筛选"选项行
+
+---
+
+## 12. 浏览器模式搜索结果样式
+
+### 功能描述
+浏览器模式下搜索结果使用浏览器原样条目样式，替代 APP 卡片样式。
+
+### 视觉效果
+- 蓝色标题（可点击跳转内置浏览器）
+- 绿色 URL
+- 灰色摘要文本
+
+### 关键代码位置
+- `Index.ets` — `BrowserResultItem()` @Builder
+
+---
+
+## 13. 无限滚动分页
+
+### 功能描述
+搜索结果支持无限滚动，下滑到底部自动加载下一页。
+
+### 实现要点
+- `fetchSearchEngineResults(engine, keyword, query, page)` 支持 page 参数。
+- Bing/百度/Google/DuckDuckGo/搜狗/360/Yandex 均支持分页 URL 构建。
+- Scroll `onReachEnd` 触发 `loadMoreSearchResults()`。
+- `@State searchPage` / `hasMoreResults` / `loadingMore` 控制分页状态。
+
+### 关键代码位置
+- `Index.ets` — `fetchSearchEngineResults()` page 参数
+- `Index.ets` — `loadMoreSearchResults()` 方法
+- `Index.ets` — Scroll `onReachEnd`
+
+---
+
+## 14. auto 模式查询词构建修复
+
+### 问题描述
+此前 auto 模式使用 OR 布尔语法追加关键词（如 `keyword OR 漫画`），但百度不支持 OR 运算，导致 OR 被当作字面搜索词污染结果。
+
+### 解决方案
+改为根据关键词语言智能追加：
+- 中文关键词 → 追加"漫画"
+- 英文关键词 → 追加"manga comic"
+- 不再使用 OR 语法
+
+### 关键代码位置
+- `SearchEngines.ets:~413` — `buildEngineQuery()` auto 模式语言判断
+
+---
+
+## 15. 浏览器模式不追加查询变体
+
+### 功能描述
+浏览器模式下搜索只使用基本查询词，不追加"在线阅读 章节"等查询变体，原样搜索用户输入。
+
+### 关键代码位置
+- `Index.ets` — `searchSelectedEngines()` 浏览器模式分支
+
+---
+
+## 16. 搜索结果页搜索框可编辑
+
+### 问题描述
+搜索结果页的搜索框无法点击编辑，因为清除按钮的 Row（`.width('100%')`）覆盖在 TextInput 上方，拦截了点击事件。
+
+### 解决方案
+给清除按钮 Row 添加 `hitTestBehavior(HitTestMode.Transparent)`，让点击事件穿透到下方的 TextInput。
+
+### 关键代码位置
+- `Index.ets` — 搜索结果页清除按钮 Row
+
+---
+
+## 17. siteTypeTag 统一2字标记
+
+### 功能描述
+网址分类标记统一为2字格式：漫画/百科/字典/应用/视频/社交/资讯/购物/社区/政府/网页。标题含"漫画"即归漫画类。
+
+### 关键代码位置
+- `Index.ets:~1557` — `siteTypeTag(url, title)` 签名改为双参数
+
+---
+
+## 18. 内置浏览器漫画域名自动检测
+
+### 功能描述
+内置浏览器（WebBrowserPage）加载页面后自动检测当前 URL 是否为已知漫画域名，若是则显示绿色提示条"检测到漫画内容，点击使用阅读模式"。
+
+### 实现要点
+- `SourceRules.ets` 导出 `isComicDomain(url)` 函数，检查 URL 是否匹配已验证漫画域名（88个）+ 公开访问源（44个）+ 域名含 manhua/manga/comic 等关键词。
+- `WebBrowserPage.ets` `onPageEnd` 调用 `isComicDomain(event.url)`，匹配时设置 `showReaderHint` 状态。
+- 提示条 6 秒后自动消失。
+
+### 关键代码位置
+- `SourceRules.ets` — `isComicDomain()` 导出函数
+- `WebBrowserPage.ets` — `onPageEnd` 检测 + 提示条 UI
+
+---
+
+## 19. 内置浏览器 HeaderOverlay 完全透明
+
+### 功能描述
+内置浏览器顶部浮层（返回按钮+阅读按钮）改为完全透明背景，移除磨砂模糊效果和半透明背景色，避免遮挡网页内容。
+
+### 关键代码位置
+- `WebBrowserPage.ets` — `HeaderOverlay()` 移除 `backgroundBlurStyle` 和 `backgroundColor`
+
+---
+
+## 20. Web 组件 User-Agent 设置
+
+### 问题描述
+Web 组件默认 User-Agent 被搜索引擎拒绝（返回 ERR_CONNECTION_RESET），桌面 UA 被百度验证码拦截。
+
+### 解决方案
+设置标准移动版 Chrome User-Agent：`Mozilla/5.0 (Linux; Android 13; Pixel 7) ...`
+
+### 关键代码位置
+- `WebBrowserPage.ets` — Web 组件 `.userAgent(...)`
+
+---
+
+## 21. 调试信息显示实际查询词
+
+### 功能描述
+搜索结果列表顶部的调试信息增加实际查询词回显，显示 `buildEngineQuery` 构建后发送给搜索引擎的完整查询词，便于排查搜索质量问题。
+
+### 关键代码位置
+- `Index.ets` — `@State debugSearchQueries` 状态变量
+- `Index.ets` — 调试信息行渲染
+
+---
+
+## 22. 百度搜索建议 URL 屏蔽
+
+### 问题描述
+百度搜索建议页使用 `/s?word=` 参数（非 `wd`），原正则缺少 `word` 选项导致搜索建议页未被屏蔽。
+
+### 解决方案
+更新屏蔽正则，添加 `word` 选项。
+
+### 关键代码位置
+- `SearchEngines.ets:~286` — 屏蔽正则
+
+---
+
+## 23. 屏蔽词同步功能
+
+### 功能描述
+从规则仓库（`liyan-lucky/ComicReader_Rules`）下载 `filter_words.txt`，解析分段格式并更新本地屏蔽词配置，在更新菜单中提供独立同步入口。
+
+### 文件格式
+`filter_words.txt` 使用 INI 风格分段格式：
+
+```text
+[DOMAINS]
+example.com
+spam-site.net
+
+[WORDS]
+广告
+赞助
+
+[NOISE]
+导航
+首页
+```
+
+### 实现要点
+- 在更新菜单（UpdateDialog）中添加"同步屏蔽词"按钮，独立触发同步流程。
+- 下载 `filter_words.txt` 后按 `[DOMAINS]`/`[WORDS]`/`[NOISE]` 分段解析。
+- 解析结果更新 `searchFilterConfig` 并通过 `@ohos.data.preferences` 持久化。
+- 同步过程独立显示进度条和状态文本，跟随下载进度实时变化。
+
+### 关键代码位置
+- `Index.ets` — UpdateDialog 中"同步屏蔽词"按钮
+- `SearchEngines.ets` — `searchFilterConfig` 配置与解析
+- `Index.ets` — 同步流程与持久化
+
+---
+
+## 24. 更新菜单进度显示改进
+
+### 功能描述
+更新菜单中每个更新操作（规则/目录/屏蔽词）独立显示进度条和状态文本，进度条跟随下载进度实时变化。
+
+### 变更内容
+- 每个操作（更新规则/更新目录/同步屏蔽词）独立进度条 + 状态文本
+- 进度条跟随下载进度实时变化（0~100%）
+- 修复"更新目录"按钮错误调用 `updateAll()` 改为 `updateCatalog()`
+- 目录更新显示当前数量→更新后数量差异（如"42 → 45"）
+
+### 关键代码位置
+- `Index.ets` — UpdateDialog 三个独立进度条与状态文本
+- `Index.ets` — `updateCatalog()` 方法（修复错误调用）
 
 

@@ -45,7 +45,7 @@ export function defaultEditorTheme(isDark: boolean): CodeEditorTheme {
     nullColor: '#6C6F85',
     punctuation: '#7287FD',
     searchHighlight: '#DF8E1D',
-    currentLine: '#E6E9EF',
+    currentLine: '#DDE0EC',
     selection: '#CCD0DA'
   };
 }
@@ -120,6 +120,31 @@ export function highlightJsonLine(line: string, theme: CodeEditorTheme): Highlig
     i = end;
   }
   return segments;
+}
+
+export function highlightTextLine(line: string, theme: CodeEditorTheme): HighlightSegment[] {
+  const segments: HighlightSegment[] = [];
+  if (line.length === 0) return segments;
+  const trimmed = line.trimStart();
+  if (trimmed.startsWith('===') || trimmed.startsWith('---')) {
+    segments.push({ text: line, color: theme.keyword });
+    return segments;
+  }
+  if (trimmed.startsWith('#') || trimmed.startsWith('//')) {
+    segments.push({ text: line, color: theme.nullColor });
+    return segments;
+  }
+  if (trimmed.startsWith('{') || trimmed.startsWith('}') || trimmed.startsWith('[') || trimmed.startsWith(']') ||
+      (trimmed.startsWith('"') && line.indexOf(':') > 0)) {
+    return highlightJsonLine(line, theme);
+  }
+  segments.push({ text: line, color: theme.text });
+  return segments;
+}
+
+export function highlightLine(line: string, theme: CodeEditorTheme, language: string): HighlightSegment[] {
+  if (language === 'json') return highlightJsonLine(line, theme);
+  return highlightTextLine(line, theme);
 }
 
 // 搜索匹配

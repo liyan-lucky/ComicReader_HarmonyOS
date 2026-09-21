@@ -60,7 +60,8 @@ function isTrustedManifest(parsed: UpdateManifest): boolean {
 }
 
 export class RemoteRuleService {
-  static async fetchRemoteRules(url: string): Promise<ComicSourceRule[]> {
+  static async fetchRemoteRules(url: string,
+    onProgress?: (received: number, total: number) => void): Promise<ComicSourceRule[]> {
     if (!isSafeRemoteRuleUrl(url)) {
       throw new Error('Remote rule URL must use HTTPS');
     }
@@ -73,7 +74,7 @@ export class RemoteRuleService {
       if (!rulesUrl) {
         throw new Error('Manifest missing rules URL');
       }
-      return RemoteRuleService.fetchRulesFromUrl(rulesUrl);
+      return RemoteRuleService.fetchRulesFromUrl(rulesUrl, onProgress);
     }
 
     if (isTrustedIndex(parsed as RemoteRuleIndex)) {
@@ -83,11 +84,15 @@ export class RemoteRuleService {
     throw new Error('Invalid remote rule index or manifest');
   }
 
-  static async fetchRulesFromUrl(rulesUrl: string): Promise<ComicSourceRule[]> {
+  static async fetchRulesFromUrl(rulesUrl: string,
+    onProgress?: (received: number, total: number) => void): Promise<ComicSourceRule[]> {
     if (!isSafeRemoteRuleUrl(rulesUrl)) {
       throw new Error('Rules URL must use HTTPS');
     }
-    const text = await HttpClient.getText(rulesUrl, 'Mozilla/5.0 HarmonyOS ComicReader RemoteRules/1.0', 'https://github.com/');
+    const text = onProgress
+      ? await HttpClient.getTextWithProgressTimeout(rulesUrl,
+          'Mozilla/5.0 HarmonyOS ComicReader RemoteRules/1.0', 'https://github.com/', onProgress, 60000)
+      : await HttpClient.getText(rulesUrl, 'Mozilla/5.0 HarmonyOS ComicReader RemoteRules/1.0', 'https://github.com/');
     const parsed = JSON.parse(text) as RemoteRuleIndex;
     if (!isTrustedIndex(parsed)) {
       throw new Error('Invalid remote rule index');
@@ -173,4 +178,15 @@ export class RemoteRuleService {
     }
     return merged;
   }
+
+  static async fetchFilterWords(baseUrl: string,
+    onProgress?: (received: number, total: number) => void): Promise<string> {
+    const url = baseUrl.replace('update_manifest.json', 'filter_words.txt');
+    if (onProgress) {
+      return await HttpClient.getTextWithProgressTimeout(url, SEARCH_UA, '', onProgress, 15000);
+    }
+    return await HttpClient.getTextWithTimeout(url, SEARCH_UA, '', 15000);
+  }
 }
+
+const SEARCH_UA: string = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';

@@ -2,6 +2,59 @@
 
 > 新对话接棒入口。按时间倒序记录。
 
+## 2026-09-21 BottomTabs定位+广告屏蔽+阅读提示修复+搜索结果保持（v0.88.6）
+
+### 已完成
+
+1. **BottomTabs定位优化** — 用`markAnchor({x:0,y:'100%'})`+`position({x:0,y:'100%'})`定位到底部，不再用全屏容器（`height('100%')`+Blank）覆盖内容区域。Tab栏只占自身高度（56px+padding），不拦截内容区域点击事件
+2. **webDarkOverlay修复** — 从TabPill onClick中移除`webDarkOverlay = true`，改到`searchKeyword`中设置（Web组件即将重新加载新搜索URL时）。修复：离开搜索页面再返回时Web内容被遮罩遮住变空白
+3. **广告屏蔽（adBlockScript）** — 创建`adBlockScript`注入CSS隐藏广告元素，三重注入保障：`javaScriptOnDocumentStart`（最早）+ `onPageBegin`（每次导航）+ `onPageEnd`（加载完成）。覆盖广告网络（AdSense/DoubleClick）、悬浮/固定广告、弹窗/遮罩、位置广告、尺寸广告、插页广告、搜索引擎广告（Bing/百度）、通用容器、data属性、漫画站常见广告
+4. **showReaderHint修复** — `onPageEnd`中改为`this.showReaderHint = isComicDomain(event.url)`双向更新，搜索引擎页面显式设为false。修复：从漫画页面后退到非漫画页面时阅读提示按钮不消失
+5. **搜索引擎页面广告屏蔽扩展** — `injectSearchPageStyles`的CSS中添加更多广告选择器（ad-top/bottom/side、advertisement、commercial-unit、data-ad等）
+
+### 关键技术决策
+
+- **BottomTabs不用全屏容器** — 全屏容器+Blank即使用HitTestMode.None也会吞掉事件，用markAnchor+position只占自身高度才能不干扰内容区域
+- **webDarkOverlay只在Web重新加载时设置** — Tab切换不触发Web重新加载，设置遮罩后onPageEnd不触发无法清除，导致内容被遮住
+- **广告屏蔽只用CSS不用JS动态移除** — 避免setInterval/MutationObserver导致的闪烁问题（参考已有feedback记忆）
+- **showReaderHint双向更新** — 任何在onPageEnd中根据URL设置的状态标志都必须双向赋值
+
+### 验证证据
+
+- v0.88.6 构建通过，HAP安装真机验证通过
+- 搜索结果Tab切换保持、广告屏蔽、阅读按钮后退消失均验证正常
+
+### 未完成边界
+
+- `git push`因代理连接失败未推送，需网络恢复后手动执行`git push origin main`
+- commit hash: `20ea1258`
+
+## 2026-09-20 屏蔽词同步 + 更新菜单进度改进 + 代码清理（v0.88.5）
+
+### 已完成
+
+1. **屏蔽词同步功能** — 从规则仓库（`liyan-lucky/ComicReader_Rules`）下载 `filter_words.txt`，解析 `[DOMAINS]`/`[WORDS]`/`[NOISE]` 分段格式，更新 `searchFilterConfig` 并持久化到 Preferences；在更新菜单（UpdateDialog）中添加"同步屏蔽词"按钮独立触发
+2. **更新菜单进度显示改进** — 每个更新操作（规则/目录/屏蔽词）独立显示进度条和状态文本，进度条跟随下载进度实时变化；目录更新显示当前数量→更新后数量差异
+3. **修复"更新目录"按钮错误调用** — `updateAll()` 改为 `updateCatalog()`，避免点击"更新目录"触发全部更新
+4. **代码清理** — 删除 6 个未使用 @State 变量、1 个未使用 private 变量、16 个未使用 private 方法、8 个未使用 @Builder 方法、2 个未使用导入，共删除 310 行代码
+5. **SearchEngines.ets 性能优化** — `containsNoiseTitleWord` 三次遍历合并为一次，移除死参数 `strict`
+6. **无用文件清理** — 删除 `nul` 垃圾文件、`.tmp/` 临时目录（66 个文件）、`migration/` 迁移残留目录
+
+### 关键技术决策
+
+- **屏蔽词与规则同源** — 屏蔽词由规则仓库统一维护，App 仅同步与持久化，避免两套维护口径
+- **更新操作独立进度** — 多操作并存时每个操作独立进度条 + 状态文本，避免状态串扰
+- **死代码清理原则** — 重构后及时清理不再引用的变量/方法/导入，避免死代码累积
+
+### 验证证据
+
+- v0.88.5 构建通过（0 ERROR），HAP 安装验证通过
+
+### 未完成边界
+
+- `Index.ets` 单文件仍然过大，待拆分
+- 屏蔽词同步目前仅支持手动触发，未做定时自动同步
+
 ## 2026-09-16 自定义规则编辑器 + 屏蔽规则 + 搜索优化 + 项目清理
 
 ### 已完成

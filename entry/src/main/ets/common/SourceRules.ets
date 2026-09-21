@@ -138,6 +138,31 @@ export const DEFAULT_SOURCES: ComicSourceRule[] = [
 export const VERIFIED_DOMAIN_COUNT = VERIFIED_DOMAIN_LIST.length;
 export const PUBLIC_ACCESS_DOMAIN_COUNT = PUBLIC_ACCESS_LIST.length;
 
+export function isComicDomain(url: string): boolean {
+  let host = url.toLowerCase().trim();
+  const proto = host.indexOf('://');
+  if (proto >= 0) host = host.substring(proto + 3);
+  const slash = host.indexOf('/');
+  if (slash >= 0) host = host.substring(0, slash);
+  if (host.startsWith('www.')) host = host.substring(4);
+  for (let i = 0; i < VERIFIED_DOMAIN_LIST.length; i++) {
+    const d = VERIFIED_DOMAIN_LIST[i];
+    if (host === d || host.endsWith('.' + d)) return true;
+  }
+  for (let i = 0; i < PUBLIC_ACCESS_LIST.length; i++) {
+    const d = PUBLIC_ACCESS_LIST[i][2];
+    let dh = d.toLowerCase();
+    const dp = dh.indexOf('://');
+    if (dp >= 0) dh = dh.substring(dp + 3);
+    const ds = dh.indexOf('/');
+    if (ds >= 0) dh = dh.substring(0, ds);
+    if (dh.startsWith('www.')) dh = dh.substring(4);
+    if (host === dh || host.endsWith('.' + dh)) return true;
+  }
+  if (/(?:manhua|manga|comic|webtoon|manhwa|mh|dm|cartoon|onemanga)\b/i.test(host)) return true;
+  return false;
+}
+
 export function buildRuleForVerifiedDomain(domain: string): ComicSourceRule {
   return {
     id: domain.replace(/\./g, '_'),
@@ -282,6 +307,239 @@ export function isKnownLoginOrPayDomain(url: string): boolean {
 export function isTop20AuditedPublicReadableDomain(url: string): boolean {
   return urlContainsAny(url, TOP20_AUDITED_HOSTS);
 }
+
+export const SEARCHABLE_COMIC_SOURCES: ComicSourceRule[] = [
+  {
+    id: 'search_manhuagui',
+    name: '漫画柜站内搜索',
+    description: '漫画柜 manhuagui.com 站内搜索，直接在站点搜索页提取漫画链接。',
+    homepage: 'https://www.manhuagui.com',
+    searchUrl: 'https://www.manhuagui.com/s/{keyword}.html',
+    searchMethod: 'get',
+    searchItemRegex: `<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]{0,260}?)<\\/a>`,
+    searchTitleGroups: [2],
+    searchUrlGroups: [1],
+    searchCoverGroups: [],
+    searchResultIsChapter: false,
+    searchFilterByKeyword: false,
+    detailChapterRegex: COMMON_DETAIL_CHAPTER_REGEX,
+    detailChapterTitleGroups: [2],
+    detailChapterUrlGroups: [1],
+    detailChapterFilter: true,
+    readerImageRegex: COMMON_READER_IMAGE_REGEX,
+    readerImageGroups: [1, 2, 3],
+    userAgent: COMMON_USER_AGENT,
+    referer: 'https://www.manhuagui.com/',
+    maxReaderPages: 12
+  },
+  {
+    id: 'search_dm5',
+    name: '动漫屋站内搜索',
+    description: '动漫屋 dm5.cn 站内搜索，直接在站点搜索页提取漫画链接。',
+    homepage: 'https://www.dm5.cn',
+    searchUrl: 'https://www.dm5.cn/search?title={keyword}',
+    searchMethod: 'get',
+    searchItemRegex: `<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]{0,260}?)<\\/a>`,
+    searchTitleGroups: [2],
+    searchUrlGroups: [1],
+    searchCoverGroups: [],
+    searchResultIsChapter: false,
+    searchFilterByKeyword: false,
+    detailChapterRegex: COMMON_DETAIL_CHAPTER_REGEX,
+    detailChapterTitleGroups: [2],
+    detailChapterUrlGroups: [1],
+    detailChapterFilter: true,
+    readerImageRegex: COMMON_READER_IMAGE_REGEX,
+    readerImageGroups: [1, 2, 3],
+    userAgent: COMMON_USER_AGENT,
+    referer: 'https://www.dm5.cn/',
+    maxReaderPages: 16
+  },
+  {
+    id: 'search_manhuaren',
+    name: '漫画人站内搜索',
+    description: '漫画人 manhuaren.com 站内搜索，直接在站点搜索页提取漫画链接。',
+    homepage: 'https://www.manhuaren.com',
+    searchUrl: 'https://www.manhuaren.com/search?query={keyword}',
+    searchMethod: 'get',
+    searchItemRegex: `<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]{0,260}?)<\\/a>`,
+    searchTitleGroups: [2],
+    searchUrlGroups: [1],
+    searchCoverGroups: [],
+    searchResultIsChapter: false,
+    searchFilterByKeyword: true,
+    detailChapterRegex: COMMON_DETAIL_CHAPTER_REGEX,
+    detailChapterTitleGroups: [2],
+    detailChapterUrlGroups: [1],
+    detailChapterFilter: true,
+    readerImageRegex: COMMON_READER_IMAGE_REGEX,
+    readerImageGroups: [1, 2, 3],
+    userAgent: COMMON_USER_AGENT,
+    referer: 'https://www.manhuaren.com/',
+    maxReaderPages: 12
+  },
+  {
+    id: 'search_ikanman',
+    name: '爱漫画站内搜索',
+    description: '爱漫画 ikanman.com 站内搜索，直接在站点搜索页提取漫画链接。',
+    homepage: 'https://www.ikanman.com',
+    searchUrl: 'https://www.ikanman.com/search?query={keyword}',
+    searchMethod: 'get',
+    searchItemRegex: `<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]{0,260}?)<\\/a>`,
+    searchTitleGroups: [2],
+    searchUrlGroups: [1],
+    searchCoverGroups: [],
+    searchResultIsChapter: false,
+    searchFilterByKeyword: false,
+    detailChapterRegex: COMMON_DETAIL_CHAPTER_REGEX,
+    detailChapterTitleGroups: [2],
+    detailChapterUrlGroups: [1],
+    detailChapterFilter: true,
+    readerImageRegex: COMMON_READER_IMAGE_REGEX,
+    readerImageGroups: [1, 2, 3],
+    userAgent: COMMON_USER_AGENT,
+    referer: 'https://www.ikanman.com/',
+    maxReaderPages: 12
+  },
+  {
+    id: 'search_57mh',
+    name: '57漫画站内搜索',
+    description: '57漫画 57mh.com 站内搜索，直接在站点搜索页提取漫画链接。',
+    homepage: 'https://www.57mh.com',
+    searchUrl: 'https://www.57mh.com/search?query={keyword}',
+    searchMethod: 'get',
+    searchItemRegex: `<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]{0,260}?)<\\/a>`,
+    searchTitleGroups: [2],
+    searchUrlGroups: [1],
+    searchCoverGroups: [],
+    searchResultIsChapter: false,
+    searchFilterByKeyword: false,
+    detailChapterRegex: COMMON_DETAIL_CHAPTER_REGEX,
+    detailChapterTitleGroups: [2],
+    detailChapterUrlGroups: [1],
+    detailChapterFilter: true,
+    readerImageRegex: COMMON_READER_IMAGE_REGEX,
+    readerImageGroups: [1, 2, 3],
+    userAgent: COMMON_USER_AGENT,
+    referer: 'https://www.57mh.com/',
+    maxReaderPages: 12
+  },
+  {
+    id: 'search_aikanmanhua',
+    name: '爱看漫画站内搜索',
+    description: '爱看漫画 aikanmanhua.com 站内搜索，直接在站点搜索页提取漫画链接。',
+    homepage: 'https://www.aikanmanhua.com',
+    searchUrl: 'https://www.aikanmanhua.com/search?query={keyword}',
+    searchMethod: 'get',
+    searchItemRegex: `<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]{0,260}?)<\\/a>`,
+    searchTitleGroups: [2],
+    searchUrlGroups: [1],
+    searchCoverGroups: [],
+    searchResultIsChapter: false,
+    searchFilterByKeyword: false,
+    detailChapterRegex: COMMON_DETAIL_CHAPTER_REGEX,
+    detailChapterTitleGroups: [2],
+    detailChapterUrlGroups: [1],
+    detailChapterFilter: true,
+    readerImageRegex: COMMON_READER_IMAGE_REGEX,
+    readerImageGroups: [1, 2, 3],
+    userAgent: COMMON_USER_AGENT,
+    referer: 'https://www.aikanmanhua.com/',
+    maxReaderPages: 12
+  },
+  {
+    id: 'search_mangakakalot',
+    name: 'MangaKakalot站内搜索',
+    description: 'MangaKakalot 站内搜索，英文漫画站点直接搜索。',
+    homepage: 'https://mangakakalot.com',
+    searchUrl: 'https://mangakakalot.com/search/story/{keyword}',
+    searchMethod: 'get',
+    searchItemRegex: `<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]{0,260}?)<\\/a>`,
+    searchTitleGroups: [2],
+    searchUrlGroups: [1],
+    searchCoverGroups: [],
+    searchResultIsChapter: false,
+    searchFilterByKeyword: false,
+    detailChapterRegex: COMMON_DETAIL_CHAPTER_REGEX,
+    detailChapterTitleGroups: [2],
+    detailChapterUrlGroups: [1],
+    detailChapterFilter: true,
+    readerImageRegex: COMMON_READER_IMAGE_REGEX,
+    readerImageGroups: [1, 2, 3],
+    userAgent: COMMON_USER_AGENT,
+    referer: 'https://mangakakalot.com/',
+    maxReaderPages: 12
+  },
+  {
+    id: 'search_manganato',
+    name: 'Manganato站内搜索',
+    description: 'Manganato 站内搜索，英文漫画站点直接搜索。',
+    homepage: 'https://manganato.com',
+    searchUrl: 'https://manganato.com/search/story/{keyword}',
+    searchMethod: 'get',
+    searchItemRegex: `<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]{0,260}?)<\\/a>`,
+    searchTitleGroups: [2],
+    searchUrlGroups: [1],
+    searchCoverGroups: [],
+    searchResultIsChapter: false,
+    searchFilterByKeyword: false,
+    detailChapterRegex: COMMON_DETAIL_CHAPTER_REGEX,
+    detailChapterTitleGroups: [2],
+    detailChapterUrlGroups: [1],
+    detailChapterFilter: true,
+    readerImageRegex: COMMON_READER_IMAGE_REGEX,
+    readerImageGroups: [1, 2, 3],
+    userAgent: COMMON_USER_AGENT,
+    referer: 'https://manganato.com/',
+    maxReaderPages: 12
+  },
+  {
+    id: 'search_mh160',
+    name: '漫画160站内搜索',
+    description: '漫画160 mh160mh.com 站内搜索，直接在站点搜索页提取漫画链接。',
+    homepage: 'https://m.mh160mh.com',
+    searchUrl: 'https://m.mh160mh.com/search?query={keyword}',
+    searchMethod: 'get',
+    searchItemRegex: `<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]{0,260}?)<\\/a>`,
+    searchTitleGroups: [2],
+    searchUrlGroups: [1],
+    searchCoverGroups: [],
+    searchResultIsChapter: false,
+    searchFilterByKeyword: false,
+    detailChapterRegex: COMMON_DETAIL_CHAPTER_REGEX,
+    detailChapterTitleGroups: [2],
+    detailChapterUrlGroups: [1],
+    detailChapterFilter: true,
+    readerImageRegex: COMMON_READER_IMAGE_REGEX,
+    readerImageGroups: [1, 2, 3],
+    userAgent: COMMON_USER_AGENT,
+    referer: 'https://m.mh160mh.com/',
+    maxReaderPages: 12
+  },
+  {
+    id: 'search_dmzj',
+    name: '动漫之家站内搜索',
+    description: '动漫之家 dmzj.com 站内搜索，直接在站点搜索页提取漫画链接。',
+    homepage: 'https://www.dmzj.com',
+    searchUrl: 'https://www.dmzj.com/search?title={keyword}',
+    searchMethod: 'get',
+    searchItemRegex: `<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]{0,260}?)<\\/a>`,
+    searchTitleGroups: [2],
+    searchUrlGroups: [1],
+    searchCoverGroups: [],
+    searchResultIsChapter: false,
+    searchFilterByKeyword: false,
+    detailChapterRegex: COMMON_DETAIL_CHAPTER_REGEX,
+    detailChapterTitleGroups: [2],
+    detailChapterUrlGroups: [1],
+    detailChapterFilter: true,
+    readerImageRegex: COMMON_READER_IMAGE_REGEX,
+    readerImageGroups: [1, 2, 3],
+    userAgent: COMMON_USER_AGENT,
+    referer: 'https://www.dmzj.com/',
+    maxReaderPages: 12
+  }
+];
 
 export const RULE_TEMPLATE = `{
   "id": "my_public_source",

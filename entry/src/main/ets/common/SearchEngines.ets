@@ -2,29 +2,31 @@ import { SearchEngineConfig, SearchResultItem } from '../model/ComicModels';
 import { resolveUrl } from './UrlUtil';
 import { cleanHtmlText } from './HtmlParser';
 
-const SEARCH_UA = 'Mozilla/5.0 (Linux; HarmonyOS; Mobile) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36 ComicReaderHarmony/5.0';
+const SEARCH_UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
-const BLOCKED_SEARCH_DOMAINS: string[] = [
-  'douyin.com', 'iesdouyin.com', 'snssdk.com', 'tiktok.com', 'bilibili.com', 'youtube.com', 'youtu.be',
-  'ixigua.com', 'kuaishou.com', 'ks.com', 'xiaohongshu.com', 'xhslink.com', 'weibo.com',
-  'tieba.baidu.com', 'zhihu.com', 'baike.baidu.com', 'baike.sogou.com', 'wikipedia.org', 'wikiwand.com', 'fandom.com',
-  'facebook.com', 'instagram.com', 'twitter.com', 'x.com', 'reddit.com', 'pinterest.com',
-  'amazon.', 'taobao.com', 'tmall.com', 'jd.com', 'dangdang.com',
-  'hanyuguoxue.com', 'cidian.', 'zdic.net', 'zidian.', 'guoxue.', '5156edu.com',
-  'toutiao.com', '360kuai.com', 'so.com', 'haosou.com', 'chinaso.com', 'shenma.cn',
-  'sina.com.cn', 'sina.cn', '163.com', 'sohu.com', 'qq.com',
-  // 屏蔽搜索引擎内部功能页面
-  'help.sogou.com', 'fankui.sogou.com', 'pic.sogou.com', 'weixin.sogou.com', 'fanyi.sogou.com',
-  'help.baidu.com', 'fankui.baidu.com', 'pic.baidu.com', 'weixin.baidu.com', 'fanyi.baidu.com'
-];
+let searchResultFilterMode: string = 'rule_filter';
 
-const BLOCKED_SEARCH_WORDS: string[] = [
-  '抖音', '短视频', '视频', '动画', '电视剧', '真人版', '百科', '词条', '贴吧', '知乎', '小红书', '微博',
-  'bilibili', 'youtube', 'tiktok', 'wiki', 'wikipedia', 'facebook', 'instagram', 'reddit',
-  '意思', '解释', '拼音', '读音', '汉语', '国学', '字典', '词典', '成语', '造句', '近义词', '反义词',
-  '信用', '广告', '推广', '赞助', '充值', '下载', '安装', 'APP', '官网', '登录', '注册',
-  '弹窗', '红包', '礼包', '兑换', '代充', 'VIP', '会员', '免费', '高清', '完整版', '精校版', 'txt'
-];
+export function setSearchResultFilterMode(mode: string): void {
+  searchResultFilterMode = mode === 'browser' ? 'browser' : 'rule_filter';
+}
+
+interface SearchFilterConfig {
+  blockedDomains: string[];
+  blockedWords: string[];
+  noiseTitleWords: string[];
+}
+
+export const searchFilterConfig: SearchFilterConfig = {
+  blockedDomains: [
+    'iqiyi.com', 'youku.com', 'v.qq.com', 'tv.sohu.com', 'v.baidu.com',
+    'bilibili.com/video', 'douyin.com', 'kuaishou.com', 'zhihu.com',
+    '.edu.', 'coursera', 'udemy', 'zhangmen.com', 'zhangmenbaby.com'
+  ] as string[],
+  blockedWords: [
+    '教育', '培训', '课程', '辅导', '网课', '一对一', '考研', '公务员', '职业培训', '英语培训'
+  ] as string[],
+  noiseTitleWords: [] as string[]
+};
 
 const PREFERRED_COMIC_DOMAINS: string[] = [
   'ac.qq.com', 'kuaikanmanhua.com', 'manga.bilibili.com', 'bilibilicomics.com', 'u17.com',
@@ -33,8 +35,8 @@ const PREFERRED_COMIC_DOMAINS: string[] = [
 ];
 
 export const DEFAULT_SEARCH_ENGINES: SearchEngineConfig[] = [
-  { id: 'duckduckgo_html', name: 'DuckDuckGo', description: '无 API Key 模式，读取 DuckDuckGo HTML/Lite 搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'duckduckgo-html', searchUrl: 'https://duckduckgo.com/html/?q={query}', requiresKey: false, enabled: true },
-  { id: 'bing_web_html', name: 'Bing', description: '无 API Key 模式，读取 Bing 网页搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'bing-html', searchUrl: 'https://www.bing.com/search?q={query}', requiresKey: false, enabled: true },
+  { id: 'duckduckgo_html', name: 'DuckDuckGo', description: '无 API Key 模式，读取 DuckDuckGo HTML/Lite 搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'duckduckgo-html', searchUrl: 'https://html.duckduckgo.com/html/?q={query}', requiresKey: false, enabled: true },
+  { id: 'bing_web_html', name: 'Bing', description: '无 API Key 模式，读取 Bing 网页搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'bing-html', searchUrl: 'https://cn.bing.com/search?q={query}', requiresKey: false, enabled: true },
   { id: 'baidu_web_html', name: '百度', description: '中文公开网页搜索，用于补充国内漫画平台和聚合站点结果。', engineType: 'baidu-html', searchUrl: 'https://www.baidu.com/s?rn=50&wd={query}', requiresKey: false, enabled: true },
   { id: 'sogou_web_html', name: '搜狗', description: '中文公开网页搜索，用于补充书名别名和国内站点结果。', engineType: 'sogou-html', searchUrl: 'https://www.sogou.com/web?num=30&query={query}', requiresKey: false, enabled: true },
   { id: 'so_web_html', name: '360', description: '中文公开网页搜索，作为国内漫画资源召回补充。', engineType: 'so-html', searchUrl: 'https://www.so.com/s?q={query}', requiresKey: false, enabled: true },
@@ -151,6 +153,12 @@ function stripRedirect(url: string): string {
   // another search page, so it is filtered before it reaches the UI.
   const target = /[?&](?:url|pcurl)=([^&]+)/i.exec(next);
   if (target && target.length > 1) next = safeDecodeUrlComponent(target[1]);
+  // Baidu mobile redirect: m.baidu.com/from=.../url=ENCODED_TARGET
+  const baiduRedirect = /m\.baidu\.com\/.*\/url=([^&]+)/i.exec(next);
+  if (baiduRedirect && baiduRedirect.length > 1) {
+    const decoded = safeDecodeUrlComponent(baiduRedirect[1]);
+    if (decoded.startsWith('http')) next = decoded;
+  }
   if (next.startsWith('//')) next = 'https:' + next;
   return next;
 }
@@ -268,15 +276,20 @@ function isBlockedSearchResult(title: string, url: string, desc: string): boolea
     lowerUrl.indexOf('manga.bilibili.com/') >= 0 || lowerUrl.indexOf('bilibili.com/manga') >= 0 ||
     lowerUrl.indexOf('bilibilicomics.com/') >= 0 || lowerUrl.indexOf('u17.com/') >= 0 ||
     lowerUrl.indexOf('manhuadao') >= 0 || lowerUrl.indexOf('dongmanmanhua.cn/') >= 0;
+
+  // 搜索引擎结果页面白名单：m.baidu.com / www.baidu.com/s? 等搜索页可能包含漫画链接，不屏蔽
+  const isSearchResultPage = host === 'm.baidu.com' || host === 'www.baidu.com' ||
+    lowerUrl.indexOf('cn.bing.com/search') >= 0 || lowerUrl.indexOf('www.baidu.com/s?') >= 0 ||
+    lowerUrl.indexOf('m.baidu.com/from=') >= 0;
   
-  if (!officialComic && (containsAny(host, BLOCKED_SEARCH_DOMAINS) || containsAny(lowerUrl, BLOCKED_SEARCH_DOMAINS))) return true;
-  if (containsAny(text, BLOCKED_SEARCH_WORDS) && !isPreferredComicDomain(url)) return true;
+  if (!officialComic && !isSearchResultPage && (containsAny(host, searchFilterConfig.blockedDomains) || containsAny(lowerUrl, searchFilterConfig.blockedDomains))) return true;
+  if (containsAny(text, searchFilterConfig.blockedWords) && !isPreferredComicDomain(url) && !isSearchResultPage) return true;
   
   // 智能URL模式识别：自动过滤搜索引擎内部页面
   // 匹配模式：searchengine.com/help, searchengine.com/fankui, searchengine.com/pic 等
   if (/(?:help|fankui|pic|weixin|fanyi|support|contact|about|terms|privacy|cookies|faq|sitemap|archive)\.[a-z]+\.[a-z]+(?:\/|$)/i.test(url)) return true;
   // 匹配模式：searchengine.com/search?q=..., searchengine.com/web?query=..., searchengine.com/html/?q=...
-  if (/\/(?:search|web|s|html)(?:\/)?\?(?:query|q|wd|text|keyword)=/i.test(url) && /(?:sogou\.|baidu\.|so\.|bing\.|duckduckgo\.|google\.|yandex\.)/i.test(host)) return true;
+  if (/\/(?:search|web|s|html)(?:\/)?\?(?:query|q|wd|word|text|keyword)=/i.test(url) && /(?:sogou\.|baidu\.|so\.|bing\.|duckduckgo\.|google\.|yandex\.)/i.test(host)) return true;
   
   return false;
 }
@@ -313,38 +326,13 @@ function canonicalSearchTitle(raw: string, keyword: string): string {
   return title;
 }
 
-const NOISE_TITLE_WORDS: string[] = [
-  '图片', '举报', '帮助', '百科', '贴吧', '知道', '视频', '下载', '登录', '注册',
-  '关于', '反馈', '设置', '意见', '投诉', '版权', '免责', '隐私', '条款', '协议',
-  '广告', '推广', '赞助', '充值', '安装', 'APP', '官网', '弹窗', '红包', '礼包',
-  '兑换', '代充', 'VIP', '会员', '首页', '分类', '排行', '榜单', '收藏', '书架',
-  '搜索', '更多', '详情', '目录', '评论', '留言', '评分', '打分', '人气', '热度',
-  '推荐', '精选', '公告', '通知', '新闻', '动态', '活动', '专题', '话题', '社区',
-  '论坛', '群组', '聊天', '讨论', '问答', '求助', '教程', '攻略', '技巧', '秘籍',
-  '破解', '修改', '辅助', '脚本', '插件', '工具', '软件', '应用', '游戏', '小说',
-  '影视', '电影', '电视剧', '综艺', '动漫', '动画', '漫画家', '画家', '作者', '工作室',
-  // 搜索引擎功能页面
-  '微信', '翻译', '图片', '帮助', '举报', '反馈', '登录', '注册', '更多',
-  // 英文噪音词
-  'help', 'support', 'contact', 'about', 'terms', 'privacy', 'faq', 'sitemap', 'archive'
-];
-
 function containsNoiseTitleWord(title: string): boolean {
   const cleaned = title.trim();
   if (cleaned.length === 0) return true;
-  // 如果标题完全等于噪音词，过滤
-  for (let i = 0; i < NOISE_TITLE_WORDS.length; i++) {
-    if (cleaned === NOISE_TITLE_WORDS[i]) return true;
-  }
-  // 如果标题以噪音词开头（如"帮助中心"），过滤
-  for (let i = 0; i < NOISE_TITLE_WORDS.length; i++) {
-    const noise = NOISE_TITLE_WORDS[i];
-    if (cleaned.startsWith(noise)) return true;
-  }
-  // 如果标题以"关键词 + 噪音词"结尾（如"掌门低调点 图片"），过滤
-  for (let i = 0; i < NOISE_TITLE_WORDS.length; i++) {
-    const noise = NOISE_TITLE_WORDS[i];
-    if (cleaned.endsWith(' ' + noise) || cleaned.endsWith('-' + noise) || cleaned.endsWith('—' + noise)) {
+  for (let i = 0; i < searchFilterConfig.noiseTitleWords.length; i++) {
+    const noise = searchFilterConfig.noiseTitleWords[i];
+    if (cleaned === noise || cleaned.startsWith(noise) ||
+        cleaned.endsWith(' ' + noise) || cleaned.endsWith('-' + noise) || cleaned.endsWith('—' + noise)) {
       return true;
     }
   }
@@ -354,7 +342,9 @@ function containsNoiseTitleWord(title: string): boolean {
 function looksComicRelated(title: string, url: string, desc: string, keyword: string): boolean {
   const text = (title + ' ' + url + ' ' + desc).toLowerCase();
   const cleanTitle = title.trim();
-  
+
+  // 0. 非漫画域名和屏蔽词已移至 searchFilterConfig，由 isBlockedSearchResult 统一处理
+
   // 1. 过滤标题中的噪音词（图片、举报、帮助、百科等非漫画内容）
   if (containsNoiseTitleWord(title)) return false;
   
@@ -373,43 +363,50 @@ function looksComicRelated(title: string, url: string, desc: string, keyword: st
   // 5. 智能过滤包含明显非漫画关键词的内容（基于内容特征而非硬编码列表）
   // 过滤工具类、技术类、管理类页面
   const toolKeywords = /\b(help|support|contact|about|terms|privacy|cookies|faq|sitemap|archive|category|tag|search|filter|sort|page|pagination|load|update|save|submit|upload|print|pdf|json|xml|zip|rar|exe|app|css|js|html|react|vue|angular|node|electron|flutter)\b/i;
-  const comicKeywords = /(?:comic|comics|manga|manhua|manhwa|webtoon|webcomic|chapter|read|reader|episode|scan|漫画|漫话|章节|在线|阅读|下拉式|免费漫画|看漫画|动漫)/i;
+  const comicKeywords = /(?:comic|comics|manga|manhua|manhwa|webtoon|webcomic|chapter|read|reader|episode|scan|漫画|漫话|章节|在线阅读|在线看|阅读|下拉式|免费漫画|看漫画|动漫)/i;
   // 检查title和text，但title中的工具类关键词优先级更高
   if (toolKeywords.test(title) && !comicKeywords.test(title)) return false;
+  // 5b. 过滤教育/培训等非漫画内容（但标题同时含漫画词时保留）— 使用可配置的 blockedWords
+  if (containsAny(title.toLowerCase(), searchFilterConfig.blockedWords) && !comicKeywords.test(title)) return false;
   
   // 6. 基于可信度的评分系统
   if (isBroadDiscoveryKeyword(keyword)) {
     if (isPreferredComicDomain(url)) return true;
-    return /(comic|comics|manga|manhua|manhwa|webtoon|webcomic|graphic novel|chapter|read|reader|episode|scan|漫画|漫话|章节|在线|阅读|下拉式|免费漫画|看漫画|动漫)/i.test(text);
+    return /(comic|comics|manga|manhua|manhwa|webtoon|webcomic|graphic novel|chapter|read|reader|episode|scan|漫画|漫话|章节|在线阅读|在线看|阅读|下拉式|免费漫画|看漫画|动漫)/i.test(text);
   }
   if (isPreferredComicDomain(url) && hasKeywordMatch(title, url, desc, keyword)) return true;
   if (!hasKeywordMatch(title, url, desc, keyword)) return false;
-  if (keyword.trim().length >= 3) return true;
-  return /(comic|comics|manga|manhua|manhwa|webtoon|webcomic|graphic novel|chapter|read|reader|episode|scan|漫画|漫话|章节|在线|阅读|マンガ|漫画家|코믹|만화)/i.test(text);
+  return /(comic|comics|manga|manhua|manhwa|webtoon|webcomic|graphic novel|chapter|read|reader|episode|scan|漫画|漫话|章节|在线阅读|在线看|阅读|マンガ|漫画家|코믹|만화)/i.test(text);
 }
 
-function makeSearchItem(title: string, url: string, engine: SearchEngineConfig, keyword: string, desc: string, strict: boolean): SearchResultItem | null {
+export function buildDebugMatchInfo(title: string, url: string, desc: string, keyword: string): string {
+  let result = '域名:' + hostOf(url);
+  if (isPreferredComicDomain(url)) result += ' | ✓漫画域名';
+  if (hasKeywordMatch(title, url, desc, keyword)) result += ' | ✓关键词匹配';
+  else result += ' | ✗关键词不匹配';
+  const comicRe = /(?:comic|comics|manga|manhua|manhwa|webtoon|webcomic|chapter|read|reader|episode|scan|漫画|漫话|章节|在线阅读|在线看|阅读|下拉式|免费漫画|看漫画|动漫|マンガ|漫画家|코믹|만화)/i;
+  if (comicRe.test((title + ' ' + url + ' ' + desc).toLowerCase())) result += ' | ✓含漫画词';
+  if (looksComicRelated(title, url, desc, keyword)) result += ' | ✓漫画相关';
+  else result += ' | ✗非漫画相关';
+  return result;
+}
+
+function makeSearchItem(title: string, url: string, engine: SearchEngineConfig, keyword: string, desc: string): SearchResultItem | null {
   const cleanTitle = canonicalSearchTitle(title, keyword);
   const cleanDesc = cleanHtmlText(decodeEntities(desc));
   const cleanUrl = stripRedirect(url);
   if (cleanTitle.length === 0 || !isUsefulUrl(cleanUrl)) return null;
-  if (isBlockedSearchResult(cleanTitle, cleanUrl, cleanDesc)) return null;
-  if (strict && !looksComicRelated(cleanTitle, cleanUrl, cleanDesc, keyword)) return null;
-  return { title: cleanTitle, url: cleanUrl, cover: '', sourceId: engine.id, sourceName: engine.name, isChapter: false, resultType: 'search-engine', groupName: cleanTitle, description: cleanDesc.length > 0 ? cleanDesc : '搜索引擎发现的公开漫画网页结果，点击后进入公开HTML解析链路。', category: '漫画' };
+  if (searchResultFilterMode !== 'browser') {
+    if (isBlockedSearchResult(cleanTitle, cleanUrl, cleanDesc)) return null;
+    if (!looksComicRelated(cleanTitle, cleanUrl, cleanDesc, keyword)) return null;
+  }
+  const debugInfo = buildDebugMatchInfo(cleanTitle, cleanUrl, cleanDesc, keyword);
+  return { title: cleanTitle, url: cleanUrl, cover: '', sourceId: engine.id, sourceName: engine.name, isChapter: false, resultType: 'search-engine', groupName: cleanTitle, description: cleanDesc.length > 0 ? cleanDesc : '搜索引擎发现的公开漫画网页结果，点击后进入公开HTML解析链路。', category: '漫画', debugMatchInfo: debugInfo };
 }
 
 export function buildEngineQuery(keyword: string, extraTerms: string, languageMode: string, siteHint: string): string {
   let query = keyword.trim();
-  if (query === '斗罗') query = '斗罗大陆 OR "Soul Land" OR "Douluo Dalu"';
   if (extraTerms.trim().length > 0) query += ' ' + extraTerms.trim();
-  if (languageMode === 'chinese' || languageMode === '中文') query += ' 漫画';
-  else if (languageMode === 'english' || languageMode === '英文') query += ' comic manga read online chapter';
-  else if (languageMode === 'japanese' || languageMode === '日文') query += ' manga webcomic chapter';
-  else if (languageMode === 'korean' || languageMode === '韩文') query += ' manhwa webtoon episode';
-  // Keep the query compact. Long exclusion chains made HTML search providers
-  // return empty/challenge pages and also removed official Bilibili Manga.
-  // Non-comic domains and words are filtered after parsing instead.
-  query += ' -短视频 -百科';
   if (siteHint.trim().length > 0) query += ' ' + siteHint.trim();
   return query.replace(/\s+/g, ' ').trim();
 }
@@ -432,14 +429,15 @@ export function engineHeaders(engine: SearchEngineConfig, braveKey: string): Rec
   return headers;
 }
 
-function addParsedItem(items: SearchResultItem[], title: string, url: string, engine: SearchEngineConfig, keyword: string, desc: string, strict: boolean): void {
-  const item = makeSearchItem(title, url, engine, keyword, desc, strict);
+function addParsedItem(items: SearchResultItem[], title: string, url: string, engine: SearchEngineConfig, keyword: string, desc: string): void {
+  const item = makeSearchItem(title, url, engine, keyword, desc);
   if (item !== null && !items.some((old: SearchResultItem) => old.url === item.url)) items.push(item);
 }
 
-function parseByPatterns(html: string, engine: SearchEngineConfig, keyword: string, baseUrl: string, strict: boolean): SearchResultItem[] {
+function parseByPatterns(html: string, engine: SearchEngineConfig, keyword: string, baseUrl: string): SearchResultItem[] {
   const items: SearchResultItem[] = [];
   const patterns: RegExp[] = [
+    // Bing patterns
     /<li[^>]+class=["'][^"']*b_algo[^"']*["'][\s\S]*?<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<p[^>]*>([\s\S]{0,520}?)<\/p>[\s\S]*?<\/li>/gim,
     /<li[^>]+class=["'][^"']*b_algo[^"']*["'][\s\S]*?<h2[^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>[\s\S]*?<\/li>/gim,
     /<a[^>]+class=["'][^"']*(?:result__a|result-link|resultLink|result-title|organic__url|serp-item__title-link|vr-title|res-title|c-title|result_title)[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]{1,360}?)<\/a>/gim,
@@ -455,7 +453,7 @@ function parseByPatterns(html: string, engine: SearchEngineConfig, keyword: stri
     while (match !== null && guard < 180) {
       guard++;
       const desc = match.length > 3 ? match[3] : engine.description;
-      addParsedItem(items, match[2], resolveUrl(match[1], baseUrl), engine, keyword, desc, strict);
+      addParsedItem(items, match[2], resolveUrl(match[1], baseUrl), engine, keyword, desc);
       if (regex.lastIndex === match.index) regex.lastIndex++;
       match = regex.exec(html);
     }
@@ -464,26 +462,21 @@ function parseByPatterns(html: string, engine: SearchEngineConfig, keyword: stri
 }
 
 function parseGenericHtmlResults(html: string, engine: SearchEngineConfig, keyword: string, baseUrl: string): SearchResultItem[] {
-  const strictItems = parseByPatterns(html, engine, keyword, baseUrl, true);
-  if (strictItems.length > 0) return strictItems.slice(0, 30);
-  // Only fall back to loose parsing when strict mode returned nothing at all.
-  // Using loose results when strict already found some introduces noise like
-  // "帮助" and "举报" links from search engine chrome.
-  const looseItems = parseByPatterns(html, engine, keyword, baseUrl, false);
-  return looseItems.slice(0, 30);
+  const items = parseByPatterns(html, engine, keyword, baseUrl);
+  return items.slice(0, 30);
 }
 
 function parseGoogleCseResults(jsonText: string, engine: SearchEngineConfig, keyword: string): SearchResultItem[] {
   const items: SearchResultItem[] = [];
   const blocks = extractObjectArrayByKey(jsonText, 'items');
-  for (let i = 0; i < blocks.length && i < 30; i++) addParsedItem(items, readJsonString(blocks[i], 'title'), readJsonString(blocks[i], 'link'), engine, keyword, readJsonString(blocks[i], 'snippet'), true);
+  for (let i = 0; i < blocks.length && i < 30; i++) addParsedItem(items, readJsonString(blocks[i], 'title'), readJsonString(blocks[i], 'link'), engine, keyword, readJsonString(blocks[i], 'snippet'));
   return items;
 }
 
 function parseBraveResults(jsonText: string, engine: SearchEngineConfig, keyword: string): SearchResultItem[] {
   const items: SearchResultItem[] = [];
   const blocks = extractObjectArrayByKey(jsonText, 'results');
-  for (let i = 0; i < blocks.length && i < 50; i++) addParsedItem(items, readJsonString(blocks[i], 'title'), readJsonString(blocks[i], 'url'), engine, keyword, readJsonString(blocks[i], 'description'), true);
+  for (let i = 0; i < blocks.length && i < 50; i++) addParsedItem(items, readJsonString(blocks[i], 'title'), readJsonString(blocks[i], 'url'), engine, keyword, readJsonString(blocks[i], 'description'));
   return items;
 }
 
