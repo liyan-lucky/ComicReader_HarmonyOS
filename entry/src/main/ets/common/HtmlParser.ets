@@ -390,6 +390,65 @@ function extractCoverFromBlock(block: string, pageUrl: string): string {
   return '';
 }
 
+export function extractDetailCover(html: string, baseUrl: string): string {
+  const ogImage = /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i.exec(html);
+  if (ogImage && ogImage.length > 1) {
+    const u = resolveUrl(ogImage[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u)) return u;
+  }
+  const twitterImage = /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i.exec(html);
+  if (twitterImage && twitterImage.length > 1) {
+    const u = resolveUrl(twitterImage[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u)) return u;
+  }
+  const imgCover = /<img[^>]+class=["'][^"']*cover[^"']*["'][^>]+(?:data-original|data-src|src)=["']([^"']+)["']/i.exec(html);
+  if (imgCover && imgCover.length > 1) {
+    const u = resolveUrl(imgCover[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u)) return u;
+  }
+  const imgCoverAlt = /<img[^>]+(?:data-original|data-src|src)=["']([^"']+)["'][^>]+class=["'][^"']*cover[^"']*["']/i.exec(html);
+  if (imgCoverAlt && imgCoverAlt.length > 1) {
+    const u = resolveUrl(imgCoverAlt[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u)) return u;
+  }
+  const divCoverImg = /<div[^>]+class=["'][^"']*cover[^"']*["'][^>]*>[\s\S]{0,500}?<img[^>]+(?:data-original|data-src|src)=["']([^"']+)["']/i.exec(html);
+  if (divCoverImg && divCoverImg.length > 1) {
+    const u = resolveUrl(divCoverImg[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u)) return u;
+  }
+  const divPicImg = /<div[^>]+class=["'][^"']*(?:pic|thumb|poster|book_cover|mh-cover)[^"']*["'][^>]*>[\s\S]{0,500}?<img[^>]+(?:data-original|data-src|src)=["']([^"']+)["']/i.exec(html);
+  if (divPicImg && divPicImg.length > 1) {
+    const u = resolveUrl(divPicImg[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u)) return u;
+  }
+  const imgIdCover = /<img[^>]+id=["'](?:cover|poster|thumb)[^"']*["'][^>]+(?:data-original|data-src|src)=["']([^"']+)["']/i.exec(html);
+  if (imgIdCover && imgIdCover.length > 1) {
+    const u = resolveUrl(imgIdCover[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u)) return u;
+  }
+  const bgImageCover = /background-image\s*:\s*url\(["']?([^"')]+)["']?\)/i.exec(html);
+  if (bgImageCover && bgImageCover.length > 1) {
+    const u = resolveUrl(bgImageCover[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u) && !/(?:logo|icon|avatar|placeholder|loading|sprite|btn|button)/i.test(u)) return u;
+  }
+  const dataOrig = /<img[^>]+data-original=["']([^"']+)["']/i.exec(html);
+  if (dataOrig && dataOrig.length > 1) {
+    const u = resolveUrl(dataOrig[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u) && !/(?:logo|icon|avatar|banner|placeholder)/i.test(u)) return u;
+  }
+  const dataSrc = /<img[^>]+data-src=["']([^"']+)["']/i.exec(html);
+  if (dataSrc && dataSrc.length > 1) {
+    const u = resolveUrl(dataSrc[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u) && !/(?:logo|icon|avatar|banner|placeholder)/i.test(u)) return u;
+  }
+  const jsonCover = /["']?(?:cover|vertical_cover|horizontal_cover|coverUrl|cover_url|coverImage|cover_image|pic|thumb|poster)["']?\s*[:=]\s*["']([^"']+\.(?:jpg|jpeg|png|webp|gif|avif)(?:\?[^"']*)?)["']/i.exec(html);
+  if (jsonCover && jsonCover.length > 1) {
+    const u = resolveUrl(jsonCover[1], baseUrl);
+    if (u.length > 0 && looksLikeImage(u)) return u;
+  }
+  return '';
+}
+
 export function parseSearchResults(html: string, rule: ComicSourceRule, pageUrl: string, keyword: string): SearchResultItem[] {
   const regex = safeRegExp(rule.searchItemRegex);
   const items: SearchResultItem[] = [];

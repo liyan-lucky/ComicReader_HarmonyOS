@@ -45,6 +45,9 @@ Thumbs.db
 .tmp/
 .ui-backups/
 
+# Local junction to rules repo for joint development (not committed)
+/15_ComicReader_Rules
+
 # Accidental Windows device-name files
 nul
 0

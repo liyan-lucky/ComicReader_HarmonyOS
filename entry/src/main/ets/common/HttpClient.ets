@@ -3,7 +3,14 @@ import util from '@ohos.util';
 
 function isAllowedHttpUrl(url: string): boolean {
   const value = url.trim().toLowerCase();
-  return value.startsWith('https://') || value.startsWith('http://');
+  return value.startsWith('https://') || value.startsWith('http://127.0.0.1') || value.startsWith('http://localhost');
+}
+
+function upgradeToHttps(url: string): string {
+  if (url.toLowerCase().startsWith('http://') && !url.toLowerCase().startsWith('http://127.0.0.1') && !url.toLowerCase().startsWith('http://localhost')) {
+    return 'https://' + url.substring(7);
+  }
+  return url;
 }
 
 function isSafeHeaderName(name: string): boolean {
@@ -16,7 +23,8 @@ function isSafeHeaderValue(value: string): boolean {
 
 export class HttpClient {
   static async getBytes(url: string, userAgent: string, referer: string): Promise<ArrayBuffer> {
-    if (!isAllowedHttpUrl(url)) throw new Error('Only HTTP/HTTPS URLs are allowed');
+    const safeUrl = upgradeToHttps(url);
+    if (!isAllowedHttpUrl(safeUrl)) throw new Error('Only HTTPS URLs are allowed');
     const request = http.createHttp();
     const headers: Record<string, string> = {
       'User-Agent': userAgent.length > 0 ? userAgent : 'Mozilla/5.0 HarmonyOS ComicReader/1.0',
@@ -24,7 +32,7 @@ export class HttpClient {
     };
     if (referer.length > 0 && isAllowedHttpUrl(referer)) headers['Referer'] = referer;
     try {
-      const response = await request.request(url, {
+      const response = await request.request(safeUrl, {
         method: http.RequestMethod.GET,
         header: headers,
         connectTimeout: 15000,

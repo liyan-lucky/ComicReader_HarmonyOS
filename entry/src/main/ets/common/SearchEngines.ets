@@ -14,25 +14,30 @@ interface SearchFilterConfig {
   blockedDomains: string[];
   blockedWords: string[];
   noiseTitleWords: string[];
+  officialComicDomains: string[];
+  preferredComicDomains: string[];
 }
 
 export const searchFilterConfig: SearchFilterConfig = {
   blockedDomains: [
-    'iqiyi.com', 'youku.com', 'v.qq.com', 'tv.sohu.com', 'v.baidu.com',
+    'iqiyi.com', 'youku.com', 'v.qq.com', 'sohu.com', 'v.baidu.com',
     'bilibili.com/video', 'douyin.com', 'kuaishou.com', 'zhihu.com',
     '.edu.', 'coursera', 'udemy', 'zhangmen.com', 'zhangmenbaby.com'
   ] as string[],
   blockedWords: [
     '教育', '培训', '课程', '辅导', '网课', '一对一', '考研', '公务员', '职业培训', '英语培训'
   ] as string[],
-  noiseTitleWords: [] as string[]
+  noiseTitleWords: [] as string[],
+  officialComicDomains: [
+    'ac.qq.com/', 'kuaikanmanhua.com/', 'manga.bilibili.com/', 'bilibili.com/manga',
+    'bilibilicomics.com/', 'u17.com/', 'manhuadao', 'dongmanmanhua.cn/', 'acg.sohu.com/'
+  ] as string[],
+  preferredComicDomains: [
+    'ac.qq.com', 'kuaikanmanhua.com', 'manga.bilibili.com', 'bilibilicomics.com', 'u17.com', 'acg.sohu.com',
+    'manhuadao.cn', 'dongmanmanhua.cn', 'soullandmanga.com', 'kaixinman.com', 'manhuaus.com', 'mangafire.to', 'mgeko.cc', 'happymh.com',
+    'mangaread.org', 'mangadna.com', 'mh160mh.com', 'shenlanqiyu.cc', 'manga', 'manhua', 'comic', 'webtoon'
+  ] as string[]
 };
-
-const PREFERRED_COMIC_DOMAINS: string[] = [
-  'ac.qq.com', 'kuaikanmanhua.com', 'manga.bilibili.com', 'bilibilicomics.com', 'u17.com',
-  'manhuadao.cn', 'dongmanmanhua.cn', 'soullandmanga.com', 'kaixinman.com', 'manhuaus.com', 'mangafire.to', 'mgeko.cc', 'happymh.com',
-  'mangaread.org', 'mangadna.com', 'mh160mh.com', 'shenlanqiyu.cc', 'manga', 'manhua', 'comic', 'webtoon'
-];
 
 export const DEFAULT_SEARCH_ENGINES: SearchEngineConfig[] = [
   { id: 'duckduckgo_html', name: 'DuckDuckGo', description: '无 API Key 模式，读取 DuckDuckGo HTML/Lite 搜索结果；过滤短视频、百科、词典、社区和购物等非漫画结果。', engineType: 'duckduckgo-html', searchUrl: 'https://html.duckduckgo.com/html/?q={query}', requiresKey: false, enabled: true },
@@ -258,7 +263,7 @@ function hasKeywordMatch(title: string, url: string, desc: string, keyword: stri
   return false;
 }
 
-function isPreferredComicDomain(url: string): boolean { return containsAny(hostOf(url), PREFERRED_COMIC_DOMAINS); }
+function isPreferredComicDomain(url: string): boolean { return containsAny(hostOf(url), searchFilterConfig.preferredComicDomains); }
 
 function isBroadDiscoveryKeyword(keyword: string): boolean {
   const value = normalizedSearchText(keyword);
@@ -272,10 +277,10 @@ function isBlockedSearchResult(title: string, url: string, desc: string): boolea
   
   // Official comic sections remain valid search resources even when their
   // parent domain also hosts video/community content or requires login/pay.
-  const officialComic = lowerUrl.indexOf('ac.qq.com/') >= 0 || lowerUrl.indexOf('kuaikanmanhua.com/') >= 0 ||
-    lowerUrl.indexOf('manga.bilibili.com/') >= 0 || lowerUrl.indexOf('bilibili.com/manga') >= 0 ||
-    lowerUrl.indexOf('bilibilicomics.com/') >= 0 || lowerUrl.indexOf('u17.com/') >= 0 ||
-    lowerUrl.indexOf('manhuadao') >= 0 || lowerUrl.indexOf('dongmanmanhua.cn/') >= 0;
+  let officialComic = false;
+  for (let i = 0; i < searchFilterConfig.officialComicDomains.length; i++) {
+    if (lowerUrl.indexOf(searchFilterConfig.officialComicDomains[i]) >= 0) { officialComic = true; break; }
+  }
 
   // 搜索引擎结果页面白名单：m.baidu.com / www.baidu.com/s? 等搜索页可能包含漫画链接，不屏蔽
   const isSearchResultPage = host === 'm.baidu.com' || host === 'www.baidu.com' ||

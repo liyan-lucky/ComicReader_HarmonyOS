@@ -32,6 +32,9 @@ struct WebBrowserPage {
   @State showReaderHint: boolean = false;
   private lastSuccessfulUrl: string = '';
   private mainFrameLoadFailed: boolean = false;
+  private isAlive: boolean = true;
+  private restoreTimerId: number = -1;
+  private restoreAttempt: number = 0;
   private controller: webview.WebviewController = new webview.WebviewController();
   private darkModeCssScript: string =
     "(function(){" +
@@ -53,6 +56,11 @@ struct WebBrowserPage {
       this.errorText = this.isDark ? '无效的网址' : 'Invalid URL';
       this.loading = false;
     }
+  }
+
+  aboutToDisappear(): void {
+    this.isAlive = false;
+    if (this.restoreTimerId !== -1) clearTimeout(this.restoreTimerId);
   }
 
   onBackPress(): boolean {
@@ -85,16 +93,20 @@ struct WebBrowserPage {
 
   private handleMainFrameError(errorInfo: string): void {
     this.mainFrameLoadFailed = true;
-    if (errorInfo.indexOf('ERR_CONNECTION_CLOSED') >= 0 && this.lastSuccessfulUrl.length > 0) {
+    if (errorInfo.indexOf('ERR_CONNECTION_CLOSED') >= 0 && this.lastSuccessfulUrl.length > 0 && this.restoreAttempt < 3) {
+      this.restoreAttempt++;
       this.loading = true;
       this.errorText = '';
       const restoreUrl: string = this.lastSuccessfulUrl;
-      setTimeout((): void => {
+      if (this.restoreTimerId !== -1) clearTimeout(this.restoreTimerId);
+      this.restoreTimerId = setTimeout((): void => {
+        if (!this.isAlive) return;
         try { this.controller.loadUrl(restoreUrl); }
         catch (error) { this.loading = false; this.errorText = errorInfo; }
       }, 1500);
       return;
     }
+    this.restoreAttempt = 0;
     this.loading = false;
     this.errorText = errorInfo;
   }
@@ -106,9 +118,9 @@ struct WebBrowserPage {
           Web({ src: this.pageUrl, controller: this.controller, renderMode: RenderMode.SYNC_RENDER })
             .width('100%').height('100%')
             .javaScriptAccess(true).domStorageAccess(true)
-            .mixedMode(MixedMode.All).cacheMode(CacheMode.Default)
+            .mixedMode(MixedMode.None).cacheMode(CacheMode.Default)
             .imageAccess(true).zoomAccess(true)
-            .fileAccess(true).databaseAccess(true)
+            .fileAccess(false).databaseAccess(false)
             .userAgent('Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36')
             .darkMode(this.isDark ? WebDarkMode.On : WebDarkMode.Off)
             .forceDarkAccess(this.isDark)
@@ -128,8 +140,7 @@ struct WebBrowserPage {
                 (event.url.startsWith('http://') || event.url.startsWith('https://'))) {
                 this.lastSuccessfulUrl = event.url;
                 if (event.url !== this.pageUrl) this.pageTitle = '';
-                const detected = isComicDomain(event.url);
-                if (detected) this.showReaderHint = true;
+                this.showReaderHint = isComicDomain(event.url);
               }
               if (this.isDark) {
                 try {
@@ -138,7 +149,7 @@ struct WebBrowserPage {
               }
             })
             .onSslErrorEventReceive((event: OnSslErrorEventReceiveEvent) => {
-              if (event !== undefined && event.handler !== undefined) event.handler.handleConfirm();
+              if (event !== undefined && event.handler !== undefined) event.handler.handleCancel();
             })
             .onErrorReceive((event: OnErrorReceiveEvent) => {
               if (event !== undefined && event.request !== undefined && event.request.isMainFrame() &&

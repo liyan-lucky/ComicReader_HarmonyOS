@@ -15,7 +15,7 @@ export function isSafeRuleUrl(value: string | undefined): boolean {
     return true;
   }
   const lower = value.toLowerCase();
-  return lower.startsWith('https://') || lower.startsWith('http://');
+  return lower.startsWith('https://') || lower.startsWith('http://127.0.0.1') || lower.startsWith('http://localhost');
 }
 
 export function isValidPublicRule(rule: ComicSourceRule): boolean {

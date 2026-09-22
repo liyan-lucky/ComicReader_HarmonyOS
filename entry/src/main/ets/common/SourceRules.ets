@@ -10,6 +10,20 @@ const COMMON_NEXT_PAGE_REGEX = `<a[^>]+href=["']([^"']+)["'][^>]*>(?:\\s*下一�
 const VERIFIED_DESC = '由 1 部作品首/中/末章回放验证；每域一条规则。';
 const PUBLIC_ACCESS_DESC = '搜索引擎发现后的公开页面解析规则：支持详情页章节、章节页图片、懒加载字段、JS/JSON直接图片URL、下一页追踪；静态无图时由无地址栏渲染卷轴兜底。不处理登录、付费、验证码或反爬绕过。';
 
+const dynamicDomainSet: Record<string, boolean> = {};
+
+export function registerDynamicDomains(domains: string[]): void {
+  for (let i = 0; i < domains.length; i++) {
+    let h = domains[i].toLowerCase().trim();
+    const proto = h.indexOf('://');
+    if (proto >= 0) h = h.substring(proto + 3);
+    const slash = h.indexOf('/');
+    if (slash >= 0) h = h.substring(0, slash);
+    if (h.startsWith('www.')) h = h.substring(4);
+    if (h.length > 0) dynamicDomainSet[h] = true;
+  }
+}
+
 const VERIFIED_DOMAIN_LIST: string[] = [
   '288manhua.com', '590ac.com', '5imanhua.click', 'ac.qq.com', 'akmh666.com',
   'asshow.com', 'b.faloo.com', 'baoziaicomic.com', 'bjzf.org', 'bkmh555.com',
@@ -145,6 +159,7 @@ export function isComicDomain(url: string): boolean {
   const slash = host.indexOf('/');
   if (slash >= 0) host = host.substring(0, slash);
   if (host.startsWith('www.')) host = host.substring(4);
+  if (dynamicDomainSet[host]) return true;
   for (let i = 0; i < VERIFIED_DOMAIN_LIST.length; i++) {
     const d = VERIFIED_DOMAIN_LIST[i];
     if (host === d || host.endsWith('.' + d)) return true;

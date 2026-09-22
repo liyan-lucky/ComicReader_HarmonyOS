@@ -1,6 +1,6 @@
 # 当前仓库状态
 
-更新时间：2026-09-20
+更新时间：2026-09-22
 
 > 本轮完整需求与验证基线见 [SESSION_REQUIREMENTS_2026-08-31.md](SESSION_REQUIREMENTS_2026-08-31.md)。
 
@@ -85,3 +85,22 @@
 2. 长期规范、架构、合规、搜索、构建和发布说明放入 `docs/`。
 3. 当前事实变化时，优先同步本文件、根 README 和 `docs/README.md`。
 4. 不重新引入自动 UI 注入脚本、临时 patch workflow 或散落的临时说明文件。
+
+## 2026-09-22 安全审计与修复
+
+全面审计发现41个缺陷（1 Critical + 9 High + 21 Medium + 10 Low），已全部修复：
+
+- **SSL证书验证**：从handleConfirm改为handleCancel，拒绝不安全证书
+- **混合内容**：MixedMode.All改为MixedMode.None
+- **本地文件访问**：fileAccess/databaseAccess改为false
+- **HTTPS强制**：HttpClient自动将HTTP升级为HTTPS
+- **定时器泄漏**：添加aboutToDisappear统一清理8个定时器字段
+- **搜索竞态**：3个搜索函数内部添加generation检查
+- **持久化并发**：引入链式Promise队列消除并发flush
+- **URL去重**：normalizeUrl大小写归一化+尾部斜杠处理
+- **JSON解析安全**：Array.isArray校验+try-catch错误日志
+- **不可变更新**：applyCoverAccuracy返回新对象不修改原对象
+- **XSS防护**：innerHTML改为textContent
+- **重试限制**：ERR_CONNECTION_CLOSED恢复最多3次
+
+详见 [docs/compliance/SECURITY.md](compliance/SECURITY.md) 安全加固措施章节。
