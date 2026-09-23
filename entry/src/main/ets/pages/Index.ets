@@ -1,5 +1,5 @@
 import webview from '@ohos.web.webview';
-import { ComicSourceRule, SearchResultItem, ChapterItem, ReaderImageItem, ReadingHistoryItem, BookshelfItem, SearchEngineConfig, RemoteCatalog, CatalogCategory, CatalogItem, CatalogSource, CoverAccuracyIndex, CoverAccuracyEntry } from '../model/ComicModels';
+import { ComicSourceRule, SearchResultItem, ChapterItem, ReaderImageItem, ReaderImageCompleteEvent, ReaderChapterSpan, ReadingHistoryItem, BookshelfItem, SearchEngineConfig, RemoteCatalog, CatalogCategory, CatalogItem, CatalogSource, CoverAccuracyIndex, CoverAccuracyEntry } from '../model/ComicModels';
 import { DEFAULT_SOURCES, SEARCHABLE_COMIC_SOURCES, RULE_TEMPLATE, ruleForPublicUrl, VERIFIED_DOMAIN_COUNT, PUBLIC_ACCESS_DOMAIN_COUNT, isComicDomain, registerDynamicDomains } from '../common/SourceRules';
 import { HttpClient } from '../common/HttpClient';
 import { parseSearchResults, parseComicListingResults, parseChapters, parseChaptersFallback, parseImages, parseNextPageUrl, extractDetailCover } from '../common/HtmlParser';
@@ -224,6 +224,8 @@ struct Index {
   @State private readerDarkMode: boolean = true;
   @State private fullscreenReader: boolean = true;
   @State private floatingReaderControls: boolean = true;
+  @State private readerAutoLoadNext: boolean = true;
+  @State private readerAutoLoadPrev: boolean = false;
   @State private iconColorMode: string = 'colorful';
   @State private readerToolsVisible: boolean = false;
   @State private readerChapterPanelVisible: boolean = false;
@@ -233,6 +235,11 @@ struct Index {
   private readerPanStartX: number = 0;
   private readerViewportWidth: number = 0;
   private readerGestureEndedAt: number = 0;
+  private readerFirstChapterUrl: string = '';
+  private readerPrevArmed: boolean = false;
+  private readerScrollController: Scroller = new Scroller();
+  @State private displayChapterTitle: string = '';
+  private readerChapterSpans: ReaderChapterSpan[] = [];
   @State private appTheme: string = 'system';
   @State private appLanguage: string = 'zh';
   @StorageProp('systemColorMode') private systemColorMode: string = 'light';
@@ -251,6 +258,9 @@ struct Index {
   @State private updatingCatalog: boolean = false;
   @State private updatingRules: boolean = false;
   @State private syncingFilterWords: boolean = false;
+  @State private updateProgressPercent: number = 0;
+  @State private updateProgressText: string = '';
+  @State private updateActiveLabel: string = '';
   @State private syncingFilterSection: number = 0;
   @State private lastSyncedFilterSection: number = 0;
   @State private filterWordsStatus: string = '';
@@ -505,6 +515,8 @@ struct Index {
       this.maxReaderPages = await this.preferencesStore.get('max_reader_pages', 30) as number;
       this.showImageIndex = await this.preferencesStore.get('show_image_index', true) as boolean;
       this.readerDarkMode = await this.preferencesStore.get('reader_dark_mode', true) as boolean;
+      this.readerAutoLoadNext = await this.preferencesStore.get('reader_auto_load_next', true) as boolean;
+      this.readerAutoLoadPrev = await this.preferencesStore.get('reader_auto_load_prev', false) as boolean;
       const savedBlockedDomains = await this.preferencesStore.get('custom_blocked_domains', '') as string;
       if (typeof savedBlockedDomains === 'string' && savedBlockedDomains.length > 0) {
         this.customBlockedDomains = savedBlockedDomains;
@@ -576,6 +588,8 @@ struct Index {
       await this.preferencesStore.put('max_reader_pages', this.maxReaderPages);
       await this.preferencesStore.put('show_image_index', this.showImageIndex);
       await this.preferencesStore.put('reader_dark_mode', this.readerDarkMode);
+      await this.preferencesStore.put('reader_auto_load_next', this.readerAutoLoadNext);
+      await this.preferencesStore.put('reader_auto_load_prev', this.readerAutoLoadPrev);
       await this.preferencesStore.put('custom_blocked_domains', this.customBlockedDomains);
       await this.preferencesStore.put('custom_blocked_words', this.customBlockedWords);
       await this.preferencesStore.put('custom_noise_words', this.customNoiseWords);
@@ -1225,6 +1239,8 @@ struct Index {
       if (key === 'follow_system') return 'System';
       if (key === 'reader_fullscreen') return 'Fullscreen Reader';
       if (key === 'floating_controls') return 'Floating Controls';
+      if (key === 'reader_auto_load_next') return 'Auto-load next chapter at bottom';
+      if (key === 'reader_auto_load_prev') return 'Auto-load previous chapter at top';
       if (key === 'icon_color') return 'Icon Color';
       if (key === 'icon_color_colorful') return 'Colorful';
       if (key === 'icon_color_red') return 'Red';
@@ -1389,6 +1405,8 @@ struct Index {
     if (key === 'follow_system') return '跟随系统';
     if (key === 'reader_fullscreen') return '阅读全屏';
     if (key === 'floating_controls') return '悬浮控制';
+    if (key === 'reader_auto_load_next') return '到底自动加载下一章';
+    if (key === 'reader_auto_load_prev') return '到顶自动加载上一章';
     if (key === 'icon_color') return '图标颜色';
     if (key === 'icon_color_colorful') return '多彩';
     if (key === 'icon_color_red') return '红色';
@@ -2641,6 +2659,10 @@ struct Index {
     this.currentUrl = chapter.url;
     this.currentSourceId = chapter.sourceId;
     this.currentSourceName = chapter.sourceName;
+    this.readerFirstChapterUrl = chapter.url;
+    this.readerPrevArmed = false;
+    this.readerChapterSpans = [{ title: chapter.title, startIndex: 0 } as ReaderChapterSpan];
+    this.displayChapterTitle = chapter.title;
     this.images = [];
     this.readerRenderLimit = 6;
     this.readerPaginationLoading = true;
@@ -2791,10 +2813,16 @@ struct Index {
 
   private async loadNextChapterIfReady(): Promise<void> {
     if (this.readerChangingChapter || this.readerPaginationLoading || !this.currentImagesFinished()) return;
+    if (!this.readerAutoLoadNext) {
+      await this.loadRelativeChapter(1);
+      return;
+    }
     const ordered = this.chaptersInReadingOrder();
     const currentIndex = ordered.findIndex((item: ChapterItem) => item.url === this.currentUrl);
     if (currentIndex < 0 || currentIndex + 1 >= ordered.length) return;
     const nextChapter = ordered[currentIndex + 1];
+    const firstUrl = this.readerFirstChapterUrl.length > 0 ? this.readerFirstChapterUrl : this.currentUrl;
+    if (nextChapter.url === firstUrl) return;
     this.readerChangingChapter = true;
     try {
       const oldLength = this.images.length;
@@ -2811,6 +2839,7 @@ struct Index {
       this.currentSourceName = nextChapter.sourceName;
       this.images = appended;
       this.readerRenderLimit = Math.min(appended.length, oldLength + 6);
+      this.readerChapterSpans.push({ title: nextChapter.title, startIndex: oldLength } as ReaderChapterSpan);
       this.addHistory(nextChapter, nextImages.length);
       this.updateFavoriteReadingPosition();
       this.statusText = this.isEn() ? 'Continued to ' + nextChapter.title : '已连续加载 ' + nextChapter.title;
@@ -2830,6 +2859,82 @@ struct Index {
       await this.loadChapter(ordered[targetIndex], this.findRule(ordered[targetIndex].sourceId));
     } finally {
       this.readerChangingChapter = false;
+    }
+  }
+
+  private async handleReaderReachStart(): Promise<void> {
+    if (!this.readerPrevArmed) return;
+    this.readerPrevArmed = false;
+    if (this.readerChangingChapter || this.readerPaginationLoading) return;
+    if (!this.readerAutoLoadPrev) {
+      await this.loadRelativeChapter(-1);
+      return;
+    }
+    await this.loadPrevChapterIfReady();
+  }
+
+  private async loadPrevChapterIfReady(): Promise<void> {
+    if (this.readerChangingChapter || this.readerPaginationLoading) return;
+    const ordered = this.chaptersInReadingOrder();
+    const firstUrl = this.readerFirstChapterUrl.length > 0 ? this.readerFirstChapterUrl : this.currentUrl;
+    const firstIndex = ordered.findIndex((item: ChapterItem) => item.url === firstUrl);
+    if (firstIndex <= 0) return;
+    const prevChapter = ordered[firstIndex - 1];
+    this.readerChangingChapter = true;
+    try {
+      const prevImages = await this.fetchReaderImagesWithPagination(prevChapter.url,
+        this.findRule(prevChapter.sourceId), false);
+      if (prevImages.length === 0) return;
+      const existing = new Set<string>(this.images.map((item: ReaderImageItem) => item.url));
+      if (prevImages.some((image: ReaderImageItem) => existing.has(image.url))) return;
+      const prepended: ReaderImageItem[] = [];
+      for (let i = 0; i < prevImages.length; i++) {
+        prepended.push({ url: prevImages[i].url, index: -(i + 1), status: 'waiting' });
+      }
+      this.images = [...prepended, ...this.images];
+      this.readerFirstChapterUrl = prevChapter.url;
+      this.readerRenderLimit = this.images.length;
+      this.currentChapterTitle = prevChapter.title;
+      for (let i = 0; i < this.readerChapterSpans.length; i++) {
+        this.readerChapterSpans[i].startIndex += prevImages.length;
+      }
+      this.readerChapterSpans.unshift({ title: prevChapter.title, startIndex: 0 } as ReaderChapterSpan);
+      this.addHistory(prevChapter, prevImages.length);
+      this.statusText = this.isEn() ? 'Prepended ' + prevChapter.title : '已在上方拼接 ' + prevChapter.title;
+    } finally {
+      this.readerChangingChapter = false;
+    }
+  }
+
+  private handleReaderImageComplete(item: ReaderImageItem, event: ReaderImageCompleteEvent): void {
+    const isNew = item.index < 0 && item.status === 'waiting';
+    this.markImage(item.index, 'ok');
+    if (!isNew) return;
+    const width = Number(event?.width);
+    const height = Number(event?.height);
+    if (width <= 0 || height <= 0 || this.readerViewportWidth <= 0) return;
+    if (this.readerZoomScale > 1.001) return;
+    const delta = this.readerViewportWidth * height / width;
+    setTimeout(() => { this.readerScrollController.scrollBy(0, delta); }, 0);
+  }
+
+  private onReaderScrollOffset(_x: number, y: number): void {
+    if (y > 100) this.readerPrevArmed = true;
+    this.updateDisplayChapterTitle(y);
+  }
+
+  private updateDisplayChapterTitle(yOffset: number): void {
+    if (this.readerChapterSpans.length === 0) return;
+    const avgHeight = this.readerViewportWidth > 0 ? this.readerViewportWidth * 1.4 : 200;
+    const visibleIndex = Math.floor(yOffset / avgHeight);
+    let title = this.readerChapterSpans[0].title;
+    for (let i = 0; i < this.readerChapterSpans.length; i++) {
+      if (visibleIndex >= this.readerChapterSpans[i].startIndex) {
+        title = this.readerChapterSpans[i].title;
+      }
+    }
+    if (this.displayChapterTitle !== title) {
+      this.displayChapterTitle = title;
     }
   }
 
@@ -3977,17 +4082,25 @@ struct Index {
     this.remoteRuleStatus = this.t('remote_updating');
     this.updatingRules = true;
     this.ruleProgressPercent = 0;
-    this.ruleProgressStatus = this.catalogStage('正在连接规则服务器…', 'Connecting to rule server…');
+    this.updateActiveLabel = this.t('update_rules');
+    this.updateProgressPercent = 0;
+    this.updateProgressText = this.catalogStage('正在连接规则服务器…', 'Connecting to rule server…');
+    this.ruleProgressStatus = this.updateProgressText;
     try {
       this.ruleProgressStatus = this.catalogStage('正在下载规则…', 'Downloading rules…');
+      this.updateProgressText = this.ruleProgressStatus;
       const loaded = await RemoteRuleService.fetchRemoteRules(this.remoteRuleUrl,
         (received: number, total: number) => {
           this.ruleReceivedBytes = received;
           this.ruleTotalBytes = total;
           this.ruleProgressPercent = total > 0 ? Math.min(90, Math.floor(received * 90 / total)) : 0;
+          this.updateProgressPercent = this.ruleProgressPercent;
+          this.updateProgressText = this.ruleProgressPercent + '% · ' + this.formatBytes(received) + ' / ' + this.formatBytes(total);
         });
       this.ruleProgressPercent = 90;
+      this.updateProgressPercent = 90;
       this.ruleProgressStatus = this.catalogStage('正在解析并保存规则…', 'Parsing and saving rules…');
+      this.updateProgressText = this.ruleProgressStatus;
       if (loaded.length > 0) {
         let added = 0;
         let changed = 0;
@@ -4018,11 +4131,15 @@ struct Index {
         this.ruleProgressStatus = this.remoteRuleStatus;
       }
       this.ruleProgressPercent = 100;
+      this.updateProgressPercent = 100;
+      this.updateProgressText = this.remoteRuleStatus;
     } catch (err) {
       this.remoteRuleStatus = this.t('remote_failed');
       this.ruleProgressStatus = this.remoteRuleStatus;
+      this.updateProgressText = this.remoteRuleStatus;
     }
     this.updatingRules = false;
+    this.updateActiveLabel = '';
   }
 
   private async updateCatalog(): Promise<void> {
@@ -4031,11 +4148,15 @@ struct Index {
     this.catalogReceivedBytes = 0;
     this.catalogTotalBytes = 0;
     this.catalogProgressPercent = 0;
+    this.updateActiveLabel = this.t('update_catalog');
+    this.updateProgressPercent = 0;
     try {
       this.catalogUpdateStatus = this.catalogStage('正在检查线上目录版本…', 'Checking online catalog version…');
+      this.updateProgressText = this.catalogUpdateStatus;
       const update = await CatalogService.fetchCatalogUpdate(this.catalogUpdateUrl);
       if (CatalogService.isNewerVersion(update.version, this.remoteCatalog?.version)) {
         this.catalogUpdateStatus = this.catalogStage('发现新版本，正在下载目录…', 'New version found. Downloading catalog…');
+        this.updateProgressText = this.catalogUpdateStatus;
         this.pendingCatalogVersion = update.version;
         this.pendingCatalogUrl = update.url;
         const catalog = await CatalogService.fetchCatalogFromUrl(update.url,
@@ -4043,6 +4164,8 @@ struct Index {
             this.catalogReceivedBytes = received;
             this.catalogTotalBytes = total;
             this.catalogProgressPercent = total > 0 ? Math.min(100, Math.floor(received * 100 / total)) : 0;
+            this.updateProgressPercent = this.catalogProgressPercent;
+            this.updateProgressText = this.catalogProgressPercent + '% · ' + this.formatBytes(received) + ' / ' + this.formatBytes(total);
           });
         if (catalog.version === update.version) {
           this.catalogUpdateStatus = this.catalogStage('下载完成，正在校验并写入缓存…', 'Download complete. Validating and caching…');
@@ -4050,6 +4173,7 @@ struct Index {
           this.saveCatalogCache(catalog);
           this.applyCatalog(catalog);
           this.catalogProgressPercent = 100;
+          this.updateProgressPercent = 100;
           this.catalogUpdateAvailable = false;
           this.catalogUpdateStatus = this.catalogStage(
             '目录已更新至 ' + update.version + '（' + this.remoteCatalogItemCount + '本书）',
@@ -4058,13 +4182,16 @@ struct Index {
       } else {
         this.catalogUpdateStatus = this.catalogStage('目录已是最新，继续使用缓存',
           'Catalog is current. Using cache.');
+        this.updateProgressText = this.catalogUpdateStatus;
       }
     } catch (err) {
       this.catalogUpdateStatus = this.catalogStage('线上检查失败，继续使用现有缓存',
         'Online check failed. Using existing cache.');
+      this.updateProgressText = this.catalogUpdateStatus;
       console.error('ComicReader catalog manual update failed: ' + JSON.stringify(err));
     }
     this.updatingCatalog = false;
+    this.updateActiveLabel = '';
   }
 
   private async checkCatalogUpdateOnShelfEntry(): Promise<void> {
@@ -4107,21 +4234,28 @@ struct Index {
     this.syncingFilterWords = true;
     this.syncingFilterSection = section;
     this.filterWordsProgressPercent = 0;
+    this.updateProgressPercent = 0;
     const sectionNames: string[] = ['', '屏蔽域名', '屏蔽词', '噪点标题', '白名单', '首选域名'];
     const sectionNamesEn: string[] = ['', 'Domains', 'Words', 'Noise', 'Official', 'Preferred'];
     const label = section === 0 ? '过滤配置' : sectionNames[section];
     const labelEn = section === 0 ? 'Filter Config' : sectionNamesEn[section];
+    this.updateActiveLabel = label;
     this.filterWordsStatus = this.catalogStage('正在连接服务器…', 'Connecting…');
     try {
       this.filterWordsStatus = this.catalogStage('正在下载' + label + '…', 'Downloading ' + labelEn + '…');
+      this.updateProgressText = this.filterWordsStatus;
       const content = await RemoteRuleService.fetchFilterWords(this.filterWordsUrl,
         (received: number, total: number) => {
           this.filterWordsReceivedBytes = received;
           this.filterWordsTotalBytes = total;
           this.filterWordsProgressPercent = total > 0 ? Math.min(90, Math.floor(received * 90 / total)) : 0;
+          this.updateProgressPercent = this.filterWordsProgressPercent;
+          this.updateProgressText = this.filterWordsProgressPercent + '% · ' + this.formatBytes(received) + ' / ' + this.formatBytes(total);
         });
       this.filterWordsProgressPercent = 90;
+      this.updateProgressPercent = 90;
       this.filterWordsStatus = this.catalogStage('正在解析并保存…', 'Parsing and saving…');
+      this.updateProgressText = this.filterWordsStatus;
       if (content.trim().length === 0) {
         this.filterWordsStatus = this.catalogStage('远程文件为空', 'Remote file is empty');
         this.filterWordsProgressPercent = 100;
@@ -4175,13 +4309,17 @@ struct Index {
         this.statusText = this.filterWordsStatus;
       }
       this.filterWordsProgressPercent = 100;
+      this.updateProgressPercent = 100;
+      this.updateProgressText = this.filterWordsStatus;
     } catch (err) {
       this.filterWordsStatus = this.catalogStage('同步失败', 'Sync failed');
+      this.updateProgressText = this.filterWordsStatus;
       console.error('ComicReader syncFilterWords failed: ' + JSON.stringify(err));
     }
     this.syncingFilterWords = false;
     this.lastSyncedFilterSection = section;
     this.syncingFilterSection = 0;
+    this.updateActiveLabel = '';
   }
 
   private onStatusTextChanged(): void {
@@ -4702,7 +4840,7 @@ struct Index {
   @Builder
   private ReaderPage() {
     Stack() {
-      Scroll() {
+      Scroll(this.readerScrollController) {
         Column() {
           if (this.showDebugInfo) {
             Row() {
@@ -4719,7 +4857,7 @@ struct Index {
           ForEach(this.displayedReaderImages(), (item: ReaderImageItem) => {
             Column() {
               if (this.showImageIndex && item.status === 'error') {
-                Text('#' + item.index + ' · ' + this.t('image_failed'))
+                Text('#' + Math.abs(item.index) + ' · ' + this.t('image_failed'))
                   .fontSize(11)
                   .fontColor(this.secondaryText())
                   .padding({ top: 4, bottom: 4 })
@@ -4728,7 +4866,7 @@ struct Index {
                 .width('100%')
                 .objectFit(ImageFit.Contain)
                 .backgroundColor(this.readerDarkMode ? '#111111' : '#FFFFFF')
-                .onComplete(() => this.markImage(item.index, 'ok'))
+                .onComplete((event: ReaderImageCompleteEvent) => this.handleReaderImageComplete(item, event))
                 .onError(() => this.markImage(item.index, 'error'))
             }.width('100%')
           }, (item: ReaderImageItem) => item.url + item.index)
@@ -4747,7 +4885,9 @@ struct Index {
           this.readerPanX = this.clampReaderPan(this.readerPanX);
         }
       })
+      .onScroll((x: number, y: number) => { this.onReaderScrollOffset(x, y); })
       .onReachEnd(() => { this.loadNextChapterIfReady(); })
+      .onReachStart(() => { this.handleReaderReachStart(); })
       .onClick(() => {
         if (Date.now() - this.readerGestureEndedAt < 300) return;
         if (this.floatingReaderControls) this.readerToolsVisible = !this.readerToolsVisible;
@@ -4801,7 +4941,7 @@ struct Index {
               .border({ width: 1, color: this.borderSubtle() })
               .shadow({ radius: 8, color: '#28000000', offsetY: 3 })
               .onClick(() => { this.applyReaderFullscreen(false); this.mode = this.chapters.length > 0 ? 'chapters' : 'results'; })
-            Text(this.currentChapterTitle.length > 0 ? this.currentChapterTitle : this.currentTitle)
+            Text(this.displayChapterTitle.length > 0 ? this.displayChapterTitle : (this.currentChapterTitle.length > 0 ? this.currentChapterTitle : this.currentTitle))
               .fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
               .margin({ left: 10, right: 10 }).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
             Column() {
@@ -5311,6 +5451,8 @@ struct Index {
             Column({ space: 0 }) {
               Column() { this.DialogToggleRow('ic_eye', this.t('auto_cover'), this.autoCoverEnabled, false, (isOn: boolean) => { this.autoCoverEnabled = isOn; this.persistData(); }) }
               Column() { this.DialogToggleRow('ic_layout', this.t('show_page_num'), this.showImageIndex, true, (isOn: boolean) => { this.showImageIndex = isOn; this.persistData(); }) }
+              Column() { this.DialogToggleRow('ic_chevron_down', this.t('reader_auto_load_next'), this.readerAutoLoadNext, true, (isOn: boolean) => { this.readerAutoLoadNext = isOn; this.persistData(); }) }
+              Column() { this.DialogToggleRow('ic_chevron_up', this.t('reader_auto_load_prev'), this.readerAutoLoadPrev, true, (isOn: boolean) => { this.readerAutoLoadPrev = isOn; this.persistData(); }) }
             }.width('100%')
             Column({ space: 0 }) {
               Row() {
@@ -5581,164 +5723,97 @@ struct Index {
             Text(this.t('update_rules')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.updatingRules) {
               LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
-            } else {
-              Text(this.remoteRuleCount + this.t('rules_unit')).fontSize(13).fontColor(this.secondaryText())
+            } else if (this.remoteRuleStatus.length > 0 && this.remoteRuleStatus !== this.t('remote_not_updated') && this.remoteRuleStatus.indexOf('失败') < 0) {
+              Image($rawfile('ic_check_circle.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.colorfulAccent('update-sync-icon'))).margin({ left: 4 })
             }
+            Text(this.remoteRuleCount + this.t('rules_unit')).fontSize(13).fontColor(this.secondaryText()).margin({ left: 4 })
             Image($rawfile('ic_edit.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.secondaryText())).margin({ left: 8 }).onClick(() => { this.urlEditTarget = 'rule'; this.urlEditValue = this.remoteRuleUrl; })
           }.width('100%').height(50).onClick(() => { this.updateRemoteRules(); })
-          if (this.updatingRules || this.ruleProgressPercent > 0) {
-            Column({ space: 4 }) {
-              Progress({ value: this.ruleProgressPercent, total: 100, type: ProgressType.Linear })
-                .width('100%').height(5).color(this.colorfulAccent('progress-catalog'))
-              Text(this.ruleProgressText()).fontSize(11).fontColor(this.secondaryText()).width('100%')
-            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          } else if (this.remoteRuleStatus.length > 0 && this.remoteRuleStatus !== this.t('remote_not_updated')) {
-            Text(this.remoteRuleStatus).fontSize(11).fontColor(this.secondaryText())
-              .width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          }
-          if (this.remoteRuleStatus.length > 0 || this.coverAccuracyStatus.length > 0) {
-            Row() {
-              Image($rawfile('ic_info.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.secondaryText())).margin({ right: 6 })
-              Text(this.t('online_rule_changes')).fontSize(11).fontWeight(FontWeight.Bold).fontColor(this.primaryText())
-            }.width('100%').padding({ left: 30, right: 4, bottom: 4 })
-          }
-          if (this.coverAccuracyStatus.length > 0) {
-            Row() {
-              Image($rawfile('ic_check_circle.svg')).width(14).height(14).colorFilter(createStrokeIconColorFilter(this.secondaryText())).margin({ right: 6 })
-              Text(this.coverAccuracyStatus).fontSize(11).fontColor(this.secondaryText())
-            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          }
           Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
           Row() {
             Image($rawfile('ic_shelf.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shelf'))).margin({ right: 10 })
             Text(this.t('update_catalog')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.updatingCatalog) {
               LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
+            } else if (this.catalogUpdateAvailable) {
+              Image($rawfile('ic_refresh.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.warnText())).margin({ left: 4 })
             } else {
-              Text(this.catalogUpdateAvailable
-                ? (this.remoteCatalogItemCount > 0
-                  ? this.catalogTotalItems + ' → ' + this.remoteCatalogItemCount + this.t('items_unit')
-                  : this.catalogStage('有更新', 'Update available'))
-                : this.catalogTotalItems + this.t('items_unit'))
-                .fontSize(13)
-                .fontColor(this.catalogUpdateAvailable ? this.warnText() : this.secondaryText())
+              Image($rawfile('ic_check_circle.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.colorfulAccent('update-sync-icon'))).margin({ left: 4 })
             }
+            Text(this.catalogTotalItems + this.t('items_unit')).fontSize(13).fontColor(this.secondaryText()).margin({ left: 4 })
             Image($rawfile('ic_edit.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.secondaryText())).margin({ left: 8 }).onClick(() => { this.urlEditTarget = 'catalog'; this.urlEditValue = this.catalogUpdateUrl; })
           }.width('100%').height(50).onClick(() => { this.updateCatalog(); })
-          if (this.updatingCatalog || this.catalogProgressPercent > 0) {
-            Column({ space: 4 }) {
-              Progress({ value: this.catalogProgressPercent, total: 100, type: ProgressType.Linear })
-                .width('100%').height(5).color(this.colorfulAccent('progress-catalog'))
-              Text(this.catalogProgressText()).fontSize(11).fontColor(this.secondaryText()).width('100%')
-            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          } else if (this.catalogUpdateStatus.length > 0) {
-            Text(this.catalogUpdateStatus).fontSize(11).fontColor(this.secondaryText())
-              .width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          }
           Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
           Row() {
             Image($rawfile('ic_block.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_block'))).margin({ right: 10 })
             Text(this.catalogStage('同步屏蔽域名', 'Sync Blocked Domains')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.syncingFilterSection === 1) {
               LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
-            } else {
-              Text(searchFilterConfig.blockedDomains.length + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText())
+            } else if (this.lastSyncedFilterSection === 1) {
+              Image($rawfile('ic_check_circle.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.colorfulAccent('update-sync-icon'))).margin({ left: 4 })
             }
+            Text(searchFilterConfig.blockedDomains.length + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText()).margin({ left: 4 })
             Image($rawfile('ic_edit.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.secondaryText())).margin({ left: 8 }).onClick(() => { this.urlEditTarget = 'filter'; this.urlEditValue = this.filterWordsUrl; })
           }.width('100%').height(50).onClick(() => { this.syncFilterWords(1); })
-          if (this.syncingFilterSection === 1) {
-            Column({ space: 4 }) {
-              Progress({ value: this.filterWordsProgressPercent, total: 100, type: ProgressType.Linear })
-                .width('100%').height(5).color(this.colorfulAccent('progress-catalog'))
-              Text(this.filterWordsProgressText()).fontSize(11).fontColor(this.secondaryText()).width('100%')
-            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          } else if (this.lastSyncedFilterSection === 1 && this.filterWordsStatus.length > 0) {
-            Text(this.filterWordsStatus).fontSize(11).fontColor(this.secondaryText())
-              .width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          }
           Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
           Row() {
             Image($rawfile('ic_filter.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_filter'))).margin({ right: 10 })
             Text(this.catalogStage('同步屏蔽词', 'Sync Blocked Words')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.syncingFilterSection === 2) {
               LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
-            } else {
-              Text(searchFilterConfig.blockedWords.length + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText())
+            } else if (this.lastSyncedFilterSection === 2) {
+              Image($rawfile('ic_check_circle.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.colorfulAccent('update-sync-icon'))).margin({ left: 4 })
             }
+            Text(searchFilterConfig.blockedWords.length + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText()).margin({ left: 4 })
             Image($rawfile('ic_edit.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.secondaryText())).margin({ left: 8 }).onClick(() => { this.urlEditTarget = 'filter'; this.urlEditValue = this.filterWordsUrl; })
           }.width('100%').height(50).onClick(() => { this.syncFilterWords(2); })
-          if (this.syncingFilterSection === 2) {
-            Column({ space: 4 }) {
-              Progress({ value: this.filterWordsProgressPercent, total: 100, type: ProgressType.Linear })
-                .width('100%').height(5).color(this.colorfulAccent('progress-catalog'))
-              Text(this.filterWordsProgressText()).fontSize(11).fontColor(this.secondaryText()).width('100%')
-            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          } else if (this.lastSyncedFilterSection === 2 && this.filterWordsStatus.length > 0) {
-            Text(this.filterWordsStatus).fontSize(11).fontColor(this.secondaryText())
-              .width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          }
           Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
           Row() {
             Image($rawfile('ic_megaphone.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_megaphone'))).margin({ right: 10 })
             Text(this.catalogStage('同步噪点标题', 'Sync Noise Words')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.syncingFilterSection === 3) {
               LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
-            } else {
-              Text(searchFilterConfig.noiseTitleWords.length + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText())
+            } else if (this.lastSyncedFilterSection === 3) {
+              Image($rawfile('ic_check_circle.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.colorfulAccent('update-sync-icon'))).margin({ left: 4 })
             }
+            Text(searchFilterConfig.noiseTitleWords.length + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText()).margin({ left: 4 })
             Image($rawfile('ic_edit.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.secondaryText())).margin({ left: 8 }).onClick(() => { this.urlEditTarget = 'filter'; this.urlEditValue = this.filterWordsUrl; })
           }.width('100%').height(50).onClick(() => { this.syncFilterWords(3); })
-          if (this.syncingFilterSection === 3) {
-            Column({ space: 4 }) {
-              Progress({ value: this.filterWordsProgressPercent, total: 100, type: ProgressType.Linear })
-                .width('100%').height(5).color(this.colorfulAccent('progress-catalog'))
-              Text(this.filterWordsProgressText()).fontSize(11).fontColor(this.secondaryText()).width('100%')
-            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          } else if (this.lastSyncedFilterSection === 3 && this.filterWordsStatus.length > 0) {
-            Text(this.filterWordsStatus).fontSize(11).fontColor(this.secondaryText())
-              .width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          }
           Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
           Row() {
             Image($rawfile('ic_shield_check.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shield_check'))).margin({ right: 10 })
             Text(this.catalogStage('同步白名单', 'Sync Official Domains')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.syncingFilterSection === 4) {
               LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
-            } else {
-              Text(searchFilterConfig.officialComicDomains.length + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText())
+            } else if (this.lastSyncedFilterSection === 4) {
+              Image($rawfile('ic_check_circle.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.colorfulAccent('update-sync-icon'))).margin({ left: 4 })
             }
+            Text(searchFilterConfig.officialComicDomains.length + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText()).margin({ left: 4 })
             Image($rawfile('ic_edit.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.secondaryText())).margin({ left: 8 }).onClick(() => { this.urlEditTarget = 'filter'; this.urlEditValue = this.filterWordsUrl; })
           }.width('100%').height(50).onClick(() => { this.syncFilterWords(4); })
-          if (this.syncingFilterSection === 4) {
-            Column({ space: 4 }) {
-              Progress({ value: this.filterWordsProgressPercent, total: 100, type: ProgressType.Linear })
-                .width('100%').height(5).color(this.colorfulAccent('progress-catalog'))
-              Text(this.filterWordsProgressText()).fontSize(11).fontColor(this.secondaryText()).width('100%')
-            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          } else if (this.lastSyncedFilterSection === 4 && this.filterWordsStatus.length > 0) {
-            Text(this.filterWordsStatus).fontSize(11).fontColor(this.secondaryText())
-              .width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          }
           Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
           Row() {
             Image($rawfile('ic_shield.svg')).width(20).height(20).colorFilter(createStrokeIconColorFilter(this.iconColor('ic_shield'))).margin({ right: 10 })
             Text(this.catalogStage('同步首选域名', 'Sync Preferred Domains')).fontSize(16).fontColor(this.primaryText()).layoutWeight(1)
             if (this.syncingFilterSection === 5) {
               LoadingProgress().width(18).height(18).color(this.colorfulAccent('loading-update'))
-            } else {
-              Text(searchFilterConfig.preferredComicDomains.length + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText())
+            } else if (this.lastSyncedFilterSection === 5) {
+              Image($rawfile('ic_check_circle.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.colorfulAccent('update-sync-icon'))).margin({ left: 4 })
             }
+            Text(searchFilterConfig.preferredComicDomains.length + this.catalogStage('条', ' items')).fontSize(13).fontColor(this.secondaryText()).margin({ left: 4 })
             Image($rawfile('ic_edit.svg')).width(18).height(18).colorFilter(createStrokeIconColorFilter(this.secondaryText())).margin({ left: 8 }).onClick(() => { this.urlEditTarget = 'filter'; this.urlEditValue = this.filterWordsUrl; })
           }.width('100%').height(50).onClick(() => { this.syncFilterWords(5); })
-          if (this.syncingFilterSection === 5) {
+          if (this.updatingRules || this.updatingCatalog || this.syncingFilterWords) {
+            Divider().color(this.borderSubtle()).width('100%').padding({ left: 32 })
             Column({ space: 4 }) {
-              Progress({ value: this.filterWordsProgressPercent, total: 100, type: ProgressType.Linear })
-                .width('100%').height(5).color(this.colorfulAccent('progress-catalog'))
-              Text(this.filterWordsProgressText()).fontSize(11).fontColor(this.secondaryText()).width('100%')
-            }.width('100%').padding({ left: 30, right: 4, bottom: 6 })
-          } else if (this.lastSyncedFilterSection === 5 && this.filterWordsStatus.length > 0) {
-            Text(this.filterWordsStatus).fontSize(11).fontColor(this.secondaryText())
-              .width('100%').padding({ left: 30, right: 4, bottom: 6 })
+              Row() {
+                Text(this.updateActiveLabel.length > 0 ? this.updateActiveLabel : this.t('update_all')).fontSize(13).fontWeight(FontWeight.Bold).fontColor(this.primaryText()).layoutWeight(1)
+                Text(this.updateProgressPercent + '%').fontSize(13).fontColor(this.secondaryText())
+              }.width('100%')
+              Progress({ value: this.updateProgressPercent, total: 100, type: ProgressType.Linear })
+                .width('100%').height(6).color(this.colorfulAccent('progress-catalog'))
+              Text(this.updateProgressText).fontSize(11).fontColor(this.secondaryText()).width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+            }.width('100%').padding({ left: 4, right: 4, top: 8, bottom: 4 })
           }
         }.width('100%')
       }

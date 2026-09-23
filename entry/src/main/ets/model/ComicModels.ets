@@ -88,6 +88,19 @@ export interface ReaderImageItem {
   status: string;
 }
 
+export interface ReaderImageCompleteEvent {
+  width: number;
+  height: number;
+  componentWidth: number;
+  componentHeight: number;
+  loadingStatus: number;
+}
+
+export interface ReaderChapterSpan {
+  title: string;
+  startIndex: number;
+}
+
 export interface ReadingHistoryItem {
   title: string;
   chapterTitle: string;
